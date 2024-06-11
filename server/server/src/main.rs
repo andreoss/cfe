@@ -7,7 +7,6 @@ mod backend;
 mod bookmark_repository;
 mod challenge;
 mod comment_repository;
-mod duckdb;
 mod enforcement_repository;
 mod feed;
 mod group_repository;
@@ -27,6 +26,7 @@ mod repository;
 mod search_repository;
 mod section_repository;
 mod session_repository;
+mod sqlite;
 mod tag_repository;
 mod topic_repository;
 mod version_repository;
@@ -54,7 +54,7 @@ async fn connect(url: &str) -> Arc<dyn Backend> {
     match Vendor::from_url(url) {
         Ok(Vendor::Postgres) => Arc::new(postgres::PostgresBackend::connect(url).await),
         Ok(Vendor::MySql) => Arc::new(mysql::MySqlBackend::connect(url).await),
-        Ok(Vendor::DuckDb) => Arc::new(duckdb::DuckDbBackend::connect(url).await),
+        Ok(Vendor::Sqlite) => Arc::new(sqlite::SqliteBackend::connect(url).await),
         Err(_) => panic!("DATABASE_URL must name a supported vendor"),
     }
 }
@@ -169,7 +169,7 @@ fn maintenance_interval() -> Option<std::time::Duration> {
 
 #[tokio::main]
 async fn main() {
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = chosen("DATABASE_URL").unwrap_or_else(|| "sqlite://forum.db".to_owned());
     let state = AppState {
         backend: connect(&database_url).await,
         mailer: mail::build(),

@@ -17,14 +17,15 @@ moderation, reputation, and abuse defence.
 
 Hexagonal: the domain is dependency-free, use cases speak to repository
 ports, and adapters implement those ports per storage vendor. The vendor
-is chosen at startup from the `DATABASE_URL` scheme: PostgreSQL
-(primary), MySQL, DuckDB. SQL is written per vendor; migrations apply on
-startup.
+is chosen at startup from the `DATABASE_URL` scheme: SQLite (default),
+PostgreSQL (primary), MySQL. SQL is written per vendor; migrations apply
+on startup.
 
 == Run
 
-. Point `DATABASE_URL` at a database -- `duckdb://forum.db` for a
-  single-process local run, or a PostgreSQL/MySQL URL.
+. Leave `DATABASE_URL` unset for a local run on SQLite (`forum.db` in
+  the working directory), or point it at a database -- `sqlite://forum.db`,
+  or a PostgreSQL/MySQL URL.
 . `cd server && cargo run -p server` -- binds to `BIND_ADDR`
   (default `127.0.0.1:8080`).
 . `cd web && npm run dev`.

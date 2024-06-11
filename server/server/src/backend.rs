@@ -38,7 +38,7 @@ pub trait Backend: Send + Sync {
 pub enum Vendor {
     Postgres,
     MySql,
-    DuckDb,
+    Sqlite,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -50,7 +50,7 @@ impl Vendor {
         match scheme {
             "postgres" | "postgresql" => Ok(Self::Postgres),
             "mysql" => Ok(Self::MySql),
-            "duckdb" => Ok(Self::DuckDb),
+            "sqlite" => Ok(Self::Sqlite),
             _ => Err(UnknownVendor),
         }
     }
@@ -59,7 +59,7 @@ impl Vendor {
         match self {
             Self::Postgres => "postgres",
             Self::MySql => "mysql",
-            Self::DuckDb => "duckdb",
+            Self::Sqlite => "sqlite",
         }
     }
 }
@@ -79,12 +79,11 @@ mod tests {
             Ok(Vendor::Postgres)
         );
         assert_eq!(Vendor::from_url("mysql://user@host/db"), Ok(Vendor::MySql));
-        assert_eq!(Vendor::from_url("duckdb://data.db"), Ok(Vendor::DuckDb));
+        assert_eq!(Vendor::from_url("sqlite://data.db"), Ok(Vendor::Sqlite));
     }
 
     #[test]
     fn refuses_an_unknown_scheme_rather_than_guessing() {
-        assert_eq!(Vendor::from_url("sqlite://data.db"), Err(UnknownVendor));
         assert_eq!(Vendor::from_url("http://host/db"), Err(UnknownVendor));
         assert_eq!(Vendor::from_url("data.db"), Err(UnknownVendor));
         assert_eq!(Vendor::from_url(""), Err(UnknownVendor));
@@ -94,6 +93,6 @@ mod tests {
     fn names_itself_for_logging() {
         assert_eq!(Vendor::Postgres.as_str(), "postgres");
         assert_eq!(Vendor::MySql.as_str(), "mysql");
-        assert_eq!(Vendor::DuckDb.as_str(), "duckdb");
+        assert_eq!(Vendor::Sqlite.as_str(), "sqlite");
     }
 }
