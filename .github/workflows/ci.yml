@@ -51,7 +51,7 @@ jobs:
       - name: Start the board
         working-directory: server
         run: |
-          (env BIND_ADDR=127.0.0.1:58080 DATABASE_URL=duckdb:///tmp/ci.db OPERATOR_USERNAME=admin OPERATOR_PASSWORD=admin ./target/debug/server > /tmp/server.log 2>&1 &)
+          (env BIND_ADDR=127.0.0.1:58080 DATABASE_URL=sqlite:///tmp/ci.db OPERATOR_USERNAME=admin OPERATOR_PASSWORD=admin ./target/debug/server > /tmp/server.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -s -o /dev/null http://127.0.0.1:58080/api/sections && exit 0 || sleep 1
           done

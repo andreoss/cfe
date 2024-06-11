@@ -51,7 +51,7 @@ run_vendor() {
   wait "$SERVER_PID" "$FRONT_PID" 2>/dev/null || true
 }
 
-run_vendor duckdb "duckdb://$WORK/forum.db"
+run_vendor sqlite "sqlite://$WORK/forum.db"
 
 if command -v initdb >/dev/null 2>&1 && command -v pg_ctl >/dev/null 2>&1; then
   initdb -D "$WORK/pgdata" -U postgres --auth=trust >"$WORK/pg-init.log" 2>&1

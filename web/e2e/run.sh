@@ -8,7 +8,7 @@ DB_PORT="${DB_PORT:-55432}"
 API_PORT="${API_PORT:-58080}"
 WEB_PORT="${WEB_PORT:-58081}"
 CONTAINER="tcbs-e2e-$VENDOR"
-DB_FILE="${DB_FILE:-/tmp/tcbs-e2e-duck.db}"
+DB_FILE="${DB_FILE:-/tmp/tcbs-e2e-sqlite.db}"
 MAIL_LOG="${MAIL_LOG:-/tmp/tcbs-e2e-mail.log}"
 rm -f "$MAIL_LOG"
 
@@ -46,9 +46,9 @@ case "$VENDOR" in
     done
     DATABASE_URL="mysql://root:dev@127.0.0.1:$DB_PORT/tcbs"
     ;;
-  duckdb)
+  sqlite)
     rm -f "$DB_FILE"
-    DATABASE_URL="duckdb://$DB_FILE"
+    DATABASE_URL="sqlite://$DB_FILE"
     ;;
   *)
     echo "unsupported vendor: $VENDOR" >&2
