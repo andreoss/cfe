@@ -1,15 +1,15 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{read_uuid, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{int_value, read_uuid, uuid_value};
 use app::SectionRepository;
 use domain::{PostScore, Section, SectionId, Slug, Title};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 
-pub struct DuckSectionRepository {
+pub struct SqliteSectionRepository {
     db: Db,
 }
 
-impl DuckSectionRepository {
+impl SqliteSectionRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -47,7 +47,7 @@ async fn load_sections(db: &Db, sql: String, params: Vec<Value>) -> Vec<Section>
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare sections");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(section_row(row))
                 })
                 .expect("query sections");
@@ -58,7 +58,7 @@ async fn load_sections(db: &Db, sql: String, params: Vec<Value>) -> Vec<Section>
 }
 
 #[async_trait::async_trait]
-impl SectionRepository for DuckSectionRepository {
+impl SectionRepository for SqliteSectionRepository {
     async fn save(&self, section: &Section) {
         self.db
             .execute(
@@ -67,7 +67,7 @@ impl SectionRepository for DuckSectionRepository {
                     uuid_value(section.id().as_uuid()),
                     Value::Text(section.slug().as_str().to_owned()),
                     Value::Text(section.title().as_str().to_owned()),
-                    Value::Int(section.topics_score().to_db()),
+                    int_value(section.topics_score().to_db()),
                 ],
             )
             .await;
@@ -79,7 +79,7 @@ impl SectionRepository for DuckSectionRepository {
                 "UPDATE sections SET title = ?, topics_score = ? WHERE id = ?",
                 vec![
                     Value::Text(section.title().as_str().to_owned()),
-                    Value::Int(section.topics_score().to_db()),
+                    int_value(section.topics_score().to_db()),
                     uuid_value(section.id().as_uuid()),
                 ],
             )

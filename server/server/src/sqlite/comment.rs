@@ -1,19 +1,19 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, opt_text, opt_time, opt_uuid, penalty_value, read_opt_time,
     read_opt_uuid, read_time, read_uuid, revision, time_to_value, uuid_value,
 };
 use app::CommentRepository;
 use domain::{Body, Comment, CommentId, Deletion, Page, Penalty, Reason, TopicId, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckCommentRepository {
+pub struct SqliteCommentRepository {
     db: Db,
 }
 
-impl DuckCommentRepository {
+impl SqliteCommentRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -82,7 +82,7 @@ async fn load_comments(db: &Db, sql: String, params: Vec<Value>) -> Vec<Comment>
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare comments");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(comment_row(row))
                 })
                 .expect("query comments");
@@ -93,7 +93,7 @@ async fn load_comments(db: &Db, sql: String, params: Vec<Value>) -> Vec<Comment>
 }
 
 #[async_trait::async_trait]
-impl CommentRepository for DuckCommentRepository {
+impl CommentRepository for SqliteCommentRepository {
     async fn save(&self, comment: &Comment) {
         let params = vec![
             uuid_value(comment.id().as_uuid()),

@@ -1,5 +1,5 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time,
     read_uuid, time_to_value, uuid_value,
 };
@@ -7,15 +7,15 @@ use app::ReportRepository;
 use domain::{
     CommentId, Page, Reason, Report, ReportId, ReportKind, ReportTarget, TopicId, UserId,
 };
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckReportRepository {
+pub struct SqliteReportRepository {
     db: Db,
 }
 
-impl DuckReportRepository {
+impl SqliteReportRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -73,7 +73,7 @@ async fn load_reports(db: &Db, sql: String, params: Vec<Value>) -> Vec<Report> {
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare reports");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(report_row(row))
                 })
                 .expect("query reports");
@@ -84,7 +84,7 @@ async fn load_reports(db: &Db, sql: String, params: Vec<Value>) -> Vec<Report> {
 }
 
 #[async_trait::async_trait]
-impl ReportRepository for DuckReportRepository {
+impl ReportRepository for SqliteReportRepository {
     async fn save(&self, report: &Report) {
         let params = vec![
             uuid_value(report.id().as_uuid()),

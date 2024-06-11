@@ -1,15 +1,15 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{read_time, read_uuid, time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{int_value, read_time, read_uuid, time_to_value, uuid_value};
 use app::PollRepository;
 use domain::{Poll, PollId, PollOption, PollOptionId, Question, TopicId, UserId, Vote};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckPollRepository {
+pub struct SqlitePollRepository {
     db: Db,
 }
 
-impl DuckPollRepository {
+impl SqlitePollRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -23,7 +23,7 @@ struct PollRow {
 }
 
 #[async_trait::async_trait]
-impl PollRepository for DuckPollRepository {
+impl PollRepository for SqlitePollRepository {
     async fn save(&self, poll: &Poll) {
         let params = vec![
             uuid_value(poll.id().as_uuid()),
@@ -42,7 +42,7 @@ impl PollRepository for DuckPollRepository {
                 uuid_value(option.id().as_uuid()),
                 uuid_value(poll.id().as_uuid()),
                 Value::Text(option.text().as_str().to_owned()),
-                Value::Int(position as i32),
+                int_value(position as i32),
             ];
             self.db
                 .execute(
@@ -169,7 +169,7 @@ impl PollRepository for DuckPollRepository {
                     .prepare("SELECT option_id FROM poll_votes WHERE poll_id = ? AND user_id = ?")
                     .expect("prepare own vote");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(read_uuid(row, 0))
                     })
                     .expect("query own vote");

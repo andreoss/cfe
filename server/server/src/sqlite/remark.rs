@@ -1,18 +1,18 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, read_time, read_uuid, time_to_value, uuid_value,
 };
 use app::RemarkRepository;
 use domain::{Page, Remark, RemarkText, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckRemarkRepository {
+pub struct SqliteRemarkRepository {
     db: Db,
 }
 
-impl DuckRemarkRepository {
+impl SqliteRemarkRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -50,7 +50,7 @@ async fn load_remarks(db: &Db, sql: &'static str, params: Vec<Value>) -> Vec<Rem
         .call(move |conn| {
             let mut stmt = conn.prepare(sql).expect("prepare remarks");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(remark_row(row))
                 })
                 .expect("query remarks");
@@ -61,7 +61,7 @@ async fn load_remarks(db: &Db, sql: &'static str, params: Vec<Value>) -> Vec<Rem
 }
 
 #[async_trait::async_trait]
-impl RemarkRepository for DuckRemarkRepository {
+impl RemarkRepository for SqliteRemarkRepository {
     async fn save(&self, remark: &Remark) {
         let params = vec![
             uuid_value(remark.author_id().as_uuid()),

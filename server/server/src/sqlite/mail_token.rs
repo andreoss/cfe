@@ -1,18 +1,18 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     opt_text, opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
 };
 use app::MailTokenRepository;
 use domain::{MailToken, MailTokenId, TokenPurpose, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckMailTokenRepository {
+pub struct SqliteMailTokenRepository {
     db: Db,
 }
 
-impl DuckMailTokenRepository {
+impl SqliteMailTokenRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -59,7 +59,7 @@ async fn load_tokens(db: &Db, sql: String, params: Vec<Value>) -> Vec<MailToken>
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare mail tokens");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(mail_token_row(row))
                 })
                 .expect("query mail tokens");
@@ -70,7 +70,7 @@ async fn load_tokens(db: &Db, sql: String, params: Vec<Value>) -> Vec<MailToken>
 }
 
 #[async_trait::async_trait]
-impl MailTokenRepository for DuckMailTokenRepository {
+impl MailTokenRepository for SqliteMailTokenRepository {
     async fn save(&self, token: &MailToken) {
         let params = vec![
             uuid_value(token.id().as_uuid()),

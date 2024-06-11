@@ -1,15 +1,15 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{read_uuid, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{read_uuid, uuid_value};
 use app::GroupRepository;
 use domain::{Group, GroupId, SectionId, Slug, Title};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 
-pub struct DuckGroupRepository {
+pub struct SqliteGroupRepository {
     db: Db,
 }
 
-impl DuckGroupRepository {
+impl SqliteGroupRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -47,7 +47,7 @@ async fn load_groups(db: &Db, sql: String, params: Vec<Value>) -> Vec<Group> {
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare groups");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(group_row(row))
                 })
                 .expect("query groups");
@@ -58,7 +58,7 @@ async fn load_groups(db: &Db, sql: String, params: Vec<Value>) -> Vec<Group> {
 }
 
 #[async_trait::async_trait]
-impl GroupRepository for DuckGroupRepository {
+impl GroupRepository for SqliteGroupRepository {
     async fn save(&self, group: &Group) {
         self.db
             .execute(

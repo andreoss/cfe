@@ -1,16 +1,16 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{read_time, read_uuid, time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{read_time, read_uuid, time_to_value, uuid_value};
 use app::SessionRepository;
 use domain::{Session, SessionId, SessionToken, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckSessionRepository {
+pub struct SqliteSessionRepository {
     db: Db,
 }
 
-impl DuckSessionRepository {
+impl SqliteSessionRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -48,7 +48,7 @@ async fn load_sessions(db: &Db, sql: String, params: Vec<Value>) -> Vec<Session>
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare sessions");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(session_row(row))
                 })
                 .expect("query sessions");
@@ -59,7 +59,7 @@ async fn load_sessions(db: &Db, sql: String, params: Vec<Value>) -> Vec<Session>
 }
 
 #[async_trait::async_trait]
-impl SessionRepository for DuckSessionRepository {
+impl SessionRepository for SqliteSessionRepository {
     async fn save(&self, session: &Session) {
         let params = vec![
             uuid_value(session.id().as_uuid()),

@@ -1,22 +1,22 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{time_to_value, uuid_value};
 use app::AvatarRepository;
 use domain::{Avatar, ImageFormat, UserId};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckAvatarRepository {
+pub struct SqliteAvatarRepository {
     db: Db,
 }
 
-impl DuckAvatarRepository {
+impl SqliteAvatarRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
 #[async_trait::async_trait]
-impl AvatarRepository for DuckAvatarRepository {
+impl AvatarRepository for SqliteAvatarRepository {
     async fn save(&self, user_id: UserId, avatar: &Avatar) {
         let params = vec![
             uuid_value(user_id.as_uuid()),

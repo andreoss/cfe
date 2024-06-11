@@ -1,5 +1,5 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, opt_text, opt_time, opt_uuid, read_opt_time, read_opt_uuid,
     read_time, read_uuid, time_to_value, uuid_value,
 };
@@ -8,14 +8,14 @@ use domain::{
     Address, AddressBlock, AddressPost, BlockMode, ClientString, CommentId, Page, PostRef, TopicId,
     UserId,
 };
-use duckdb::types::Value;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckAbuseRepository {
+pub struct SqliteAbuseRepository {
     db: Db,
 }
 
-impl DuckAbuseRepository {
+impl SqliteAbuseRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -49,7 +49,7 @@ struct TargetRow {
 }
 
 #[async_trait::async_trait]
-impl AbuseRepository for DuckAbuseRepository {
+impl AbuseRepository for SqliteAbuseRepository {
     async fn find_address_block(&self, addr: &Address) -> Option<AddressBlock> {
         let subject = addr.as_str().to_owned();
         let rows: Vec<BlockRow> = self
@@ -260,7 +260,7 @@ impl AbuseRepository for DuckAbuseRepository {
                     )
                     .expect("prepare address refs");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(TargetRow {
                             topic_id: read_opt_uuid(row, 0),
                             comment_id: read_opt_uuid(row, 1),
@@ -365,7 +365,7 @@ impl AbuseRepository for DuckAbuseRepository {
                     )
                     .expect("prepare address posts");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(PostRow {
                             user_id: read_uuid(row, 0),
                             client: row.get(1).expect("read client"),
@@ -403,15 +403,15 @@ mod tests {
     use super::*;
     use domain::Reason;
 
-    const SCHEMA: &str = include_str!("../../migrations_duckdb/0001_schema.sql");
+    const SCHEMA: &str = include_str!("../../migrations_sqlite/0001_schema.sql");
 
-    async fn repository() -> DuckAbuseRepository {
+    async fn repository() -> SqliteAbuseRepository {
         let db = Db::open(":memory:");
         db.call(|conn| {
             conn.execute_batch(SCHEMA).expect("run schema");
         })
         .await;
-        DuckAbuseRepository::new(db)
+        SqliteAbuseRepository::new(db)
     }
 
     fn block(mode: BlockMode) -> AddressBlock {

@@ -1,19 +1,19 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time,
     read_uuid, time_to_value, uuid_value,
 };
 use app::InvitationRepository;
 use domain::{Invitation, InvitationCode, InvitationId, Page, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckInvitationRepository {
+pub struct SqliteInvitationRepository {
     db: Db,
 }
 
-impl DuckInvitationRepository {
+impl SqliteInvitationRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -62,7 +62,7 @@ async fn load_invitations(db: &Db, sql: String, params: Vec<Value>) -> Vec<Invit
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare invitations");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(invitation_row(row))
                 })
                 .expect("query invitations");
@@ -73,7 +73,7 @@ async fn load_invitations(db: &Db, sql: String, params: Vec<Value>) -> Vec<Invit
 }
 
 #[async_trait::async_trait]
-impl InvitationRepository for DuckInvitationRepository {
+impl InvitationRepository for SqliteInvitationRepository {
     async fn save(&self, invitation: &Invitation) {
         let params = vec![
             uuid_value(invitation.id().as_uuid()),
@@ -105,7 +105,7 @@ impl InvitationRepository for DuckInvitationRepository {
             .call(move |conn| {
                 conn.execute(
                     "UPDATE invitations SET spent_at = ? WHERE id = ? AND spent_at IS NULL",
-                    duckdb::params_from_iter(params.iter()),
+                    rusqlite::params_from_iter(params.iter()),
                 )
                 .expect("claim invitation")
             })

@@ -1,19 +1,19 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, offset_value, opt_time, read_opt_time, read_time, read_uuid, time_to_value,
     uuid_value,
 };
 use app::NotificationRepository;
 use domain::{CommentId, Notification, NotificationId, NotificationKind, Page, TopicId, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckNotificationRepository {
+pub struct SqliteNotificationRepository {
     db: Db,
 }
 
-impl DuckNotificationRepository {
+impl SqliteNotificationRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -64,7 +64,7 @@ async fn load_notifications(db: &Db, sql: String, params: Vec<Value>) -> Vec<Not
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare notifications");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(notification_row(row))
                 })
                 .expect("query notifications");
@@ -75,7 +75,7 @@ async fn load_notifications(db: &Db, sql: String, params: Vec<Value>) -> Vec<Not
 }
 
 #[async_trait::async_trait]
-impl NotificationRepository for DuckNotificationRepository {
+impl NotificationRepository for SqliteNotificationRepository {
     async fn save(&self, notification: &Notification) {
         let params = vec![
             uuid_value(notification.id().as_uuid()),

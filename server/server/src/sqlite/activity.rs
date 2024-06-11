@@ -1,23 +1,23 @@
-use crate::duckdb::comment::{COMMENT_COLUMNS, CommentRow, comment_row, to_comment};
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic, topic_row};
+use crate::sqlite::comment::{COMMENT_COLUMNS, CommentRow, comment_row, to_comment};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic, topic_row};
 use app::ActivityRepository;
 use domain::ContentItem;
-use duckdb::types::Value;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckActivityRepository {
+pub struct SqliteActivityRepository {
     db: Db,
 }
 
-impl DuckActivityRepository {
+impl SqliteActivityRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
 #[async_trait::async_trait]
-impl ActivityRepository for DuckActivityRepository {
+impl ActivityRepository for SqliteActivityRepository {
     async fn recent(&self, limit: u32) -> Vec<ContentItem> {
         let bound = limit as i64;
         let topic_sql = format!(
@@ -29,7 +29,7 @@ impl ActivityRepository for DuckActivityRepository {
             .call(move |conn| {
                 let mut stmt = conn.prepare(&topic_sql).expect("prepare recent topics");
                 let mapped = stmt
-                    .query_map([Value::BigInt(bound)], |row| Ok(topic_row(row)))
+                    .query_map([Value::Integer(bound)], |row| Ok(topic_row(row)))
                     .expect("query recent topics");
                 mapped.map(|r| r.expect("read topic")).collect()
             })
@@ -44,7 +44,7 @@ impl ActivityRepository for DuckActivityRepository {
             .call(move |conn| {
                 let mut stmt = conn.prepare(&comment_sql).expect("prepare recent comments");
                 let mapped = stmt
-                    .query_map([Value::BigInt(bound)], |row| Ok(comment_row(row)))
+                    .query_map([Value::Integer(bound)], |row| Ok(comment_row(row)))
                     .expect("query recent comments");
                 mapped.map(|r| r.expect("read comment")).collect()
             })

@@ -1,18 +1,18 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
-    opt_text, opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
+    int_value, opt_text, opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
 };
 use app::UserRepository;
 use domain::{Bio, Email, Role, Score, User, UserId, Username};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckUserRepository {
+pub struct SqliteUserRepository {
     db: Db,
 }
 
-impl DuckUserRepository {
+impl SqliteUserRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -81,7 +81,7 @@ async fn load_users(db: &Db, sql: String, params: Vec<Value>) -> Vec<User> {
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare users");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(user_row(row))
                 })
                 .expect("query users");
@@ -96,7 +96,7 @@ async fn find_user(db: &Db, sql: String, params: Vec<Value>) -> Option<User> {
 }
 
 #[async_trait::async_trait]
-impl UserRepository for DuckUserRepository {
+impl UserRepository for SqliteUserRepository {
     async fn find_by_username(&self, username: &Username) -> Option<User> {
         find_user(
             &self.db,
@@ -131,7 +131,7 @@ impl UserRepository for DuckUserRepository {
             Value::Text(user.email().as_str().to_owned()),
             Value::Text(user.password_hash().to_owned()),
             Value::Text(role_to_str(user.role()).to_owned()),
-            Value::Int(user.score().value()),
+            int_value(user.score().value()),
         ];
         self.db
             .execute(
@@ -151,7 +151,7 @@ impl UserRepository for DuckUserRepository {
             Value::Text(role_to_str(user.role()).to_owned()),
             opt_time(user.deregistered_at()),
             opt_time(user.confirmed_at()),
-            Value::Int(user.score().value()),
+            int_value(user.score().value()),
             uuid_value(user.id().as_uuid()),
         ];
         self.db
@@ -178,7 +178,7 @@ impl UserRepository for DuckUserRepository {
         load_users(
             &self.db,
             format!("SELECT {USER_COLUMNS} FROM users WHERE score <= ?"),
-            vec![Value::Int(score)],
+            vec![int_value(score)],
         )
         .await
     }

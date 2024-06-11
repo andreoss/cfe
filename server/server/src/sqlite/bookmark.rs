@@ -1,23 +1,23 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, load_topics, offset_value, tagged_columns, time_to_value, uuid_value,
 };
 use app::BookmarkRepository;
 use domain::{Bookmark, Page, Topic, TopicId, UserId};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 
-pub struct DuckBookmarkRepository {
+pub struct SqliteBookmarkRepository {
     db: Db,
 }
 
-impl DuckBookmarkRepository {
+impl SqliteBookmarkRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
 #[async_trait::async_trait]
-impl BookmarkRepository for DuckBookmarkRepository {
+impl BookmarkRepository for SqliteBookmarkRepository {
     async fn save(&self, bookmark: &Bookmark) {
         let params = vec![
             uuid_value(bookmark.user_id().as_uuid()),
@@ -55,7 +55,7 @@ impl BookmarkRepository for DuckBookmarkRepository {
             .call(move |conn| {
                 conn.query_row(
                     "SELECT COUNT(*) FROM bookmarks WHERE user_id = ? AND topic_id = ?",
-                    duckdb::params_from_iter(params.iter()),
+                    rusqlite::params_from_iter(params.iter()),
                     |row| row.get(0),
                 )
                 .expect("count bookmark")

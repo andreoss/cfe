@@ -1,18 +1,18 @@
-use crate::duckdb::conn::Db;
+use crate::sqlite::conn::Db;
 use app::TopicRepository;
 use domain::{
     Body, Deletion, GroupId, Page, Penalty, PostScore, Reason, Revision, SectionId, Slug, TagSet,
     Title, Topic, TopicId, UserId,
 };
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckTopicRepository {
+pub struct SqliteTopicRepository {
     db: Db,
 }
 
-impl DuckTopicRepository {
+impl SqliteTopicRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -48,10 +48,15 @@ pub fn micros_to_time(micros: i64) -> OffsetDateTime {
 }
 
 pub fn time_to_value(at: OffsetDateTime) -> Value {
-    Value::Timestamp(
-        duckdb::types::TimeUnit::Microsecond,
-        (at.unix_timestamp_nanos() / 1_000) as i64,
-    )
+    Value::Integer((at.unix_timestamp_nanos() / 1_000) as i64)
+}
+
+pub fn bool_value(flag: bool) -> Value {
+    Value::Integer(if flag { 1 } else { 0 })
+}
+
+pub fn int_value(number: i32) -> Value {
+    Value::Integer(number as i64)
 }
 
 pub fn opt_time(at: Option<OffsetDateTime>) -> Value {
@@ -73,17 +78,17 @@ pub fn opt_uuid(id: Option<uuid::Uuid>) -> Value {
 }
 
 pub fn limit_value(page: Page) -> Value {
-    Value::BigInt(page.limit() as i64)
+    Value::Integer(page.limit() as i64)
 }
 
 pub fn offset_value(page: Page) -> Value {
-    Value::BigInt(page.offset() as i64)
+    Value::Integer(page.offset() as i64)
 }
 
 pub async fn count(db: &Db, sql: &'static str, params: Vec<Value>) -> u64 {
     let total: i64 = db
         .call(move |conn| {
-            conn.query_row(sql, duckdb::params_from_iter(params.iter()), |row| {
+            conn.query_row(sql, rusqlite::params_from_iter(params.iter()), |row| {
                 row.get(0)
             })
             .expect("count rows")
@@ -182,7 +187,7 @@ pub fn is_minor(topic: &Topic) -> bool {
 }
 
 pub fn penalty_value(deletion: Option<&Deletion>) -> Value {
-    Value::Int(deletion.map(|d| d.penalty()).unwrap_or_default().value())
+    int_value(deletion.map(|d| d.penalty()).unwrap_or_default().value())
 }
 
 pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
@@ -245,7 +250,7 @@ async fn replace_tags(db: &Db, topic: &Topic) {
         for (position, tag) in tags.iter().enumerate() {
             conn.execute(
                 "INSERT INTO topic_tags (topic_id, tag, position) VALUES (?, ?, ?)",
-                duckdb::params![uuid_value(id), tag.clone(), position as i32],
+                rusqlite::params![uuid_value(id), tag.clone(), position as i32],
             )
             .expect("insert tag");
         }
@@ -258,7 +263,7 @@ pub async fn load_topics(db: &Db, sql: String, params: Vec<Value>) -> Vec<Topic>
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare topics");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(topic_row(row))
                 })
                 .expect("query topics");
@@ -274,7 +279,7 @@ pub async fn load_topics(db: &Db, sql: String, params: Vec<Value>) -> Vec<Topic>
 }
 
 #[async_trait::async_trait]
-impl TopicRepository for DuckTopicRepository {
+impl TopicRepository for SqliteTopicRepository {
     async fn all_for_archive(&self) -> Vec<Topic> {
         load_topics(
             &self.db,
@@ -331,12 +336,12 @@ impl TopicRepository for DuckTopicRepository {
             Value::Text(topic.body().as_str().to_owned()),
             time_to_value(topic.created_at()),
             opt_uuid(topic.group_id().map(|g| g.as_uuid())),
-            Value::Boolean(topic.is_pending()),
-            Value::Boolean(topic.is_draft()),
-            Value::Boolean(topic.is_sticky()),
-            Value::Boolean(topic.is_off_front()),
-            Value::Boolean(topic.is_resolved()),
-            Value::Boolean(is_minor(topic)),
+            bool_value(topic.is_pending()),
+            bool_value(topic.is_draft()),
+            bool_value(topic.is_sticky()),
+            bool_value(topic.is_off_front()),
+            bool_value(topic.is_resolved()),
+            bool_value(is_minor(topic)),
             penalty_value(topic.deletion()),
         ];
         self.db
@@ -355,19 +360,19 @@ impl TopicRepository for DuckTopicRepository {
         let params = vec![
             Value::Text(topic.title().as_str().to_owned()),
             Value::Text(topic.body().as_str().to_owned()),
-            Value::BigInt(topic.postscore().to_db() as i64),
+            Value::Integer(topic.postscore().to_db() as i64),
             opt_text(topic.deletion().map(|d| d.reason().as_str())),
             opt_uuid(topic.deletion().map(|d| d.moderator_id().as_uuid())),
             opt_time(topic.deletion().map(|d| d.deleted_at())),
             opt_uuid(topic.revision().map(|r| r.editor_id().as_uuid())),
             opt_time(topic.revision().map(|r| r.edited_at())),
             opt_uuid(topic.group_id().map(|g| g.as_uuid())),
-            Value::Boolean(topic.is_pending()),
-            Value::Boolean(topic.is_draft()),
-            Value::Boolean(topic.is_sticky()),
-            Value::Boolean(topic.is_off_front()),
-            Value::Boolean(topic.is_resolved()),
-            Value::Boolean(is_minor(topic)),
+            bool_value(topic.is_pending()),
+            bool_value(topic.is_draft()),
+            bool_value(topic.is_sticky()),
+            bool_value(topic.is_off_front()),
+            bool_value(topic.is_resolved()),
+            bool_value(is_minor(topic)),
             penalty_value(topic.deletion()),
             uuid_value(topic.id().as_uuid()),
         ];

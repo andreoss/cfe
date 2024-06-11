@@ -24,4 +24,4 @@ mod user;
 mod version;
 mod watch;
 
-pub use backend::DuckDbBackend;
+pub use backend::SqliteBackend;

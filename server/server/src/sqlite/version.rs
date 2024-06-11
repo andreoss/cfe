@@ -1,16 +1,16 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{opt_text, read_time, read_uuid, time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{opt_text, read_time, read_uuid, time_to_value, uuid_value};
 use app::VersionRepository;
 use domain::{Body, Title, UserId, Version, VersionId, VersionOf};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckVersionRepository {
+pub struct SqliteVersionRepository {
     db: Db,
 }
 
-impl DuckVersionRepository {
+impl SqliteVersionRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -61,7 +61,7 @@ async fn load_versions(db: &Db, sql: &'static str, params: Vec<Value>) -> Vec<Ve
         .call(move |conn| {
             let mut stmt = conn.prepare(sql).expect("prepare versions");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(version_row(row))
                 })
                 .expect("query versions");
@@ -72,7 +72,7 @@ async fn load_versions(db: &Db, sql: &'static str, params: Vec<Value>) -> Vec<Ve
 }
 
 #[async_trait::async_trait]
-impl VersionRepository for DuckVersionRepository {
+impl VersionRepository for SqliteVersionRepository {
     async fn save(&self, version: &Version) {
         let params = vec![
             uuid_value(version.id().as_uuid()),

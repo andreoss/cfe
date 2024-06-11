@@ -1,4 +1,4 @@
-use duckdb::Connection;
+use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -32,9 +32,9 @@ impl Db {
         .expect("database task")
     }
 
-    pub async fn execute(&self, sql: &'static str, params: Vec<duckdb::types::Value>) {
+    pub async fn execute(&self, sql: &'static str, params: Vec<rusqlite::types::Value>) {
         self.call(move |conn| {
-            conn.execute(sql, duckdb::params_from_iter(params.iter()))
+            conn.execute(sql, rusqlite::params_from_iter(params.iter()))
                 .expect("execute statement");
         })
         .await
@@ -42,7 +42,7 @@ impl Db {
 }
 
 pub fn path_from_url(url: &str) -> String {
-    url.strip_prefix("duckdb://").unwrap_or(url).to_owned()
+    url.strip_prefix("sqlite://").unwrap_or(url).to_owned()
 }
 
 #[cfg(test)]
@@ -51,9 +51,9 @@ mod tests {
 
     #[test]
     fn strips_the_scheme_to_get_a_path() {
-        assert_eq!(path_from_url("duckdb://forum.db"), "forum.db");
-        assert_eq!(path_from_url("duckdb:///tmp/forum.db"), "/tmp/forum.db");
-        assert_eq!(path_from_url("duckdb://:memory:"), ":memory:");
+        assert_eq!(path_from_url("sqlite://forum.db"), "forum.db");
+        assert_eq!(path_from_url("sqlite:///tmp/forum.db"), "/tmp/forum.db");
+        assert_eq!(path_from_url("sqlite://:memory:"), ":memory:");
     }
 
     #[tokio::test]

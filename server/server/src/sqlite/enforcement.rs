@@ -1,18 +1,18 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
-    opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time, read_uuid, time_to_value,
-    uuid_value,
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
+    bool_value, opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time, read_uuid,
+    time_to_value, uuid_value,
 };
 use app::EnforcementRepository;
 use domain::{Ban, Reason, UserId, Warning, WarningId};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckEnforcementRepository {
+pub struct SqliteEnforcementRepository {
     db: Db,
 }
 
-impl DuckEnforcementRepository {
+impl SqliteEnforcementRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -43,7 +43,7 @@ struct WarningRow {
 }
 
 #[async_trait::async_trait]
-impl EnforcementRepository for DuckEnforcementRepository {
+impl EnforcementRepository for SqliteEnforcementRepository {
     async fn save_ban(&self, user_id: UserId, ban: &Ban) {
         let params = vec![
             uuid_value(user_id.as_uuid()),
@@ -113,7 +113,7 @@ impl EnforcementRepository for DuckEnforcementRepository {
             uuid_value(warning.moderator_id().as_uuid()),
             Value::Text(warning.reason().as_str().to_owned()),
             time_to_value(warning.created_at()),
-            Value::Boolean(warning.is_acknowledged()),
+            bool_value(warning.is_acknowledged()),
         ];
         self.db
             .execute(

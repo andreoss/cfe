@@ -1,15 +1,15 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{count, opt_text, read_uuid, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{count, opt_text, read_uuid, uuid_value};
 use app::TagRepository;
 use domain::{Slug, Tag, TagDescription, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 
-pub struct DuckTagRepository {
+pub struct SqliteTagRepository {
     db: Db,
 }
 
-impl DuckTagRepository {
+impl SqliteTagRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -49,7 +49,7 @@ async fn load_tags(db: &Db, sql: String, params: Vec<Value>) -> Vec<Tag> {
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare tags");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(tag_row(row))
                 })
                 .expect("query tags");
@@ -60,7 +60,7 @@ async fn load_tags(db: &Db, sql: String, params: Vec<Value>) -> Vec<Tag> {
 }
 
 #[async_trait::async_trait]
-impl TagRepository for DuckTagRepository {
+impl TagRepository for SqliteTagRepository {
     async fn save(&self, tag: &Tag) {
         let params = vec![
             Value::Text(tag.slug().as_str().to_owned()),
@@ -144,7 +144,7 @@ impl TagRepository for DuckTagRepository {
                     .prepare("SELECT slug FROM tag_follows WHERE user_id = ? ORDER BY slug")
                     .expect("prepare followed tags");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| row.get(0))
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| row.get(0))
                     .expect("query followed tags");
                 mapped.map(|r| r.expect("read followed tag")).collect()
             })
@@ -163,7 +163,7 @@ impl TagRepository for DuckTagRepository {
                     .prepare("SELECT user_id FROM tag_follows WHERE slug = ? ORDER BY user_id")
                     .expect("prepare tag followers");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(UserId::new(read_uuid(row, 0)))
                     })
                     .expect("query tag followers");

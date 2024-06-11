@@ -1,24 +1,24 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{
     count, limit_value, load_topics, offset_value, read_time, read_uuid, tagged_columns,
     time_to_value, uuid_value,
 };
 use app::WatchRepository;
 use domain::{Page, Topic, TopicId, UserId, Watch};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 
-pub struct DuckWatchRepository {
+pub struct SqliteWatchRepository {
     db: Db,
 }
 
-impl DuckWatchRepository {
+impl SqliteWatchRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
 #[async_trait::async_trait]
-impl WatchRepository for DuckWatchRepository {
+impl WatchRepository for SqliteWatchRepository {
     async fn save(&self, watch: &Watch) {
         let params = vec![
             uuid_value(watch.user_id().as_uuid()),
@@ -61,7 +61,7 @@ impl WatchRepository for DuckWatchRepository {
                     )
                     .expect("prepare watch");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(Watch::new(
                             UserId::new(read_uuid(row, 0)),
                             TopicId::new(read_uuid(row, 1)),
@@ -83,7 +83,7 @@ impl WatchRepository for DuckWatchRepository {
                     .prepare("SELECT user_id FROM watches WHERE topic_id = ? ORDER BY created_at")
                     .expect("prepare watchers");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok(UserId::new(read_uuid(row, 0)))
                     })
                     .expect("query watchers");

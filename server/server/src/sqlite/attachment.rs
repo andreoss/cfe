@@ -1,16 +1,16 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{count, read_time, read_uuid, time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{count, read_time, read_uuid, time_to_value, uuid_value};
 use app::AttachmentRepository;
 use domain::{Attachment, AttachmentId, ImageFormat, TopicId, UserId};
-use duckdb::Row;
-use duckdb::types::Value;
+use rusqlite::Row;
+use rusqlite::types::Value;
 use time::OffsetDateTime;
 
-pub struct DuckAttachmentRepository {
+pub struct SqliteAttachmentRepository {
     db: Db,
 }
 
-impl DuckAttachmentRepository {
+impl SqliteAttachmentRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -55,7 +55,7 @@ async fn load_attachments(db: &Db, sql: String, params: Vec<Value>) -> Vec<Attac
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare attachments");
             let mapped = stmt
-                .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     Ok(attachment_row(row))
                 })
                 .expect("query attachments");
@@ -66,7 +66,7 @@ async fn load_attachments(db: &Db, sql: String, params: Vec<Value>) -> Vec<Attac
 }
 
 #[async_trait::async_trait]
-impl AttachmentRepository for DuckAttachmentRepository {
+impl AttachmentRepository for SqliteAttachmentRepository {
     async fn save(&self, attachment: &Attachment) {
         let params = vec![
             uuid_value(attachment.id().as_uuid()),

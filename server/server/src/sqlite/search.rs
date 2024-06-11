@@ -1,15 +1,15 @@
-use crate::duckdb::comment::{COMMENT_COLUMNS, CommentRow, comment_row, to_comment};
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic, topic_row};
+use crate::sqlite::comment::{COMMENT_COLUMNS, CommentRow, comment_row, to_comment};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic, topic_row};
 use app::SearchRepository;
 use domain::{ContentItem, Criteria, Order};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 
-pub struct DuckSearchRepository {
+pub struct SqliteSearchRepository {
     db: Db,
 }
 
-impl DuckSearchRepository {
+impl SqliteSearchRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -51,7 +51,7 @@ fn arrange(order: Order, mut ranked: Vec<(i32, ContentItem)>) -> Vec<ContentItem
 const TOPIC_RANK: &str = "CASE WHEN lower(title) LIKE ? ESCAPE '\\' THEN 2 ELSE 1 END";
 
 #[async_trait::async_trait]
-impl SearchRepository for DuckSearchRepository {
+impl SearchRepository for SqliteSearchRepository {
     async fn search(&self, criteria: &Criteria) -> Vec<ContentItem> {
         let pattern = like_pattern(criteria.query().as_str());
         let order = criteria.order();
@@ -61,7 +61,7 @@ impl SearchRepository for DuckSearchRepository {
                 Value::Text(pattern.clone()),
                 Value::Text(pattern.clone()),
                 Value::Text(pattern.clone()),
-                Value::BigInt(LIMIT),
+                Value::Integer(LIMIT),
             ];
             self.db
                 .call(move |conn| {
@@ -75,7 +75,7 @@ impl SearchRepository for DuckSearchRepository {
                         ))
                         .expect("prepare search topics");
                     let mapped = stmt
-                        .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                        .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                             let rank: i32 = row.get("rank").expect("read rank");
                             Ok((rank, topic_row(row)))
                         })
@@ -92,7 +92,7 @@ impl SearchRepository for DuckSearchRepository {
                 Order::Oldest => "created_at ASC",
                 _ => "created_at DESC",
             };
-            let params = vec![Value::Text(pattern), Value::BigInt(LIMIT)];
+            let params = vec![Value::Text(pattern), Value::Integer(LIMIT)];
             self.db
                 .call(move |conn| {
                     let mut stmt = conn
@@ -102,7 +102,7 @@ impl SearchRepository for DuckSearchRepository {
                         ))
                         .expect("prepare search comments");
                     let mapped = stmt
-                        .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                        .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                             Ok(comment_row(row))
                         })
                         .expect("query search comments");

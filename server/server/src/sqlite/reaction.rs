@@ -1,21 +1,21 @@
-use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{time_to_value, uuid_value};
+use crate::sqlite::conn::Db;
+use crate::sqlite::topic::{time_to_value, uuid_value};
 use app::ReactionRepository;
 use domain::{Reaction, ReactionKind, ReactionTarget, UserId};
-use duckdb::types::Value;
+use rusqlite::types::Value;
 
-pub struct DuckReactionRepository {
+pub struct SqliteReactionRepository {
     db: Db,
 }
 
-impl DuckReactionRepository {
+impl SqliteReactionRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
 #[async_trait::async_trait]
-impl ReactionRepository for DuckReactionRepository {
+impl ReactionRepository for SqliteReactionRepository {
     async fn save(&self, reaction: &Reaction) {
         let params = vec![
             uuid_value(reaction.user_id().as_uuid()),
@@ -64,7 +64,7 @@ impl ReactionRepository for DuckReactionRepository {
                     )
                     .expect("prepare counts");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         Ok((
                             row.get::<_, String>(0).expect("read kind"),
                             row.get::<_, i64>(1).expect("read total"),
@@ -99,7 +99,7 @@ impl ReactionRepository for DuckReactionRepository {
                     )
                     .expect("prepare own reaction");
                 let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                    .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                         row.get::<_, String>(0)
                     })
                     .expect("query own reaction");
