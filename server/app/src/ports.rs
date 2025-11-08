@@ -7,6 +7,7 @@ pub trait UserRepository {
     async fn find_by_email(&self, email: &Email) -> Option<User>;
     async fn find_by_id(&self, id: UserId) -> Option<User>;
     async fn save(&self, user: &User);
+    async fn update(&self, user: &User);
 }
 
 pub trait PasswordHasher {

@@ -55,6 +55,13 @@ impl UserRepository for FakeUserRepo {
     async fn save(&self, user: &User) {
         self.users.lock().unwrap().push(user.clone());
     }
+
+    async fn update(&self, user: &User) {
+        let mut users = self.users.lock().unwrap();
+        if let Some(existing) = users.iter_mut().find(|u| u.id() == user.id()) {
+            *existing = user.clone();
+        }
+    }
 }
 
 pub struct FakeHasher;
