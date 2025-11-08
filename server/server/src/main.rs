@@ -1,12 +1,15 @@
+mod auth;
 mod handlers;
 mod hasher;
 mod repository;
+mod session_repository;
 
 use axum::Router;
-use axum::routing::post;
-use handlers::{AppState, register_handler, sign_in_handler};
+use axum::http::{Method, header};
+use axum::routing::{get, post};
+use handlers::{AppState, register_handler, sign_in_handler, sign_out_handler};
 use sqlx::postgres::PgPoolOptions;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 #[tokio::main]
 async fn main() {
@@ -22,12 +25,15 @@ async fn main() {
         .expect("run migrations");
     let state = AppState { pool };
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE])
+        .allow_credentials(true);
     let app = Router::new()
         .route("/api/register", post(register_handler))
         .route("/api/sign-in", post(sign_in_handler))
+        .route("/api/sign-out", post(sign_out_handler))
+        .route("/api/me", get(handlers::me_handler))
         .with_state(state)
         .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());

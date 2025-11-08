@@ -53,6 +53,17 @@ impl UserRepository for PgUserRepository {
         .map(to_user)
     }
 
+    async fn find_by_id(&self, id: UserId) -> Option<User> {
+        sqlx::query_as::<_, Row>(
+            "SELECT id, username, email, password_hash FROM users WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .expect("query find_by_id")
+        .map(to_user)
+    }
+
     async fn save(&self, user: &User) {
         sqlx::query(
             "INSERT INTO users (id, username, email, password_hash) VALUES ($1, $2, $3, $4)",
