@@ -3,14 +3,14 @@ use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
 use crate::session_repository::PgSessionRepository;
 use app::{
-    RegisterError, SessionRepository, SignInError, create_session, register, sign_in,
-    sign_out as end_session,
+    RegisterError, SessionRepository, SignInError, UpdateBioError, UserRepository, create_session,
+    register, sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use domain::{Email, Session, SessionId, SessionToken, UserId, Username};
+use domain::{Bio, Email, Session, SessionId, SessionToken, UserId, Username};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
@@ -44,6 +44,18 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateBioRequest {
+    pub bio: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProfileResponse {
+    pub id: String,
+    pub username: String,
+    pub bio: Option<String>,
+}
+
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         status,
@@ -57,6 +69,14 @@ fn to_response(user: &domain::User) -> Json<UserResponse> {
     Json(UserResponse {
         id: user.id().as_uuid().to_string(),
         username: user.username().as_str().to_owned(),
+    })
+}
+
+fn to_profile_response(user: &domain::User) -> Json<ProfileResponse> {
+    Json(ProfileResponse {
+        id: user.id().as_uuid().to_string(),
+        username: user.username().as_str().to_owned(),
+        bio: user.bio().map(|b| b.as_str().to_owned()),
     })
 }
 
@@ -146,6 +166,36 @@ pub async fn sign_out_handler(State(state): State<AppState>, jar: CookieJar) -> 
     }
     let removal = Cookie::build((SESSION_COOKIE, "")).path("/").build();
     jar.remove(removal)
+}
+
+pub async fn get_profile_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Json<ProfileResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let username = Username::parse(&username)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
+    let repo = PgUserRepository::new(state.pool);
+    let user = repo
+        .find_by_username(&username)
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "user not found"))?;
+    Ok(to_profile_response(&user))
+}
+
+pub async fn update_bio_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<UpdateBioRequest>,
+) -> Result<Json<ProfileResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let bio = Bio::parse(body.bio.as_deref().unwrap_or(""))
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "bio too long"))?;
+    let repo = PgUserRepository::new(state.pool);
+    let updated = update_bio(&repo, current.id(), bio)
+        .await
+        .map_err(|e| match e {
+            UpdateBioError::NotFound => error(StatusCode::NOT_FOUND, "user not found"),
+        })?;
+    Ok(to_profile_response(&updated))
 }
 
 #[cfg(test)]

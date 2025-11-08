@@ -6,8 +6,11 @@ mod session_repository;
 
 use axum::Router;
 use axum::http::{Method, header};
-use axum::routing::{get, post};
-use handlers::{AppState, register_handler, sign_in_handler, sign_out_handler};
+use axum::routing::{get, patch, post};
+use handlers::{
+    AppState, get_profile_handler, register_handler, sign_in_handler, sign_out_handler,
+    update_bio_handler,
+};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -26,7 +29,7 @@ async fn main() {
     let state = AppState { pool };
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::PATCH])
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true);
     let app = Router::new()
@@ -34,6 +37,8 @@ async fn main() {
         .route("/api/sign-in", post(sign_in_handler))
         .route("/api/sign-out", post(sign_out_handler))
         .route("/api/me", get(handlers::me_handler))
+        .route("/api/me/bio", patch(update_bio_handler))
+        .route("/api/users/{username}", get(get_profile_handler))
         .with_state(state)
         .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
