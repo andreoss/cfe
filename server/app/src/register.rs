@@ -30,7 +30,7 @@ pub async fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeHasher, FakeRepo};
+    use crate::test_support::{FakeHasher, FakeUserRepo};
 
     fn username(raw: &str) -> Username {
         Username::parse(raw).unwrap()
@@ -42,7 +42,7 @@ mod tests {
 
     #[tokio::test]
     async fn registers_new_user() {
-        let repo = FakeRepo::new();
+        let repo = FakeUserRepo::new();
         let hasher = FakeHasher;
         let id = UserId::new(uuid::Uuid::nil());
         let user = register(
@@ -67,7 +67,7 @@ mod tests {
             email("alice@example.com"),
             "hash".to_owned(),
         );
-        let repo = FakeRepo::with(existing);
+        let repo = FakeUserRepo::with(existing);
         let hasher = FakeHasher;
         let result = register(
             &repo,
@@ -89,7 +89,7 @@ mod tests {
             email("alice@example.com"),
             "hash".to_owned(),
         );
-        let repo = FakeRepo::with(existing);
+        let repo = FakeUserRepo::with(existing);
         let hasher = FakeHasher;
         let result = register(
             &repo,

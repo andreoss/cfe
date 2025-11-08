@@ -27,7 +27,7 @@ pub async fn sign_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeHasher, FakeRepo};
+    use crate::test_support::{FakeHasher, FakeUserRepo};
     use domain::{Email, UserId};
 
     fn username(raw: &str) -> Username {
@@ -45,7 +45,7 @@ mod tests {
 
     #[tokio::test]
     async fn signs_in_with_correct_password() {
-        let repo = FakeRepo::with(seed_user());
+        let repo = FakeUserRepo::with(seed_user());
         let hasher = FakeHasher;
         let user = sign_in(&repo, &hasher, &username("alice_01"), "secret")
             .await
@@ -55,7 +55,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_wrong_password() {
-        let repo = FakeRepo::with(seed_user());
+        let repo = FakeUserRepo::with(seed_user());
         let hasher = FakeHasher;
         let result = sign_in(&repo, &hasher, &username("alice_01"), "wrong").await;
         assert_eq!(result, Err(SignInError::WrongPassword));
@@ -63,7 +63,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_unknown_user() {
-        let repo = FakeRepo::new();
+        let repo = FakeUserRepo::new();
         let hasher = FakeHasher;
         let result = sign_in(&repo, &hasher, &username("ghost_01"), "secret").await;
         assert_eq!(result, Err(SignInError::NotFound));
