@@ -1,15 +1,23 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+
+onMounted(() => {
+  auth.checkSession()
+})
 </script>
 
 <template>
   <header>
     <nav>
       <RouterLink to="/">Home</RouterLink>
-      <span v-if="auth.currentUser">{{ auth.currentUser.username }}</span>
+      <template v-if="auth.currentUser">
+        <span>{{ auth.currentUser.username }}</span>
+        <button type="button" @click="auth.doSignOut()">Sign out</button>
+      </template>
       <template v-else>
         <RouterLink to="/sign-in">Sign in</RouterLink>
         <RouterLink to="/register">Register</RouterLink>
@@ -29,5 +37,6 @@ header {
 nav {
   display: flex;
   gap: 1rem;
+  align-items: center;
 }
 </style>

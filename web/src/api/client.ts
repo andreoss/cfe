@@ -3,17 +3,25 @@ export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
-async function post<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
   const response = await fetch(`${BASE_URL}${path}`, {
+    credentials: 'include',
+    ...init,
+  })
+  const text = await response.text()
+  const data = text.length > 0 ? JSON.parse(text) : undefined
+  if (!response.ok) {
+    return { ok: false, error: data?.error ?? 'request failed' }
+  }
+  return { ok: true, value: data as T }
+}
+
+function post<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  return request<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const data = await response.json()
-  if (!response.ok) {
-    return { ok: false, error: data.error ?? 'request failed' }
-  }
-  return { ok: true, value: data as T }
 }
 
 export function register(
@@ -26,4 +34,12 @@ export function register(
 
 export function signIn(username: string, password: string): Promise<ApiResult<User>> {
   return post<User>('/api/sign-in', { username, password })
+}
+
+export function me(): Promise<ApiResult<User>> {
+  return request<User>('/api/me', { method: 'GET' })
+}
+
+export function signOut(): Promise<ApiResult<void>> {
+  return request<void>('/api/sign-out', { method: 'POST' })
 }

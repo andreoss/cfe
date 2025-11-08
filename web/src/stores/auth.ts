@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { register, signIn, type User } from '@/api/client'
+import { register, signIn, signOut, me, type User } from '@/api/client'
 
 export const useAuthStore = defineStore('auth', () => {
   const currentUser = ref<User | null>(null)
+  const checked = ref(false)
 
   async function doRegister(username: string, email: string, password: string) {
     const result = await register(username, email, password)
@@ -17,9 +18,16 @@ export const useAuthStore = defineStore('auth', () => {
     return result
   }
 
-  function signOut() {
+  async function doSignOut() {
+    await signOut()
     currentUser.value = null
   }
 
-  return { currentUser, doRegister, doSignIn, signOut }
+  async function checkSession() {
+    const result = await me()
+    currentUser.value = result.ok ? result.value : null
+    checked.value = true
+  }
+
+  return { currentUser, checked, doRegister, doSignIn, doSignOut, checkSession }
 })

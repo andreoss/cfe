@@ -43,6 +43,19 @@ async function run() {
     bodyText = await driver.findElement(By.css('body')).getText()
     assert(bodyText.includes(username), 'signed-in user is not shown on home page')
 
+    await driver.navigate().refresh()
+    await driver.wait(until.elementLocated(By.xpath("//button[text()='Sign out']")), 5000)
+    bodyText = await driver.findElement(By.css('body')).getText()
+    assert(bodyText.includes(username), 'session did not persist across reload')
+
+    await driver.findElement(By.xpath("//button[text()='Sign out']")).click()
+    await driver.wait(until.elementLocated(By.linkText('Sign in')), 5000)
+
+    await driver.navigate().refresh()
+    await driver.wait(until.elementLocated(By.linkText('Sign in')), 5000)
+    bodyText = await driver.findElement(By.css('body')).getText()
+    assert(!bodyText.includes(username), 'session persisted after sign-out')
+
     await driver.get(`${baseUrl}/sign-in`)
     await driver.findElement(By.name('username')).sendKeys(username)
     await driver.findElement(By.name('password')).sendKeys('wrong-password')
@@ -51,7 +64,7 @@ async function run() {
     const alertText = await alert.getText()
     assert(alertText.length > 0, 'wrong password did not show an error')
 
-    console.log('e2e: register and sign-in flow passed')
+    console.log('e2e: register, session persistence, sign-out, sign-in flow passed')
   } finally {
     await driver.quit()
   }
