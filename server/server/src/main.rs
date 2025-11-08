@@ -6,6 +6,7 @@ use axum::Router;
 use axum::routing::post;
 use handlers::{AppState, register_handler, sign_in_handler};
 use sqlx::postgres::PgPoolOptions;
+use tower_http::cors::{Any, CorsLayer};
 
 #[tokio::main]
 async fn main() {
@@ -20,10 +21,15 @@ async fn main() {
         .await
         .expect("run migrations");
     let state = AppState { pool };
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
     let app = Router::new()
         .route("/api/register", post(register_handler))
         .route("/api/sign-in", post(sign_in_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await

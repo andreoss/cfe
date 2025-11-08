@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import TheWelcome from '../components/TheWelcome.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 </script>
 
 <template>
   <main>
-    <TheWelcome />
+    <p v-if="auth.currentUser">Signed in as {{ auth.currentUser.username }}.</p>
+    <p v-else>Not signed in.</p>
   </main>
 </template>
