@@ -1,4 +1,5 @@
 export type User = { id: string; username: string }
+export type Profile = { id: string; username: string; bio: string | null }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -42,4 +43,16 @@ export function me(): Promise<ApiResult<User>> {
 
 export function signOut(): Promise<ApiResult<void>> {
   return request<void>('/api/sign-out', { method: 'POST' })
+}
+
+export function getProfile(username: string): Promise<ApiResult<Profile>> {
+  return request<Profile>(`/api/users/${encodeURIComponent(username)}`, { method: 'GET' })
+}
+
+export function updateBio(bio: string): Promise<ApiResult<Profile>> {
+  return request<Profile>('/api/me/bio', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bio: bio.length > 0 ? bio : null }),
+  })
 }

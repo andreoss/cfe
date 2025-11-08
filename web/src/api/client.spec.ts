@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { register, signIn, me, signOut } from './client'
+import { register, signIn, me, signOut, getProfile, updateBio } from './client'
 
 function jsonResponse(ok: boolean, body: unknown) {
   return { ok, text: async () => JSON.stringify(body) } as Response
@@ -82,5 +82,59 @@ describe('signOut', () => {
     vi.mocked(fetch).mockResolvedValue(emptyResponse(true))
     const result = await signOut()
     expect(result).toEqual({ ok: true, value: undefined })
+  })
+})
+
+describe('getProfile', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the profile on success', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'hello' }),
+    )
+    const result = await getProfile('alice_01')
+    expect(result).toEqual({ ok: true, value: { id: '1', username: 'alice_01', bio: 'hello' } })
+  })
+
+  it('url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'a b', bio: null }))
+    await getProfile('a b')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/a%20b'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error for an unknown user', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'user not found' }))
+    const result = await getProfile('ghost')
+    expect(result).toEqual({ ok: false, error: 'user not found' })
+  })
+})
+
+describe('updateBio', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the updated profile on success', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'new bio' }),
+    )
+    const result = await updateBio('new bio')
+    expect(result).toEqual({ ok: true, value: { id: '1', username: 'alice_01', bio: 'new bio' } })
+  })
+
+  it('sends null for an empty bio', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01', bio: null }))
+    await updateBio('')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: JSON.stringify({ bio: null }) }),
+    )
   })
 })

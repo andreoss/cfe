@@ -36,4 +36,6 @@ WEB_PID=$!
 until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" -X POST -H 'Content-Type: application/json' -d '{}'; do sleep 1; done
 until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 
-BASE_URL="http://127.0.0.1:$WEB_PORT" node e2e/register-sign-in.mjs
+export BASE_URL="http://127.0.0.1:$WEB_PORT"
+node e2e/register-sign-in.mjs
+node e2e/profile.mjs

@@ -15,7 +15,9 @@ onMounted(() => {
     <nav>
       <RouterLink to="/">Home</RouterLink>
       <template v-if="auth.currentUser">
-        <span>{{ auth.currentUser.username }}</span>
+        <RouterLink :to="`/u/${auth.currentUser.username}`">{{
+          auth.currentUser.username
+        }}</RouterLink>
         <button type="button" @click="auth.doSignOut()">Sign out</button>
       </template>
       <template v-else>
