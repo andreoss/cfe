@@ -1,20 +1,10 @@
+use crate::ports::{PasswordHasher, UserRepository};
 use domain::{Email, User, UserId, Username};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RegisterError {
     UsernameTaken,
     EmailTaken,
-}
-
-#[async_trait::async_trait]
-pub trait UserRepository {
-    async fn find_by_username(&self, username: &Username) -> Option<User>;
-    async fn find_by_email(&self, email: &Email) -> Option<User>;
-    async fn save(&self, user: &User);
-}
-
-pub trait PasswordHasher {
-    fn hash(&self, plain: &str) -> String;
 }
 
 pub async fn register(
@@ -40,58 +30,7 @@ pub async fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    struct FakeRepo {
-        users: Mutex<Vec<User>>,
-    }
-
-    impl FakeRepo {
-        fn new() -> Self {
-            Self {
-                users: Mutex::new(Vec::new()),
-            }
-        }
-
-        fn with(user: User) -> Self {
-            Self {
-                users: Mutex::new(vec![user]),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl UserRepository for FakeRepo {
-        async fn find_by_username(&self, username: &Username) -> Option<User> {
-            self.users
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|u| u.username() == username)
-                .cloned()
-        }
-
-        async fn find_by_email(&self, email: &Email) -> Option<User> {
-            self.users
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|u| u.email() == email)
-                .cloned()
-        }
-
-        async fn save(&self, user: &User) {
-            self.users.lock().unwrap().push(user.clone());
-        }
-    }
-
-    struct FakeHasher;
-
-    impl PasswordHasher for FakeHasher {
-        fn hash(&self, plain: &str) -> String {
-            format!("hashed:{plain}")
-        }
-    }
+    use crate::test_support::{FakeHasher, FakeRepo};
 
     fn username(raw: &str) -> Username {
         Username::parse(raw).unwrap()
