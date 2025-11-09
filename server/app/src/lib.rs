@@ -1,3 +1,4 @@
+mod comments;
 mod ports;
 mod profile;
 mod register;
@@ -6,8 +7,10 @@ mod sign_in;
 mod test_support;
 mod topics;
 
+pub use comments::{PostCommentError, list_comments, post_comment};
 pub use ports::{
-    PasswordHasher, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    CommentRepository, PasswordHasher, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use register::{RegisterError, register};

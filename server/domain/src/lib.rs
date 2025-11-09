@@ -1,5 +1,6 @@
 mod bio;
 mod body;
+mod comment;
 mod email;
 mod section;
 mod session;
@@ -12,6 +13,7 @@ mod username;
 
 pub use bio::{Bio, BioError};
 pub use body::{Body, BodyError};
+pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use section::{Section, SectionId};
 pub use session::{Session, SessionId, SessionToken, SessionTokenError};

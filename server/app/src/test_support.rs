@@ -1,11 +1,12 @@
 #![cfg(test)]
 
 use crate::ports::{
-    PasswordHasher, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    CommentRepository, PasswordHasher, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 use domain::{
-    Email, Section, SectionId, Session, SessionId, SessionToken, Slug, Topic, TopicId, User,
-    UserId, Username,
+    Comment, CommentId, Email, Section, SectionId, Session, SessionId, SessionToken, Slug, Topic,
+    TopicId, User, UserId, Username,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -179,6 +180,12 @@ impl FakeTopicRepo {
             topics: Mutex::new(Vec::new()),
         }
     }
+
+    pub fn with(topic: Topic) -> Self {
+        Self {
+            topics: Mutex::new(vec![topic]),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -212,6 +219,44 @@ impl TopicRepository for FakeTopicRepo {
             .unwrap()
             .iter()
             .filter(|t| t.tags().contains(tag))
+            .cloned()
+            .collect()
+    }
+}
+
+pub struct FakeCommentRepo {
+    comments: Mutex<Vec<Comment>>,
+}
+
+impl FakeCommentRepo {
+    pub fn new() -> Self {
+        Self {
+            comments: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CommentRepository for FakeCommentRepo {
+    async fn save(&self, comment: &Comment) {
+        self.comments.lock().unwrap().push(comment.clone());
+    }
+
+    async fn find_by_id(&self, id: CommentId) -> Option<Comment> {
+        self.comments
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|c| c.id() == id)
+            .cloned()
+    }
+
+    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment> {
+        self.comments
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.topic_id() == topic_id)
             .cloned()
             .collect()
     }
