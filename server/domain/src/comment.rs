@@ -1,4 +1,4 @@
-use crate::{Body, Deletion, TopicId, UserId};
+use crate::{Body, Deletion, Revision, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +23,7 @@ pub struct Comment {
     body: Body,
     created_at: OffsetDateTime,
     deleted: Option<Deletion>,
+    edited: Option<Revision>,
 }
 
 impl Comment {
@@ -42,6 +43,7 @@ impl Comment {
             body,
             created_at,
             deleted: None,
+            edited: None,
         }
     }
 
@@ -53,6 +55,7 @@ impl Comment {
         body: Body,
         created_at: OffsetDateTime,
         deleted: Option<Deletion>,
+        edited: Option<Revision>,
     ) -> Self {
         Self {
             id,
@@ -62,6 +65,7 @@ impl Comment {
             body,
             created_at,
             deleted,
+            edited,
         }
     }
 
@@ -103,6 +107,22 @@ impl Comment {
             ..self.clone()
         }
     }
+
+    pub fn revision(&self) -> Option<&Revision> {
+        self.edited.as_ref()
+    }
+
+    pub fn is_edited(&self) -> bool {
+        self.edited.is_some()
+    }
+
+    pub fn with_edit(&self, body: Body, revision: Revision) -> Self {
+        Self {
+            body,
+            edited: Some(revision),
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +157,32 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         let comment = Comment::new(id, topic_id, author_id, Some(parent), body, now);
         assert_eq!(comment.parent_id(), Some(parent));
+    }
+
+    #[test]
+    fn with_edit_replaces_the_body_and_records_the_revision() {
+        let id = CommentId::new(uuid::Uuid::nil());
+        let comment = Comment::new(
+            id,
+            TopicId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            None,
+            Body::parse("Old body").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert!(!comment.is_edited());
+        assert_eq!(comment.revision(), None);
+        let body = Body::parse("New body").unwrap();
+        let revision = Revision::new(
+            UserId::new(uuid::Uuid::max()),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let edited = comment.with_edit(body.clone(), revision.clone());
+        assert_eq!(edited.id(), comment.id());
+        assert_eq!(edited.created_at(), comment.created_at());
+        assert_eq!(edited.body(), &body);
+        assert!(edited.is_edited());
+        assert_eq!(edited.revision(), Some(&revision));
     }
 
     #[test]

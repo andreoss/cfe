@@ -52,6 +52,7 @@ fn to_topic(row: Row) -> Topic {
         TagSet::parse(&row.tags).expect("stored tags are valid"),
         row.created_at,
         deleted,
+        None,
     )
 }
 

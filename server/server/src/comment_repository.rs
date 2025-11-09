@@ -50,6 +50,7 @@ fn to_comment(row: Row) -> Comment {
         Body::parse(&row.body).expect("stored body is valid"),
         row.created_at,
         deleted,
+        None,
     )
 }
 

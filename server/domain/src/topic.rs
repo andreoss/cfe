@@ -1,4 +1,4 @@
-use crate::{Body, Deletion, SectionId, TagSet, Title, UserId};
+use crate::{Body, Deletion, Revision, SectionId, TagSet, Title, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,6 +24,7 @@ pub struct Topic {
     tags: TagSet,
     created_at: OffsetDateTime,
     deleted: Option<Deletion>,
+    edited: Option<Revision>,
 }
 
 impl Topic {
@@ -45,6 +46,7 @@ impl Topic {
             tags,
             created_at,
             deleted: None,
+            edited: None,
         }
     }
 
@@ -57,6 +59,7 @@ impl Topic {
         tags: TagSet,
         created_at: OffsetDateTime,
         deleted: Option<Deletion>,
+        edited: Option<Revision>,
     ) -> Self {
         Self {
             id,
@@ -67,6 +70,7 @@ impl Topic {
             tags,
             created_at,
             deleted,
+            edited,
         }
     }
 
@@ -112,6 +116,24 @@ impl Topic {
             ..self.clone()
         }
     }
+
+    pub fn revision(&self) -> Option<&Revision> {
+        self.edited.as_ref()
+    }
+
+    pub fn is_edited(&self) -> bool {
+        self.edited.is_some()
+    }
+
+    pub fn with_edit(&self, title: Title, body: Body, tags: TagSet, revision: Revision) -> Self {
+        Self {
+            title,
+            body,
+            tags,
+            edited: Some(revision),
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -146,6 +168,37 @@ mod tests {
         assert_eq!(topic.created_at(), now);
         assert!(!topic.is_deleted());
         assert_eq!(topic.deletion(), None);
+    }
+
+    #[test]
+    fn with_edit_replaces_content_and_records_the_revision() {
+        let id = TopicId::new(uuid::Uuid::nil());
+        let topic = Topic::new(
+            id,
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Before").unwrap(),
+            Body::parse("Old body").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert!(!topic.is_edited());
+        assert_eq!(topic.revision(), None);
+        let title = Title::parse("After").unwrap();
+        let body = Body::parse("New body").unwrap();
+        let tags = TagSet::parse(&["rust".to_string()]).unwrap();
+        let revision = Revision::new(
+            UserId::new(uuid::Uuid::max()),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let edited = topic.with_edit(title.clone(), body.clone(), tags.clone(), revision.clone());
+        assert_eq!(edited.id(), topic.id());
+        assert_eq!(edited.created_at(), topic.created_at());
+        assert_eq!(edited.title(), &title);
+        assert_eq!(edited.body(), &body);
+        assert_eq!(edited.tags(), &tags);
+        assert!(edited.is_edited());
+        assert_eq!(edited.revision(), Some(&revision));
     }
 
     #[test]
