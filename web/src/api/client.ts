@@ -1,4 +1,4 @@
-export type User = { id: string; username: string }
+export type User = { id: string; username: string; role: string }
 export type Profile = { id: string; username: string; bio: string | null }
 export type Section = { slug: string; title: string }
 export type Topic = {
@@ -9,6 +9,8 @@ export type Topic = {
   tags: string[]
   authorUsername: string
   createdAt: string
+  deleted: boolean
+  deletedReason: string | null
 }
 export type Comment = {
   id: string
@@ -17,6 +19,8 @@ export type Comment = {
   body: string
   authorUsername: string
   createdAt: string
+  deleted: boolean
+  deletedReason: string | null
 }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -83,6 +87,8 @@ type RawTopic = {
   tags: string[]
   author_username: string
   created_at: string
+  deleted: boolean
+  deleted_reason: string | null
 }
 
 function toTopic(raw: RawTopic): Topic {
@@ -94,6 +100,8 @@ function toTopic(raw: RawTopic): Topic {
     tags: raw.tags,
     authorUsername: raw.author_username,
     createdAt: raw.created_at,
+    deleted: raw.deleted,
+    deletedReason: raw.deleted_reason,
   }
 }
 
@@ -143,6 +151,8 @@ type RawComment = {
   body: string
   author_username: string
   created_at: string
+  deleted: boolean
+  deleted_reason: string | null
 }
 
 function toComment(raw: RawComment): Comment {
@@ -153,6 +163,8 @@ function toComment(raw: RawComment): Comment {
     body: raw.body,
     authorUsername: raw.author_username,
     createdAt: raw.created_at,
+    deleted: raw.deleted,
+    deletedReason: raw.deleted_reason,
   }
 }
 
@@ -175,6 +187,31 @@ export async function postComment(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body, parent_id: parentId }),
+    },
+  )
+  return result.ok ? { ok: true, value: toComment(result.value) } : result
+}
+
+export async function deleteTopic(id: string, reason: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function deleteComment(
+  topicId: string,
+  id: string,
+  reason: string,
+): Promise<ApiResult<Comment>> {
+  const result = await request<RawComment>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(id)}/delete`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
     },
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result

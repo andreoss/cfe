@@ -13,6 +13,8 @@ import {
   getTopicsByTag,
   getComments,
   postComment,
+  deleteTopic,
+  deleteComment,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -23,6 +25,8 @@ function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
     body: 'Nice topic!',
     author_username: 'alice_01',
     created_at: '2026-09-03T00:00:00Z',
+    deleted: false,
+    deleted_reason: null,
     ...overrides,
   }
 }
@@ -36,6 +40,8 @@ function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
     tags: ['rust'],
     author_username: 'alice_01',
     created_at: '2026-09-03T00:00:00Z',
+    deleted: false,
+    deleted_reason: null,
     ...overrides,
   }
 }
@@ -211,6 +217,8 @@ describe('getTopics', () => {
           tags: ['rust'],
           authorUsername: 'alice_01',
           createdAt: '2026-09-03T00:00:00Z',
+          deleted: false,
+          deletedReason: null,
         },
       ],
     })
@@ -310,6 +318,8 @@ describe('getComments', () => {
           body: 'Nice topic!',
           authorUsername: 'alice_01',
           createdAt: '2026-09-03T00:00:00Z',
+          deleted: false,
+          deletedReason: null,
         },
       ],
     })
@@ -350,5 +360,49 @@ describe('postComment', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await postComment('t1', 'Nice topic!', null)
     expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('deleteTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the deleted topic with reason', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, rawTopic({ deleted: true, deleted_reason: 'spam' })),
+    )
+    const result = await deleteTopic('t1', 'spam')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.deleted).toBe(true)
+    expect(result.ok && result.value.deletedReason).toBe('spam')
+  })
+
+  it('returns an error when not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'moderator role required' }))
+    const result = await deleteTopic('t1', 'spam')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('deleteComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the deleted comment with reason', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, rawComment({ deleted: true, deleted_reason: 'off-topic' })),
+    )
+    const result = await deleteComment('t1', 'c1', 'off-topic')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.deleted).toBe(true)
+    expect(result.ok && result.value.deletedReason).toBe('off-topic')
+  })
+
+  it('returns an error when not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'moderator role required' }))
+    const result = await deleteComment('t1', 'c1', 'off-topic')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
   })
 })
