@@ -7,13 +7,16 @@ use crate::topic_repository::PgTopicRepository;
 use app::{
     CreateTopicError, ListTopicsError, RegisterError, SectionRepository, SessionRepository,
     SignInError, UpdateBioError, UserRepository, create_session, create_topic, get_topic,
-    list_sections, list_topics, register, sign_in, sign_out as end_session, update_bio,
+    list_sections, list_topics, list_topics_by_tag, register, sign_in, sign_out as end_session,
+    update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use domain::{Bio, Body, Email, Session, SessionId, SessionToken, Slug, Title, UserId, Username};
+use domain::{
+    Bio, Body, Email, Session, SessionId, SessionToken, Slug, TagSet, Title, UserId, Username,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::format_description::well_known::Rfc3339;
@@ -70,6 +73,8 @@ pub struct SectionResponse {
 pub struct CreateTopicRequest {
     pub title: String,
     pub body: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -78,6 +83,7 @@ pub struct TopicResponse {
     pub section_slug: String,
     pub title: String,
     pub body: String,
+    pub tags: Vec<String>,
     pub author_username: String,
     pub created_at: String,
 }
@@ -247,6 +253,12 @@ async fn topic_response(
         section_slug: section.slug().as_str().to_owned(),
         title: topic.title().as_str().to_owned(),
         body: topic.body().as_str().to_owned(),
+        tags: topic
+            .tags()
+            .as_slice()
+            .iter()
+            .map(|t| t.as_str().to_owned())
+            .collect(),
         author_username: author.username().as_str().to_owned(),
         created_at,
     }))
@@ -298,6 +310,8 @@ pub async fn create_topic_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid title"))?;
     let topic_body = Body::parse(&body.body)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
+    let tags = TagSet::parse(&body.tags)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
     let sections = PgSectionRepository::new(state.pool.clone());
     let topics = PgTopicRepository::new(state.pool.clone());
     let topic = create_topic(
@@ -308,6 +322,7 @@ pub async fn create_topic_handler(
         current.id(),
         title,
         topic_body,
+        tags,
         OffsetDateTime::now_utc(),
     )
     .await
@@ -326,6 +341,21 @@ pub async fn get_topic_handler(
         .await
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
     topic_response(&state.pool, &topic).await
+}
+
+pub async fn list_topics_by_tag_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let tag =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let list = list_topics_by_tag(&topics, &tag).await;
+    let mut responses = Vec::with_capacity(list.len());
+    for topic in &list {
+        responses.push(topic_response(&state.pool, topic).await?.0);
+    }
+    Ok(Json(responses))
 }
 
 #[cfg(test)]
