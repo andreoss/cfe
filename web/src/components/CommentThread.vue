@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { postComment, type Comment } from '@/api/client'
+import { renderMarkdown } from '@/lib/markdown'
 
 const props = defineProps<{
   comments: Comment[]
@@ -35,10 +36,8 @@ async function onReply(parentId: string) {
 <template>
   <ul>
     <li v-for="comment in children(parentId)" :key="comment.id">
-      <p>
-        <strong>{{ comment.authorUsername }}</strong
-        >: {{ comment.body }}
-      </p>
+      <p><strong>{{ comment.authorUsername }}</strong></p>
+      <div class="body" v-html="renderMarkdown(comment.body)"></div>
       <button
         v-if="auth.currentUser"
         type="button"

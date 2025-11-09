@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { getTopic, getComments, postComment, type Topic, type Comment } from '@/api/client'
 import CommentThread from '@/components/CommentThread.vue'
+import { renderMarkdown } from '@/lib/markdown'
 
 const props = defineProps<{ id: string }>()
 const auth = useAuthStore()
@@ -60,7 +61,7 @@ async function onPostComment() {
         Tags:
         <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
       </p>
-      <p>{{ topic.body }}</p>
+      <div class="body" v-html="renderMarkdown(topic.body)"></div>
 
       <h2>Comments</h2>
       <CommentThread :comments="comments" :parent-id="null" :topic-id="id" :on-posted="loadComments" />
