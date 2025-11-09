@@ -1,12 +1,28 @@
 <script setup lang="ts">
-import { useAuthStore } from '@/stores/auth'
+import { ref, onMounted } from 'vue'
+import { getSections, type Section } from '@/api/client'
 
-const auth = useAuthStore()
+const sections = ref<Section[]>([])
+const loadError = ref('')
+
+onMounted(async () => {
+  const result = await getSections()
+  if (result.ok) {
+    sections.value = result.value
+  } else {
+    loadError.value = result.error
+  }
+})
 </script>
 
 <template>
   <main>
-    <p v-if="auth.currentUser">Signed in as {{ auth.currentUser.username }}.</p>
-    <p v-else>Not signed in.</p>
+    <h1>Sections</h1>
+    <p v-if="loadError" role="alert">{{ loadError }}</p>
+    <ul>
+      <li v-for="section in sections" :key="section.slug">
+        <RouterLink :to="`/s/${section.slug}`">{{ section.title }}</RouterLink>
+      </li>
+    </ul>
   </main>
 </template>

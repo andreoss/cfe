@@ -1,5 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { register, signIn, me, signOut, getProfile, updateBio } from './client'
+import {
+  register,
+  signIn,
+  me,
+  signOut,
+  getProfile,
+  updateBio,
+  getSections,
+  getTopics,
+  createTopic,
+  getTopic,
+} from './client'
+
+function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: '1',
+    section_slug: 'general',
+    title: 'Hello',
+    body: 'World',
+    author_username: 'alice_01',
+    created_at: '2026-09-03T00:00:00Z',
+    ...overrides,
+  }
+}
 
 function jsonResponse(ok: boolean, body: unknown) {
   return { ok, text: async () => JSON.stringify(body) } as Response
@@ -136,5 +159,87 @@ describe('updateBio', () => {
       expect.any(String),
       expect.objectContaining({ body: JSON.stringify({ bio: null }) }),
     )
+  })
+})
+
+describe('getSections', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the section list', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [{ slug: 'general', title: 'General' }]),
+    )
+    const result = await getSections()
+    expect(result).toEqual({ ok: true, value: [{ slug: 'general', title: 'General' }] })
+  })
+})
+
+describe('getTopics', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Topic type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    const result = await getTopics('general')
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: '1',
+          sectionSlug: 'general',
+          title: 'Hello',
+          body: 'World',
+          authorUsername: 'alice_01',
+          createdAt: '2026-09-03T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  it('returns an error for an unknown section', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'section not found' }))
+    const result = await getTopics('ghost')
+    expect(result).toEqual({ ok: false, error: 'section not found' })
+  })
+})
+
+describe('createTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the created topic mapped to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTopic()))
+    const result = await createTopic('general', 'Hello', 'World')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.sectionSlug).toBe('general')
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await createTopic('general', 'Hello', 'World')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the topic mapped to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTopic({ id: '42' })))
+    const result = await getTopic('42')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.id).toBe('42')
+  })
+
+  it('returns an error for an unknown topic', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'topic not found' }))
+    const result = await getTopic('ghost')
+    expect(result).toEqual({ ok: false, error: 'topic not found' })
   })
 })

@@ -1,5 +1,14 @@
 export type User = { id: string; username: string }
 export type Profile = { id: string; username: string; bio: string | null }
+export type Section = { slug: string; title: string }
+export type Topic = {
+  id: string
+  sectionSlug: string
+  title: string
+  body: string
+  authorUsername: string
+  createdAt: string
+}
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -55,4 +64,55 @@ export function updateBio(bio: string): Promise<ApiResult<Profile>> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bio: bio.length > 0 ? bio : null }),
   })
+}
+
+type RawTopic = {
+  id: string
+  section_slug: string
+  title: string
+  body: string
+  author_username: string
+  created_at: string
+}
+
+function toTopic(raw: RawTopic): Topic {
+  return {
+    id: raw.id,
+    sectionSlug: raw.section_slug,
+    title: raw.title,
+    body: raw.body,
+    authorUsername: raw.author_username,
+    createdAt: raw.created_at,
+  }
+}
+
+export function getSections(): Promise<ApiResult<Section[]>> {
+  return request<Section[]>('/api/sections', { method: 'GET' })
+}
+
+export async function getTopics(slug: string): Promise<ApiResult<Topic[]>> {
+  const result = await request<RawTopic[]>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+}
+
+export async function createTopic(
+  slug: string,
+  title: string,
+  body: string,
+): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, body }),
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function getTopic(id: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}`, {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }

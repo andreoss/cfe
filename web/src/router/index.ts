@@ -25,6 +25,18 @@ const router = createRouter({
       component: () => import('../views/ProfileView.vue'),
       props: true,
     },
+    {
+      path: '/s/:slug',
+      name: 'section',
+      component: () => import('../views/SectionView.vue'),
+      props: true,
+    },
+    {
+      path: '/t/:id',
+      name: 'topic',
+      component: () => import('../views/TopicView.vue'),
+      props: true,
+    },
   ],
 })
 

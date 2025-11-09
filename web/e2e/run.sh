@@ -39,3 +39,4 @@ until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
 node e2e/register-sign-in.mjs
 node e2e/profile.mjs
+node e2e/topics.mjs
