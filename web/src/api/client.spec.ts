@@ -15,6 +15,8 @@ import {
   postComment,
   deleteTopic,
   deleteComment,
+  editTopic,
+  editComment,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -404,5 +406,62 @@ describe('deleteComment', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'moderator role required' }))
     const result = await deleteComment('t1', 'c1', 'off-topic')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('editTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a PATCH with the new content and maps the edited flag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, rawTopic({ title: 'After', body: 'New', edited: true })),
+    )
+    const result = await editTopic('t1', 'After', 'New', ['rust'])
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.title).toBe('After')
+    expect(result.ok && result.value.edited).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1'),
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ title: 'After', body: 'New', tags: ['rust'] }),
+      }),
+    )
+  })
+
+  it('returns an error when not the author', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not the author' }))
+    const result = await editTopic('t1', 'After', 'New', [])
+    expect(result).toEqual({ ok: false, error: 'not the author' })
+  })
+})
+
+describe('editComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a PATCH with the new body and maps the edited flag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment({ body: 'New', edited: true })))
+    const result = await editComment('t1', 'c1', 'New')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.body).toBe('New')
+    expect(result.ok && result.value.edited).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1'),
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ body: 'New' }) }),
+    )
+  })
+
+  it('returns an error when removed content is edited', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'removed content cannot be edited' }),
+    )
+    const result = await editComment('t1', 'c1', 'New')
+    expect(result).toEqual({ ok: false, error: 'removed content cannot be edited' })
   })
 })

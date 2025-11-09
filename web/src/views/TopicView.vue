@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   getTopic,
   getComments,
   postComment,
   deleteTopic,
+  editTopic,
   type Topic,
   type Comment,
 } from '@/api/client'
@@ -23,6 +24,29 @@ const formError = ref('')
 const deleting = ref(false)
 const deleteReason = ref('')
 const deleteError = ref('')
+const editing = ref(false)
+const editTitle = ref('')
+const editBody = ref('')
+const editTags = ref('')
+const editError = ref('')
+
+const mayEdit = computed(
+  () =>
+    topic.value !== null &&
+    !topic.value.deleted &&
+    auth.currentUser !== null &&
+    (auth.currentUser.username === topic.value.authorUsername ||
+      auth.currentUser.role === 'moderator'),
+)
+
+function startEdit() {
+  if (!topic.value) return
+  editTitle.value = topic.value.title
+  editBody.value = topic.value.body
+  editTags.value = topic.value.tags.join(', ')
+  editError.value = ''
+  editing.value = true
+}
 
 async function load() {
   notFound.value = false
@@ -67,6 +91,21 @@ async function onDelete() {
   topic.value = result.value
   deleting.value = false
 }
+
+async function onEdit() {
+  editError.value = ''
+  const tags = editTags.value
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+  const result = await editTopic(props.id, editTitle.value, editBody.value, tags)
+  if (!result.ok) {
+    editError.value = result.error
+    return
+  }
+  topic.value = result.value
+  editing.value = false
+}
 </script>
 
 <template>
@@ -85,6 +124,28 @@ async function onDelete() {
 
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
+      <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
+
+      <template v-if="mayEdit">
+        <button v-if="!editing" type="button" @click="startEdit">Edit topic</button>
+        <form v-else @submit.prevent="onEdit">
+          <label>
+            Title
+            <input v-model="editTitle" name="edit-title" type="text" />
+          </label>
+          <label>
+            Body
+            <textarea v-model="editBody" name="edit-body" rows="4"></textarea>
+          </label>
+          <label>
+            Tags
+            <input v-model="editTags" name="edit-tags" type="text" />
+          </label>
+          <p v-if="editError" role="alert">{{ editError }}</p>
+          <button type="submit">Save changes</button>
+          <button type="button" @click="editing = false">Cancel</button>
+        </form>
+      </template>
 
       <template v-if="auth.currentUser?.role === 'moderator' && !topic.deleted">
         <button v-if="!deleting" type="button" @click="deleting = true">Delete topic</button>

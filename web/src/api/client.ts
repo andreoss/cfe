@@ -11,6 +11,7 @@ export type Topic = {
   createdAt: string
   deleted: boolean
   deletedReason: string | null
+  edited: boolean
 }
 export type Comment = {
   id: string
@@ -21,6 +22,7 @@ export type Comment = {
   createdAt: string
   deleted: boolean
   deletedReason: string | null
+  edited: boolean
 }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -89,6 +91,7 @@ type RawTopic = {
   created_at: string
   deleted: boolean
   deleted_reason: string | null
+  edited: boolean
 }
 
 function toTopic(raw: RawTopic): Topic {
@@ -102,6 +105,7 @@ function toTopic(raw: RawTopic): Topic {
     createdAt: raw.created_at,
     deleted: raw.deleted,
     deletedReason: raw.deleted_reason,
+    edited: raw.edited,
   }
 }
 
@@ -153,6 +157,7 @@ type RawComment = {
   created_at: string
   deleted: boolean
   deleted_reason: string | null
+  edited: boolean
 }
 
 function toComment(raw: RawComment): Comment {
@@ -165,6 +170,7 @@ function toComment(raw: RawComment): Comment {
     createdAt: raw.created_at,
     deleted: raw.deleted,
     deletedReason: raw.deleted_reason,
+    edited: raw.edited,
   }
 }
 
@@ -212,6 +218,36 @@ export async function deleteComment(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
+    },
+  )
+  return result.ok ? { ok: true, value: toComment(result.value) } : result
+}
+
+export async function editTopic(
+  id: string,
+  title: string,
+  body: string,
+  tags: string[],
+): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, body, tags }),
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function editComment(
+  topicId: string,
+  id: string,
+  body: string,
+): Promise<ApiResult<Comment>> {
+  const result = await request<RawComment>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
     },
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result

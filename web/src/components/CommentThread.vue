@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { postComment, deleteComment, type Comment } from '@/api/client'
+import { postComment, deleteComment, editComment, type Comment } from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
 
 const props = defineProps<{
@@ -18,9 +18,25 @@ const formError = ref('')
 const deletingId = ref<string | null>(null)
 const deleteReason = ref('')
 const deleteError = ref('')
+const editingId = ref<string | null>(null)
+const editDraft = ref('')
+const editError = ref('')
 
 function children(id: string | null) {
   return props.comments.filter((c) => c.parentId === id)
+}
+
+function mayEdit(comment: Comment) {
+  const user = auth.currentUser
+  return (
+    user !== null && (user.username === comment.authorUsername || user.role === 'moderator')
+  )
+}
+
+function startEdit(comment: Comment) {
+  editingId.value = comment.id
+  editDraft.value = comment.body
+  editError.value = ''
 }
 
 async function onReply(parentId: string) {
@@ -46,6 +62,18 @@ async function onDelete(commentId: string) {
   deleteReason.value = ''
   props.onPosted()
 }
+
+async function onEdit(commentId: string) {
+  editError.value = ''
+  const result = await editComment(props.topicId, commentId, editDraft.value)
+  if (!result.ok) {
+    editError.value = result.error
+    return
+  }
+  editingId.value = null
+  editDraft.value = ''
+  props.onPosted()
+}
 </script>
 
 <template>
@@ -56,8 +84,25 @@ async function onDelete(commentId: string) {
         Removed by a moderator: {{ comment.deletedReason }}
       </p>
       <div v-else class="body" v-html="renderMarkdown(comment.body)"></div>
+      <p v-if="comment.edited && !comment.deleted" class="edited">(edited)</p>
 
       <template v-if="!comment.deleted">
+        <template v-if="mayEdit(comment)">
+          <button
+            v-if="editingId !== comment.id"
+            type="button"
+            @click="startEdit(comment)"
+          >
+            Edit comment
+          </button>
+          <form v-else @submit.prevent="onEdit(comment.id)">
+            <textarea v-model="editDraft" name="edit-body" rows="3"></textarea>
+            <p v-if="editError" role="alert">{{ editError }}</p>
+            <button type="submit">Save comment</button>
+            <button type="button" @click="editingId = null">Cancel</button>
+          </form>
+        </template>
+
         <button
           v-if="auth.currentUser"
           type="button"
