@@ -38,4 +38,5 @@ pub trait TopicRepository {
     async fn save(&self, topic: &Topic);
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
+    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
 }

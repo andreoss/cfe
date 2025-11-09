@@ -1,4 +1,4 @@
-use crate::{Body, SectionId, Title, UserId};
+use crate::{Body, SectionId, TagSet, Title, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,6 +21,7 @@ pub struct Topic {
     author_id: UserId,
     title: Title,
     body: Body,
+    tags: TagSet,
     created_at: OffsetDateTime,
 }
 
@@ -31,6 +32,7 @@ impl Topic {
         author_id: UserId,
         title: Title,
         body: Body,
+        tags: TagSet,
         created_at: OffsetDateTime,
     ) -> Self {
         Self {
@@ -39,6 +41,7 @@ impl Topic {
             author_id,
             title,
             body,
+            tags,
             created_at,
         }
     }
@@ -63,6 +66,10 @@ impl Topic {
         &self.body
     }
 
+    pub fn tags(&self) -> &TagSet {
+        &self.tags
+    }
+
     pub fn created_at(&self) -> OffsetDateTime {
         self.created_at
     }
@@ -79,13 +86,23 @@ mod tests {
         let author_id = UserId::new(uuid::Uuid::nil());
         let title = Title::parse("Hello").unwrap();
         let body = Body::parse("World").unwrap();
+        let tags = TagSet::parse(&["rust".to_string()]).unwrap();
         let now = OffsetDateTime::UNIX_EPOCH;
-        let topic = Topic::new(id, section_id, author_id, title.clone(), body.clone(), now);
+        let topic = Topic::new(
+            id,
+            section_id,
+            author_id,
+            title.clone(),
+            body.clone(),
+            tags.clone(),
+            now,
+        );
         assert_eq!(topic.id(), id);
         assert_eq!(topic.section_id(), section_id);
         assert_eq!(topic.author_id(), author_id);
         assert_eq!(topic.title(), &title);
         assert_eq!(topic.body(), &body);
+        assert_eq!(topic.tags(), &tags);
         assert_eq!(topic.created_at(), now);
     }
 }

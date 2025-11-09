@@ -205,4 +205,14 @@ impl TopicRepository for FakeTopicRepo {
             .cloned()
             .collect()
     }
+
+    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic> {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.tags().contains(tag))
+            .cloned()
+            .collect()
+    }
 }

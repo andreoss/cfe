@@ -1,5 +1,5 @@
 use crate::ports::{SectionRepository, TopicRepository};
-use domain::{Body, Section, Slug, Title, Topic, TopicId, UserId};
+use domain::{Body, Section, Slug, TagSet, Title, Topic, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -15,13 +15,14 @@ pub async fn create_topic(
     author_id: UserId,
     title: Title,
     body: Body,
+    tags: TagSet,
     now: OffsetDateTime,
 ) -> Result<Topic, CreateTopicError> {
     let section = sections
         .find_by_slug(slug)
         .await
         .ok_or(CreateTopicError::SectionNotFound)?;
-    let topic = Topic::new(id, section.id(), author_id, title, body, now);
+    let topic = Topic::new(id, section.id(), author_id, title, body, tags, now);
     topics.save(&topic).await;
     Ok(topic)
 }
@@ -47,6 +48,10 @@ pub async fn list_topics(
     Ok(topics.list_by_section(section.id()).await)
 }
 
+pub async fn list_topics_by_tag(topics: &impl TopicRepository, tag: &Slug) -> Vec<Topic> {
+    topics.list_by_tag(tag).await
+}
+
 pub async fn get_topic(topics: &impl TopicRepository, id: TopicId) -> Option<Topic> {
     topics.find_by_id(id).await
 }
@@ -65,6 +70,10 @@ mod tests {
         )
     }
 
+    fn tags(values: &[&str]) -> TagSet {
+        TagSet::parse(&values.iter().map(|v| v.to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
     #[tokio::test]
     async fn creates_a_topic_in_an_existing_section() {
         let sections = FakeSectionRepo::with(section());
@@ -78,6 +87,7 @@ mod tests {
             UserId::new(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
+            tags(&["rust"]),
             now,
         )
         .await
@@ -98,6 +108,7 @@ mod tests {
             UserId::new(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
+            TagSet::empty(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -116,6 +127,7 @@ mod tests {
             UserId::new(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
+            TagSet::empty(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -142,5 +154,28 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn lists_topics_by_tag() {
+        let sections = FakeSectionRepo::with(section());
+        let topics = FakeTopicRepo::new();
+        create_topic(
+            &sections,
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            &Slug::parse("general").unwrap(),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            tags(&["rust"]),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap()).await;
+        assert_eq!(listed.len(), 1);
+        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap()).await;
+        assert_eq!(empty.len(), 0);
     }
 }
