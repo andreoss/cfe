@@ -1,4 +1,5 @@
 mod auth;
+mod comment_repository;
 mod handlers;
 mod hasher;
 mod repository;
@@ -10,9 +11,9 @@ use axum::Router;
 use axum::http::{Method, header};
 use axum::routing::{get, patch, post};
 use handlers::{
-    AppState, create_topic_handler, get_profile_handler, get_topic_handler, list_sections_handler,
-    list_topics_by_tag_handler, list_topics_handler, register_handler, sign_in_handler,
-    sign_out_handler, update_bio_handler,
+    AppState, create_topic_handler, get_profile_handler, get_topic_handler, list_comments_handler,
+    list_sections_handler, list_topics_by_tag_handler, list_topics_handler, post_comment_handler,
+    register_handler, sign_in_handler, sign_out_handler, update_bio_handler,
 };
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -48,6 +49,10 @@ async fn main() {
             get(list_topics_handler).post(create_topic_handler),
         )
         .route("/api/topics/{id}", get(get_topic_handler))
+        .route(
+            "/api/topics/{id}/comments",
+            get(list_comments_handler).post(post_comment_handler),
+        )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .with_state(state)
         .layer(cors);

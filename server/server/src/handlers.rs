@@ -1,21 +1,23 @@
 use crate::auth::{CurrentUser, SESSION_COOKIE};
+use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
 use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    CreateTopicError, ListTopicsError, RegisterError, SectionRepository, SessionRepository,
-    SignInError, UpdateBioError, UserRepository, create_session, create_topic, get_topic,
-    list_sections, list_topics, list_topics_by_tag, register, sign_in, sign_out as end_session,
-    update_bio,
+    CreateTopicError, ListTopicsError, PostCommentError, RegisterError, SectionRepository,
+    SessionRepository, SignInError, UpdateBioError, UserRepository, create_session, create_topic,
+    get_topic, list_comments, list_sections, list_topics, list_topics_by_tag, post_comment,
+    register, sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, Email, Session, SessionId, SessionToken, Slug, TagSet, Title, UserId, Username,
+    Bio, Body, CommentId, Email, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
+    UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -84,6 +86,22 @@ pub struct TopicResponse {
     pub title: String,
     pub body: String,
     pub tags: Vec<String>,
+    pub author_username: String,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateCommentRequest {
+    pub body: String,
+    pub parent_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CommentResponse {
+    pub id: String,
+    pub topic_id: String,
+    pub parent_id: Option<String>,
+    pub body: String,
     pub author_username: String,
     pub created_at: String,
 }
@@ -356,6 +374,82 @@ pub async fn list_topics_by_tag_handler(
         responses.push(topic_response(&state.pool, topic).await?.0);
     }
     Ok(Json(responses))
+}
+
+async fn comment_response(
+    pool: &PgPool,
+    comment: &domain::Comment,
+) -> Result<CommentResponse, (StatusCode, Json<ErrorResponse>)> {
+    let users = PgUserRepository::new(pool.clone());
+    let author = users
+        .find_by_id(comment.author_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "author missing"))?;
+    let created_at = comment
+        .created_at()
+        .format(&Rfc3339)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?;
+    Ok(CommentResponse {
+        id: comment.id().as_uuid().to_string(),
+        topic_id: comment.topic_id().as_uuid().to_string(),
+        parent_id: comment.parent_id().map(|p| p.as_uuid().to_string()),
+        body: comment.body().as_str().to_owned(),
+        author_username: author.username().as_str().to_owned(),
+        created_at,
+    })
+}
+
+pub async fn list_comments_handler(
+    State(state): State<AppState>,
+    Path(topic_id): Path<uuid::Uuid>,
+) -> Result<Json<Vec<CommentResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let comments = PgCommentRepository::new(state.pool.clone());
+    let list = list_comments(&comments, TopicId::new(topic_id)).await;
+    let mut responses = Vec::with_capacity(list.len());
+    for comment in &list {
+        responses.push(comment_response(&state.pool, comment).await?);
+    }
+    Ok(Json(responses))
+}
+
+pub async fn post_comment_handler(
+    State(state): State<AppState>,
+    Path(topic_id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<CreateCommentRequest>,
+) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let comment_body = Body::parse(&body.body)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
+    let parent_id = body
+        .parent_id
+        .map(|raw| {
+            uuid::Uuid::parse_str(&raw)
+                .map(CommentId::new)
+                .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid parent_id"))
+        })
+        .transpose()?;
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let comments = PgCommentRepository::new(state.pool.clone());
+    let comment = post_comment(
+        &topics,
+        &comments,
+        CommentId::new(uuid::Uuid::new_v4()),
+        TopicId::new(topic_id),
+        current.id(),
+        parent_id,
+        comment_body,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        PostCommentError::TopicNotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        PostCommentError::ParentNotFound => error(StatusCode::NOT_FOUND, "parent not found"),
+        PostCommentError::ParentInDifferentTopic => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "parent in different topic",
+        ),
+    })?;
+    Ok(Json(comment_response(&state.pool, &comment).await?))
 }
 
 #[cfg(test)]
