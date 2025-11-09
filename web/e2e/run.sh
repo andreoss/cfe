@@ -41,3 +41,4 @@ node e2e/register-sign-in.mjs
 node e2e/profile.mjs
 node e2e/topics.mjs
 node e2e/tags.mjs
+node e2e/comments.mjs

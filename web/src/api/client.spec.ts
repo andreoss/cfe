@@ -11,7 +11,21 @@ import {
   createTopic,
   getTopic,
   getTopicsByTag,
+  getComments,
+  postComment,
 } from './client'
+
+function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: '1',
+    topic_id: 't1',
+    parent_id: null,
+    body: 'Nice topic!',
+    author_username: 'alice_01',
+    created_at: '2026-09-03T00:00:00Z',
+    ...overrides,
+  }
+}
 
 function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -275,5 +289,66 @@ describe('getTopicsByTag', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
     const result = await getTopicsByTag('nothing')
     expect(result).toEqual({ ok: true, value: [] })
+  })
+})
+
+describe('getComments', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Comment type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawComment()]))
+    const result = await getComments('t1')
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: '1',
+          topicId: 't1',
+          parentId: null,
+          body: 'Nice topic!',
+          authorUsername: 'alice_01',
+          createdAt: '2026-09-03T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  it('returns an error for an unknown topic', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'topic not found' }))
+    const result = await getComments('ghost')
+    expect(result).toEqual({ ok: false, error: 'topic not found' })
+  })
+})
+
+describe('postComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the created comment mapped to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawComment()))
+    const result = await postComment('t1', 'Nice topic!', null)
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.parentId).toBeNull()
+  })
+
+  it('sends the parent_id when replying', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment({ parent_id: 'c1' })))
+    await postComment('t1', 'I agree.', 'c1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({ body: 'I agree.', parent_id: 'c1' }),
+      }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await postComment('t1', 'Nice topic!', null)
+    expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

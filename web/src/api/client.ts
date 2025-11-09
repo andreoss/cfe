@@ -10,6 +10,14 @@ export type Topic = {
   authorUsername: string
   createdAt: string
 }
+export type Comment = {
+  id: string
+  topicId: string
+  parentId: string | null
+  body: string
+  authorUsername: string
+  createdAt: string
+}
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -126,4 +134,48 @@ export async function getTopicsByTag(tag: string): Promise<ApiResult<Topic[]>> {
     method: 'GET',
   })
   return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+}
+
+type RawComment = {
+  id: string
+  topic_id: string
+  parent_id: string | null
+  body: string
+  author_username: string
+  created_at: string
+}
+
+function toComment(raw: RawComment): Comment {
+  return {
+    id: raw.id,
+    topicId: raw.topic_id,
+    parentId: raw.parent_id,
+    body: raw.body,
+    authorUsername: raw.author_username,
+    createdAt: raw.created_at,
+  }
+}
+
+export async function getComments(topicId: string): Promise<ApiResult<Comment[]>> {
+  const result = await request<RawComment[]>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments`,
+    { method: 'GET' },
+  )
+  return result.ok ? { ok: true, value: result.value.map(toComment) } : result
+}
+
+export async function postComment(
+  topicId: string,
+  body: string,
+  parentId: string | null,
+): Promise<ApiResult<Comment>> {
+  const result = await request<RawComment>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, parent_id: parentId }),
+    },
+  )
+  return result.ok ? { ok: true, value: toComment(result.value) } : result
 }
