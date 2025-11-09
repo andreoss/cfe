@@ -49,11 +49,18 @@ async fn main() {
             "/api/sections/{slug}/topics",
             get(list_topics_handler).post(create_topic_handler),
         )
-        .route("/api/topics/{id}", get(get_topic_handler))
+        .route(
+            "/api/topics/{id}",
+            get(get_topic_handler).patch(handlers::edit_topic_handler),
+        )
         .route("/api/topics/{id}/delete", post(delete_topic_handler))
         .route(
             "/api/topics/{id}/comments",
             get(list_comments_handler).post(post_comment_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/comments/{id}",
+            patch(handlers::edit_comment_handler),
         )
         .route(
             "/api/topics/{topic_id}/comments/{id}/delete",

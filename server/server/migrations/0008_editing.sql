@@ -1,0 +1,5 @@
+ALTER TABLE topics ADD COLUMN edited_by UUID REFERENCES users (id);
+ALTER TABLE topics ADD COLUMN edited_at TIMESTAMPTZ;
+
+ALTER TABLE comments ADD COLUMN edited_by UUID REFERENCES users (id);
+ALTER TABLE comments ADD COLUMN edited_at TIMESTAMPTZ;

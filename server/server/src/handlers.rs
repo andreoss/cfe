@@ -6,11 +6,11 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    CreateTopicError, DeleteError, ListTopicsError, PostCommentError, RegisterError,
+    CreateTopicError, DeleteError, EditError, ListTopicsError, PostCommentError, RegisterError,
     SectionRepository, SessionRepository, SignInError, UpdateBioError, UserRepository,
-    create_session, create_topic, delete_comment, delete_topic, get_topic, list_comments,
-    list_sections, list_topics, list_topics_by_tag, post_comment, register, sign_in,
-    sign_out as end_session, update_bio,
+    create_session, create_topic, delete_comment, delete_topic, edit_comment, edit_topic,
+    get_topic, list_comments, list_sections, list_topics, list_topics_by_tag, post_comment,
+    register, sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -92,6 +92,7 @@ pub struct TopicResponse {
     pub created_at: String,
     pub deleted: bool,
     pub deleted_reason: Option<String>,
+    pub edited: bool,
 }
 
 #[derive(Deserialize)]
@@ -110,11 +111,25 @@ pub struct CommentResponse {
     pub created_at: String,
     pub deleted: bool,
     pub deleted_reason: Option<String>,
+    pub edited: bool,
 }
 
 #[derive(Deserialize)]
 pub struct DeleteRequest {
     pub reason: String,
+}
+
+#[derive(Deserialize)]
+pub struct EditTopicRequest {
+    pub title: String,
+    pub body: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct EditCommentRequest {
+    pub body: String,
 }
 
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>) {
@@ -124,6 +139,14 @@ fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>)
             error: message.to_owned(),
         }),
     )
+}
+
+fn edit_error(e: EditError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        EditError::NotFound => error(StatusCode::NOT_FOUND, "not found"),
+        EditError::NotAuthorized => error(StatusCode::FORBIDDEN, "not the author"),
+        EditError::Deleted => error(StatusCode::CONFLICT, "removed content cannot be edited"),
+    }
 }
 
 fn role_str(role: domain::Role) -> &'static str {
@@ -300,6 +323,7 @@ async fn topic_response(
         created_at,
         deleted: topic.is_deleted(),
         deleted_reason: topic.deletion().map(|d| d.reason().as_str().to_owned()),
+        edited: topic.is_edited(),
     }))
 }
 
@@ -419,6 +443,7 @@ async fn comment_response(
         created_at,
         deleted: comment.is_deleted(),
         deleted_reason: comment.deletion().map(|d| d.reason().as_str().to_owned()),
+        edited: comment.is_edited(),
     })
 }
 
@@ -520,6 +545,54 @@ pub async fn delete_comment_handler(
         DeleteError::NotFound => error(StatusCode::NOT_FOUND, "comment not found"),
         DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
+    Ok(Json(comment_response(&state.pool, &comment).await?))
+}
+
+pub async fn edit_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<EditTopicRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let title = Title::parse(&body.title)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid title"))?;
+    let topic_body = Body::parse(&body.body)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
+    let tags = TagSet::parse(&body.tags)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let topic = edit_topic(
+        &topics,
+        &current,
+        TopicId::new(id),
+        title,
+        topic_body,
+        tags,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(edit_error)?;
+    topic_response(&state.pool, &topic).await
+}
+
+pub async fn edit_comment_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<EditCommentRequest>,
+) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let comment_body = Body::parse(&body.body)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
+    let comments = PgCommentRepository::new(state.pool.clone());
+    let comment = edit_comment(
+        &comments,
+        &current,
+        CommentId::new(id),
+        comment_body,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(edit_error)?;
     Ok(Json(comment_response(&state.pool, &comment).await?))
 }
 

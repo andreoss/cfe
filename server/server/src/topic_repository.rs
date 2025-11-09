@@ -1,5 +1,5 @@
 use app::TopicRepository;
-use domain::{Body, Deletion, Reason, SectionId, TagSet, Title, Topic, TopicId, UserId};
+use domain::{Body, Deletion, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -14,7 +14,7 @@ impl PgTopicRepository {
 }
 
 const SELECT_COLUMNS: &str = "id, section_id, author_id, title, body, tags, created_at, \
-    deleted_reason, deleted_by, deleted_at";
+    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 #[derive(FromRow)]
 struct Row {
@@ -28,6 +28,17 @@ struct Row {
     deleted_reason: Option<String>,
     deleted_by: Option<uuid::Uuid>,
     deleted_at: Option<OffsetDateTime>,
+    edited_by: Option<uuid::Uuid>,
+    edited_at: Option<OffsetDateTime>,
+}
+
+fn to_revision(row: &Row) -> Option<Revision> {
+    match (row.edited_by, row.edited_at) {
+        (Some(editor_id), Some(edited_at)) => {
+            Some(Revision::new(UserId::new(editor_id), edited_at))
+        }
+        _ => None,
+    }
 }
 
 fn to_deletion(row: &Row) -> Option<Deletion> {
@@ -43,6 +54,7 @@ fn to_deletion(row: &Row) -> Option<Deletion> {
 
 fn to_topic(row: Row) -> Topic {
     let deleted = to_deletion(&row);
+    let edited = to_revision(&row);
     Topic::from_parts(
         TopicId::new(row.id),
         SectionId::new(row.section_id),
@@ -52,7 +64,7 @@ fn to_topic(row: Row) -> Topic {
         TagSet::parse(&row.tags).expect("stored tags are valid"),
         row.created_at,
         deleted,
-        None,
+        edited,
     )
 }
 
@@ -87,7 +99,7 @@ impl TopicRepository for PgTopicRepository {
     async fn update(&self, topic: &Topic) {
         sqlx::query(
             "UPDATE topics SET title = $2, body = $3, tags = $4, deleted_reason = $5, \
-             deleted_by = $6, deleted_at = $7 WHERE id = $1",
+             deleted_by = $6, deleted_at = $7, edited_by = $8, edited_at = $9 WHERE id = $1",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.title().as_str())
@@ -96,6 +108,8 @@ impl TopicRepository for PgTopicRepository {
         .bind(topic.deletion().map(|d| d.reason().as_str()))
         .bind(topic.deletion().map(|d| d.moderator_id().as_uuid()))
         .bind(topic.deletion().map(|d| d.deleted_at()))
+        .bind(topic.revision().map(|r| r.editor_id().as_uuid()))
+        .bind(topic.revision().map(|r| r.edited_at()))
         .execute(&self.pool)
         .await
         .expect("update topic");

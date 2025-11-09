@@ -1,5 +1,5 @@
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Reason, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Reason, Revision, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -14,7 +14,7 @@ impl PgCommentRepository {
 }
 
 const SELECT_COLUMNS: &str = "id, topic_id, author_id, parent_id, body, created_at, \
-    deleted_reason, deleted_by, deleted_at";
+    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 #[derive(FromRow)]
 struct Row {
@@ -27,6 +27,17 @@ struct Row {
     deleted_reason: Option<String>,
     deleted_by: Option<uuid::Uuid>,
     deleted_at: Option<OffsetDateTime>,
+    edited_by: Option<uuid::Uuid>,
+    edited_at: Option<OffsetDateTime>,
+}
+
+fn to_revision(row: &Row) -> Option<Revision> {
+    match (row.edited_by, row.edited_at) {
+        (Some(editor_id), Some(edited_at)) => {
+            Some(Revision::new(UserId::new(editor_id), edited_at))
+        }
+        _ => None,
+    }
 }
 
 fn to_deletion(row: &Row) -> Option<Deletion> {
@@ -42,6 +53,7 @@ fn to_deletion(row: &Row) -> Option<Deletion> {
 
 fn to_comment(row: Row) -> Comment {
     let deleted = to_deletion(&row);
+    let edited = to_revision(&row);
     Comment::from_parts(
         CommentId::new(row.id),
         TopicId::new(row.topic_id),
@@ -50,7 +62,7 @@ fn to_comment(row: Row) -> Comment {
         Body::parse(&row.body).expect("stored body is valid"),
         row.created_at,
         deleted,
-        None,
+        edited,
     )
 }
 
@@ -75,13 +87,15 @@ impl CommentRepository for PgCommentRepository {
     async fn update(&self, comment: &Comment) {
         sqlx::query(
             "UPDATE comments SET body = $2, deleted_reason = $3, deleted_by = $4, \
-             deleted_at = $5 WHERE id = $1",
+             deleted_at = $5, edited_by = $6, edited_at = $7 WHERE id = $1",
         )
         .bind(comment.id().as_uuid())
         .bind(comment.body().as_str())
         .bind(comment.deletion().map(|d| d.reason().as_str()))
         .bind(comment.deletion().map(|d| d.moderator_id().as_uuid()))
         .bind(comment.deletion().map(|d| d.deleted_at()))
+        .bind(comment.revision().map(|r| r.editor_id().as_uuid()))
+        .bind(comment.revision().map(|r| r.edited_at()))
         .execute(&self.pool)
         .await
         .expect("update comment");
