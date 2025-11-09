@@ -1,7 +1,12 @@
 #![cfg(test)]
 
-use crate::ports::{PasswordHasher, SessionRepository, UserRepository};
-use domain::{Email, Session, SessionId, SessionToken, User, UserId, Username};
+use crate::ports::{
+    PasswordHasher, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+};
+use domain::{
+    Email, Section, SectionId, Session, SessionId, SessionToken, Slug, Topic, TopicId, User,
+    UserId, Username,
+};
 use std::sync::Mutex;
 use time::OffsetDateTime;
 
@@ -118,5 +123,77 @@ impl SessionRepository for FakeSessionRepo {
 
     async fn delete(&self, id: SessionId) {
         self.sessions.lock().unwrap().retain(|s| s.id() != id);
+    }
+}
+
+pub struct FakeSectionRepo {
+    sections: Mutex<Vec<Section>>,
+}
+
+impl FakeSectionRepo {
+    pub fn new() -> Self {
+        Self {
+            sections: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn with(section: Section) -> Self {
+        Self {
+            sections: Mutex::new(vec![section]),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SectionRepository for FakeSectionRepo {
+    async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
+        self.sections
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|s| s.slug() == slug)
+            .cloned()
+    }
+
+    async fn list(&self) -> Vec<Section> {
+        self.sections.lock().unwrap().clone()
+    }
+}
+
+pub struct FakeTopicRepo {
+    topics: Mutex<Vec<Topic>>,
+}
+
+impl FakeTopicRepo {
+    pub fn new() -> Self {
+        Self {
+            topics: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl TopicRepository for FakeTopicRepo {
+    async fn save(&self, topic: &Topic) {
+        self.topics.lock().unwrap().push(topic.clone());
+    }
+
+    async fn find_by_id(&self, id: TopicId) -> Option<Topic> {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|t| t.id() == id)
+            .cloned()
+    }
+
+    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic> {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.section_id() == section_id)
+            .cloned()
+            .collect()
     }
 }

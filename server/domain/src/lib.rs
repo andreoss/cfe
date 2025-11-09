@@ -1,11 +1,21 @@
 mod bio;
+mod body;
 mod email;
+mod section;
 mod session;
+mod slug;
+mod title;
+mod topic;
 mod user;
 mod username;
 
 pub use bio::{Bio, BioError};
+pub use body::{Body, BodyError};
 pub use email::{Email, EmailError};
+pub use section::{Section, SectionId};
 pub use session::{Session, SessionId, SessionToken, SessionTokenError};
+pub use slug::{Slug, SlugError};
+pub use title::{Title, TitleError};
+pub use topic::{Topic, TopicId};
 pub use user::{User, UserId};
 pub use username::{Username, UsernameError};
