@@ -2,14 +2,16 @@ mod auth;
 mod handlers;
 mod hasher;
 mod repository;
+mod section_repository;
 mod session_repository;
+mod topic_repository;
 
 use axum::Router;
 use axum::http::{Method, header};
 use axum::routing::{get, patch, post};
 use handlers::{
-    AppState, get_profile_handler, register_handler, sign_in_handler, sign_out_handler,
-    update_bio_handler,
+    AppState, create_topic_handler, get_profile_handler, get_topic_handler, list_sections_handler,
+    list_topics_handler, register_handler, sign_in_handler, sign_out_handler, update_bio_handler,
 };
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -39,6 +41,12 @@ async fn main() {
         .route("/api/me", get(handlers::me_handler))
         .route("/api/me/bio", patch(update_bio_handler))
         .route("/api/users/{username}", get(get_profile_handler))
+        .route("/api/sections", get(list_sections_handler))
+        .route(
+            "/api/sections/{slug}/topics",
+            get(list_topics_handler).post(create_topic_handler),
+        )
+        .route("/api/topics/{id}", get(get_topic_handler))
         .with_state(state)
         .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());

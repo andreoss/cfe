@@ -1,18 +1,22 @@
 use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
+use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
+use crate::topic_repository::PgTopicRepository;
 use app::{
-    RegisterError, SessionRepository, SignInError, UpdateBioError, UserRepository, create_session,
-    register, sign_in, sign_out as end_session, update_bio,
+    CreateTopicError, ListTopicsError, RegisterError, SectionRepository, SessionRepository,
+    SignInError, UpdateBioError, UserRepository, create_session, create_topic, get_topic,
+    list_sections, list_topics, register, sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use domain::{Bio, Email, Session, SessionId, SessionToken, UserId, Username};
+use domain::{Bio, Body, Email, Session, SessionId, SessionToken, Slug, Title, UserId, Username};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 #[derive(Clone)]
@@ -54,6 +58,28 @@ pub struct ProfileResponse {
     pub id: String,
     pub username: String,
     pub bio: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SectionResponse {
+    pub slug: String,
+    pub title: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateTopicRequest {
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Serialize)]
+pub struct TopicResponse {
+    pub id: String,
+    pub section_slug: String,
+    pub title: String,
+    pub body: String,
+    pub author_username: String,
+    pub created_at: String,
 }
 
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>) {
@@ -196,6 +222,110 @@ pub async fn update_bio_handler(
             UpdateBioError::NotFound => error(StatusCode::NOT_FOUND, "user not found"),
         })?;
     Ok(to_profile_response(&updated))
+}
+
+async fn topic_response(
+    pool: &PgPool,
+    topic: &domain::Topic,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let sections = PgSectionRepository::new(pool.clone());
+    let users = PgUserRepository::new(pool.clone());
+    let section = sections
+        .find_by_id(topic.section_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "section missing"))?;
+    let author = users
+        .find_by_id(topic.author_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "author missing"))?;
+    let created_at = topic
+        .created_at()
+        .format(&Rfc3339)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?;
+    Ok(Json(TopicResponse {
+        id: topic.id().as_uuid().to_string(),
+        section_slug: section.slug().as_str().to_owned(),
+        title: topic.title().as_str().to_owned(),
+        body: topic.body().as_str().to_owned(),
+        author_username: author.username().as_str().to_owned(),
+        created_at,
+    }))
+}
+
+pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<SectionResponse>> {
+    let repo = PgSectionRepository::new(state.pool);
+    let sections = list_sections(&repo).await;
+    Json(
+        sections
+            .into_iter()
+            .map(|s| SectionResponse {
+                slug: s.slug().as_str().to_owned(),
+                title: s.title().as_str().to_owned(),
+            })
+            .collect(),
+    )
+}
+
+pub async fn list_topics_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let sections = PgSectionRepository::new(state.pool.clone());
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let list = list_topics(&sections, &topics, &slug)
+        .await
+        .map_err(|e| match e {
+            ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+        })?;
+    let mut responses = Vec::with_capacity(list.len());
+    for topic in &list {
+        responses.push(topic_response(&state.pool, topic).await?.0);
+    }
+    Ok(Json(responses))
+}
+
+pub async fn create_topic_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<CreateTopicRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let title = Title::parse(&body.title)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid title"))?;
+    let topic_body = Body::parse(&body.body)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
+    let sections = PgSectionRepository::new(state.pool.clone());
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let topic = create_topic(
+        &sections,
+        &topics,
+        domain::TopicId::new(uuid::Uuid::new_v4()),
+        &slug,
+        current.id(),
+        title,
+        topic_body,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        CreateTopicError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+    })?;
+    topic_response(&state.pool, &topic).await
+}
+
+pub async fn get_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let topic = get_topic(&topics, domain::TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+    topic_response(&state.pool, &topic).await
 }
 
 #[cfg(test)]

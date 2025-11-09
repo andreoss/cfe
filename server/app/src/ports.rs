@@ -29,6 +29,7 @@ pub trait SessionRepository {
 #[async_trait::async_trait]
 pub trait SectionRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section>;
+    async fn find_by_id(&self, id: SectionId) -> Option<Section>;
     async fn list(&self) -> Vec<Section>;
 }
 

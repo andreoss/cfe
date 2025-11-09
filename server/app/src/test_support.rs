@@ -155,6 +155,15 @@ impl SectionRepository for FakeSectionRepo {
             .cloned()
     }
 
+    async fn find_by_id(&self, id: SectionId) -> Option<Section> {
+        self.sections
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|s| s.id() == id)
+            .cloned()
+    }
+
     async fn list(&self) -> Vec<Section> {
         self.sections.lock().unwrap().clone()
     }
