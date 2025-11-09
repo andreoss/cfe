@@ -1,4 +1,5 @@
 mod comments;
+mod editing;
 mod moderation;
 mod ports;
 mod profile;
@@ -9,6 +10,7 @@ mod test_support;
 mod topics;
 
 pub use comments::{PostCommentError, list_comments, post_comment};
+pub use editing::{EditError, edit_comment, edit_topic};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use ports::{
     CommentRepository, PasswordHasher, SectionRepository, SessionRepository, TopicRepository,
