@@ -6,18 +6,19 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    CreateTopicError, ListTopicsError, PostCommentError, RegisterError, SectionRepository,
-    SessionRepository, SignInError, UpdateBioError, UserRepository, create_session, create_topic,
-    get_topic, list_comments, list_sections, list_topics, list_topics_by_tag, post_comment,
-    register, sign_in, sign_out as end_session, update_bio,
+    CreateTopicError, DeleteError, ListTopicsError, PostCommentError, RegisterError,
+    SectionRepository, SessionRepository, SignInError, UpdateBioError, UserRepository,
+    create_session, create_topic, delete_comment, delete_topic, get_topic, list_comments,
+    list_sections, list_topics, list_topics_by_tag, post_comment, register, sign_in,
+    sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, CommentId, Email, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
-    UserId, Username,
+    Bio, Body, CommentId, Email, Reason, Session, SessionId, SessionToken, Slug, TagSet, Title,
+    TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -46,6 +47,7 @@ pub struct SignInRequest {
 pub struct UserResponse {
     pub id: String,
     pub username: String,
+    pub role: String,
 }
 
 #[derive(Serialize)]
@@ -88,6 +90,8 @@ pub struct TopicResponse {
     pub tags: Vec<String>,
     pub author_username: String,
     pub created_at: String,
+    pub deleted: bool,
+    pub deleted_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +108,13 @@ pub struct CommentResponse {
     pub body: String,
     pub author_username: String,
     pub created_at: String,
+    pub deleted: bool,
+    pub deleted_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteRequest {
+    pub reason: String,
 }
 
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>) {
@@ -115,10 +126,18 @@ fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>)
     )
 }
 
+fn role_str(role: domain::Role) -> &'static str {
+    match role {
+        domain::Role::User => "user",
+        domain::Role::Moderator => "moderator",
+    }
+}
+
 fn to_response(user: &domain::User) -> Json<UserResponse> {
     Json(UserResponse {
         id: user.id().as_uuid().to_string(),
         username: user.username().as_str().to_owned(),
+        role: role_str(user.role()).to_owned(),
     })
 }
 
@@ -279,6 +298,8 @@ async fn topic_response(
             .collect(),
         author_username: author.username().as_str().to_owned(),
         created_at,
+        deleted: topic.is_deleted(),
+        deleted_reason: topic.deletion().map(|d| d.reason().as_str().to_owned()),
     }))
 }
 
@@ -396,6 +417,8 @@ async fn comment_response(
         body: comment.body().as_str().to_owned(),
         author_username: author.username().as_str().to_owned(),
         created_at,
+        deleted: comment.is_deleted(),
+        deleted_reason: comment.deletion().map(|d| d.reason().as_str().to_owned()),
     })
 }
 
@@ -448,6 +471,54 @@ pub async fn post_comment_handler(
             StatusCode::UNPROCESSABLE_ENTITY,
             "parent in different topic",
         ),
+    })?;
+    Ok(Json(comment_response(&state.pool, &comment).await?))
+}
+
+pub async fn delete_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<DeleteRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let topic = delete_topic(
+        &topics,
+        &current,
+        TopicId::new(id),
+        reason,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        DeleteError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
+    })?;
+    topic_response(&state.pool, &topic).await
+}
+
+pub async fn delete_comment_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<DeleteRequest>,
+) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let comments = PgCommentRepository::new(state.pool.clone());
+    let comment = delete_comment(
+        &comments,
+        &current,
+        CommentId::new(id),
+        reason,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        DeleteError::NotFound => error(StatusCode::NOT_FOUND, "comment not found"),
+        DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
     Ok(Json(comment_response(&state.pool, &comment).await?))
 }
