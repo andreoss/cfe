@@ -68,6 +68,10 @@ impl UserRepository for FakeUserRepo {
             *existing = user.clone();
         }
     }
+
+    async fn count(&self) -> u64 {
+        self.users.lock().unwrap().len() as u64
+    }
 }
 
 pub struct FakeHasher;
@@ -222,6 +226,13 @@ impl TopicRepository for FakeTopicRepo {
             .cloned()
             .collect()
     }
+
+    async fn update(&self, topic: &Topic) {
+        let mut topics = self.topics.lock().unwrap();
+        if let Some(existing) = topics.iter_mut().find(|t| t.id() == topic.id()) {
+            *existing = topic.clone();
+        }
+    }
 }
 
 pub struct FakeCommentRepo {
@@ -259,5 +270,12 @@ impl CommentRepository for FakeCommentRepo {
             .filter(|c| c.topic_id() == topic_id)
             .cloned()
             .collect()
+    }
+
+    async fn update(&self, comment: &Comment) {
+        let mut comments = self.comments.lock().unwrap();
+        if let Some(existing) = comments.iter_mut().find(|c| c.id() == comment.id()) {
+            *existing = comment.clone();
+        }
     }
 }

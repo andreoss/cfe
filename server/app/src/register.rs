@@ -22,7 +22,10 @@ pub async fn register(
         return Err(RegisterError::EmailTaken);
     }
     let password_hash = hasher.hash(plain_password);
-    let user = User::register(new_id, username, email, password_hash);
+    let mut user = User::register(new_id, username, email, password_hash);
+    if repo.count().await == 0 {
+        user = user.promoted_to_moderator();
+    }
     repo.save(&user).await;
     Ok(user)
 }
@@ -57,6 +60,46 @@ mod tests {
         .unwrap();
         assert_eq!(user.password_hash(), "hashed:secret");
         assert!(repo.find_by_username(&username("alice_01")).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn first_registered_user_is_a_moderator() {
+        let repo = FakeUserRepo::new();
+        let hasher = FakeHasher;
+        let user = register(
+            &repo,
+            &hasher,
+            UserId::new(uuid::Uuid::nil()),
+            username("alice_01"),
+            email("alice@example.com"),
+            "secret",
+        )
+        .await
+        .unwrap();
+        assert_eq!(user.role(), domain::Role::Moderator);
+    }
+
+    #[tokio::test]
+    async fn later_registered_users_are_plain_users() {
+        let existing = User::register(
+            UserId::new(uuid::Uuid::nil()),
+            username("alice_01"),
+            email("alice@example.com"),
+            "hash".to_owned(),
+        );
+        let repo = FakeUserRepo::with(existing);
+        let hasher = FakeHasher;
+        let user = register(
+            &repo,
+            &hasher,
+            UserId::new(uuid::Uuid::max()),
+            username("bob_02"),
+            email("bob@example.com"),
+            "secret",
+        )
+        .await
+        .unwrap();
+        assert_eq!(user.role(), domain::Role::User);
     }
 
     #[tokio::test]

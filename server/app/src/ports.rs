@@ -11,6 +11,7 @@ pub trait UserRepository {
     async fn find_by_id(&self, id: UserId) -> Option<User>;
     async fn save(&self, user: &User);
     async fn update(&self, user: &User);
+    async fn count(&self) -> u64;
 }
 
 pub trait PasswordHasher {
@@ -36,6 +37,7 @@ pub trait SectionRepository {
 #[async_trait::async_trait]
 pub trait TopicRepository {
     async fn save(&self, topic: &Topic);
+    async fn update(&self, topic: &Topic);
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
     async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
@@ -44,6 +46,7 @@ pub trait TopicRepository {
 #[async_trait::async_trait]
 pub trait CommentRepository {
     async fn save(&self, comment: &Comment);
+    async fn update(&self, comment: &Comment);
     async fn find_by_id(&self, id: CommentId) -> Option<Comment>;
     async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment>;
 }

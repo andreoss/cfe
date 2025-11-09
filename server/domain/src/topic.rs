@@ -1,4 +1,4 @@
-use crate::{Body, SectionId, TagSet, Title, UserId};
+use crate::{Body, Deletion, SectionId, TagSet, Title, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +23,7 @@ pub struct Topic {
     body: Body,
     tags: TagSet,
     created_at: OffsetDateTime,
+    deleted: Option<Deletion>,
 }
 
 impl Topic {
@@ -43,6 +44,29 @@ impl Topic {
             body,
             tags,
             created_at,
+            deleted: None,
+        }
+    }
+
+    pub fn from_parts(
+        id: TopicId,
+        section_id: SectionId,
+        author_id: UserId,
+        title: Title,
+        body: Body,
+        tags: TagSet,
+        created_at: OffsetDateTime,
+        deleted: Option<Deletion>,
+    ) -> Self {
+        Self {
+            id,
+            section_id,
+            author_id,
+            title,
+            body,
+            tags,
+            created_at,
+            deleted,
         }
     }
 
@@ -73,14 +97,30 @@ impl Topic {
     pub fn created_at(&self) -> OffsetDateTime {
         self.created_at
     }
+
+    pub fn deletion(&self) -> Option<&Deletion> {
+        self.deleted.as_ref()
+    }
+
+    pub fn is_deleted(&self) -> bool {
+        self.deleted.is_some()
+    }
+
+    pub fn with_deletion(&self, deletion: Deletion) -> Self {
+        Self {
+            deleted: Some(deletion),
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Reason;
 
     #[test]
-    fn constructs_with_given_fields() {
+    fn constructs_with_given_fields_and_not_deleted() {
         let id = TopicId::new(uuid::Uuid::nil());
         let section_id = SectionId::new(uuid::Uuid::nil());
         let author_id = UserId::new(uuid::Uuid::nil());
@@ -104,5 +144,32 @@ mod tests {
         assert_eq!(topic.body(), &body);
         assert_eq!(topic.tags(), &tags);
         assert_eq!(topic.created_at(), now);
+        assert!(!topic.is_deleted());
+        assert_eq!(topic.deletion(), None);
+    }
+
+    #[test]
+    fn with_deletion_marks_deleted_and_keeps_identity() {
+        let id = TopicId::new(uuid::Uuid::nil());
+        let section_id = SectionId::new(uuid::Uuid::nil());
+        let author_id = UserId::new(uuid::Uuid::nil());
+        let topic = Topic::new(
+            id,
+            section_id,
+            author_id,
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let deletion = Deletion::new(
+            UserId::new(uuid::Uuid::max()),
+            Reason::parse("spam").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let deleted = topic.with_deletion(deletion.clone());
+        assert_eq!(deleted.id(), topic.id());
+        assert!(deleted.is_deleted());
+        assert_eq!(deleted.deletion(), Some(&deletion));
     }
 }
