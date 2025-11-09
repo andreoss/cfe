@@ -30,6 +30,10 @@ watch(() => props.id, load, { immediate: true })
         by <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
         in <RouterLink :to="`/s/${topic.sectionSlug}`">{{ topic.sectionSlug }}</RouterLink>
       </p>
+      <p v-if="topic.tags.length > 0">
+        Tags:
+        <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
+      </p>
       <p>{{ topic.body }}</p>
     </template>
   </main>

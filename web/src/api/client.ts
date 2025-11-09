@@ -6,6 +6,7 @@ export type Topic = {
   sectionSlug: string
   title: string
   body: string
+  tags: string[]
   authorUsername: string
   createdAt: string
 }
@@ -71,6 +72,7 @@ type RawTopic = {
   section_slug: string
   title: string
   body: string
+  tags: string[]
   author_username: string
   created_at: string
 }
@@ -81,6 +83,7 @@ function toTopic(raw: RawTopic): Topic {
     sectionSlug: raw.section_slug,
     title: raw.title,
     body: raw.body,
+    tags: raw.tags,
     authorUsername: raw.author_username,
     createdAt: raw.created_at,
   }
@@ -101,11 +104,12 @@ export async function createTopic(
   slug: string,
   title: string,
   body: string,
+  tags: string[],
 ): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body }),
+    body: JSON.stringify({ title, body, tags }),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
@@ -115,4 +119,11 @@ export async function getTopic(id: string): Promise<ApiResult<Topic>> {
     method: 'GET',
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function getTopicsByTag(tag: string): Promise<ApiResult<Topic[]>> {
+  const result = await request<RawTopic[]>(`/api/tags/${encodeURIComponent(tag)}/topics`, {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
 }

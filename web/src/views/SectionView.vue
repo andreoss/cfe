@@ -11,7 +11,15 @@ const loadError = ref('')
 const creating = ref(false)
 const titleDraft = ref('')
 const bodyDraft = ref('')
+const tagsDraft = ref('')
 const formError = ref('')
+
+function parseTags(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+}
 
 async function load() {
   loadError.value = ''
@@ -27,13 +35,19 @@ watch(() => props.slug, load, { immediate: true })
 
 async function onCreate() {
   formError.value = ''
-  const result = await createTopic(props.slug, titleDraft.value, bodyDraft.value)
+  const result = await createTopic(
+    props.slug,
+    titleDraft.value,
+    bodyDraft.value,
+    parseTags(tagsDraft.value),
+  )
   if (!result.ok) {
     formError.value = result.error
     return
   }
   titleDraft.value = ''
   bodyDraft.value = ''
+  tagsDraft.value = ''
   creating.value = false
   await load()
 }
@@ -47,6 +61,7 @@ async function onCreate() {
       <li v-for="topic in topics" :key="topic.id">
         <RouterLink :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
         by {{ topic.authorUsername }}
+        <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
       </li>
     </ul>
     <p v-if="topics.length === 0 && !loadError">No topics yet.</p>
@@ -61,6 +76,10 @@ async function onCreate() {
         <label>
           Body
           <textarea v-model="bodyDraft" name="body" rows="6"></textarea>
+        </label>
+        <label>
+          Tags (comma-separated)
+          <input v-model="tagsDraft" name="tags" type="text" />
         </label>
         <p v-if="formError" role="alert">{{ formError }}</p>
         <button type="submit">Post</button>

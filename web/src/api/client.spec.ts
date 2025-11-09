@@ -10,6 +10,7 @@ import {
   getTopics,
   createTopic,
   getTopic,
+  getTopicsByTag,
 } from './client'
 
 function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
@@ -18,6 +19,7 @@ function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
     section_slug: 'general',
     title: 'Hello',
     body: 'World',
+    tags: ['rust'],
     author_username: 'alice_01',
     created_at: '2026-09-03T00:00:00Z',
     ...overrides,
@@ -192,6 +194,7 @@ describe('getTopics', () => {
           sectionSlug: 'general',
           title: 'Hello',
           body: 'World',
+          tags: ['rust'],
           authorUsername: 'alice_01',
           createdAt: '2026-09-03T00:00:00Z',
         },
@@ -213,14 +216,26 @@ describe('createTopic', () => {
 
   it('returns the created topic mapped to camelCase', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTopic()))
-    const result = await createTopic('general', 'Hello', 'World')
+    const result = await createTopic('general', 'Hello', 'World', ['rust'])
     expect(result.ok).toBe(true)
     expect(result.ok && result.value.sectionSlug).toBe('general')
   })
 
+  it('sends the tags in the request body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust', 'tips'])
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({ title: 'Hello', body: 'World', tags: ['rust', 'tips'] }),
+      }),
+    )
+  })
+
   it('returns an error when not authenticated', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
-    const result = await createTopic('general', 'Hello', 'World')
+    const result = await createTopic('general', 'Hello', 'World', [])
     expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })
@@ -241,5 +256,24 @@ describe('getTopic', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'topic not found' }))
     const result = await getTopic('ghost')
     expect(result).toEqual({ ok: false, error: 'topic not found' })
+  })
+})
+
+describe('getTopicsByTag', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns topics mapped to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    const result = await getTopicsByTag('rust')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value[0]?.tags).toEqual(['rust'])
+  })
+
+  it('returns an empty list for a tag with no topics', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getTopicsByTag('nothing')
+    expect(result).toEqual({ ok: true, value: [] })
   })
 })
