@@ -4,6 +4,7 @@ mod moderation;
 mod ports;
 mod profile;
 mod register;
+mod search;
 mod session;
 mod sign_in;
 mod test_support;
@@ -13,11 +14,12 @@ pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use ports::{
-    CommentRepository, PasswordHasher, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    CommentRepository, PasswordHasher, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository, UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use register::{RegisterError, register};
+pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
 pub use sign_in::{SignInError, sign_in};
 pub use topics::{

@@ -1,12 +1,12 @@
 #![cfg(test)]
 
 use crate::ports::{
-    CommentRepository, PasswordHasher, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    CommentRepository, PasswordHasher, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository, UserRepository,
 };
 use domain::{
-    Comment, CommentId, Email, Section, SectionId, Session, SessionId, SessionToken, Slug, Topic,
-    TopicId, User, UserId, Username,
+    Comment, CommentId, Email, Query, SearchHit, Section, SectionId, Session, SessionId,
+    SessionToken, Slug, Topic, TopicId, User, UserId, Username,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -277,5 +277,31 @@ impl CommentRepository for FakeCommentRepo {
         if let Some(existing) = comments.iter_mut().find(|c| c.id() == comment.id()) {
             *existing = comment.clone();
         }
+    }
+}
+
+pub struct FakeSearchRepo {
+    hits: Vec<SearchHit>,
+    last_query: Mutex<Option<String>>,
+}
+
+impl FakeSearchRepo {
+    pub fn with(hits: Vec<SearchHit>) -> Self {
+        Self {
+            hits,
+            last_query: Mutex::new(None),
+        }
+    }
+
+    pub fn last_query(&self) -> Option<String> {
+        self.last_query.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl SearchRepository for FakeSearchRepo {
+    async fn search(&self, query: &Query) -> Vec<SearchHit> {
+        *self.last_query.lock().unwrap() = Some(query.as_str().to_owned());
+        self.hits.clone()
     }
 }
