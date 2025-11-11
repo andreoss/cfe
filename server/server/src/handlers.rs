@@ -2,6 +2,7 @@ use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
+use crate::search_repository::PgSearchRepository;
 use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
@@ -10,15 +11,15 @@ use app::{
     SectionRepository, SessionRepository, SignInError, UpdateBioError, UserRepository,
     create_session, create_topic, delete_comment, delete_topic, edit_comment, edit_topic,
     get_topic, list_comments, list_sections, list_topics, list_topics_by_tag, post_comment,
-    register, sign_in, sign_out as end_session, update_bio,
+    register, search, sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, CommentId, Email, Reason, Session, SessionId, SessionToken, Slug, TagSet, Title,
-    TopicId, UserId, Username,
+    Bio, Body, CommentId, Email, Reason, SearchHit, Session, SessionId, SessionToken, Slug, TagSet,
+    Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -130,6 +131,18 @@ pub struct EditTopicRequest {
 #[derive(Deserialize)]
 pub struct EditCommentRequest {
     pub body: String,
+}
+
+#[derive(Deserialize)]
+pub struct SearchParams {
+    pub q: String,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SearchHitResponse {
+    Topic(TopicResponse),
+    Comment(CommentResponse),
 }
 
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorResponse>) {
@@ -594,6 +607,28 @@ pub async fn edit_comment_handler(
     .await
     .map_err(edit_error)?;
     Ok(Json(comment_response(&state.pool, &comment).await?))
+}
+
+pub async fn search_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<SearchParams>,
+) -> Result<Json<Vec<SearchHitResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let query = domain::Query::parse(&params.q)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid query"))?;
+    let repo = PgSearchRepository::new(state.pool.clone());
+    let hits = search(&repo, &query).await;
+    let mut responses = Vec::with_capacity(hits.len());
+    for hit in &hits {
+        match hit {
+            SearchHit::Topic(topic) => responses.push(SearchHitResponse::Topic(
+                topic_response(&state.pool, topic).await?.0,
+            )),
+            SearchHit::Comment(comment) => responses.push(SearchHitResponse::Comment(
+                comment_response(&state.pool, comment).await?,
+            )),
+        }
+    }
+    Ok(Json(responses))
 }
 
 #[cfg(test)]

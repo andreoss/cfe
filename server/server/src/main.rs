@@ -3,6 +3,7 @@ mod comment_repository;
 mod handlers;
 mod hasher;
 mod repository;
+mod search_repository;
 mod section_repository;
 mod session_repository;
 mod topic_repository;
@@ -67,6 +68,7 @@ async fn main() {
             post(delete_comment_handler),
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
+        .route("/api/search", get(handlers::search_handler))
         .with_state(state)
         .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
