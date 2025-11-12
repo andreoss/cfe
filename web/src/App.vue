@@ -14,6 +14,7 @@ onMounted(() => {
   <header>
     <nav>
       <RouterLink to="/">Home</RouterLink>
+      <RouterLink to="/search">Search</RouterLink>
       <template v-if="auth.currentUser">
         <RouterLink :to="`/u/${auth.currentUser.username}`">{{
           auth.currentUser.username

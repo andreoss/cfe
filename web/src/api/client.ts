@@ -252,3 +252,27 @@ export async function editComment(
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result
 }
+
+export type SearchHit =
+  | { kind: 'topic'; topic: Topic }
+  | { kind: 'comment'; comment: Comment }
+
+type RawSearchHit =
+  | ({ kind: 'topic' } & RawTopic)
+  | ({ kind: 'comment' } & RawComment)
+
+export async function search(query: string): Promise<ApiResult<SearchHit[]>> {
+  const result = await request<RawSearchHit[]>(
+    `/api/search?q=${encodeURIComponent(query)}`,
+    { method: 'GET' },
+  )
+  if (!result.ok) return result
+  return {
+    ok: true,
+    value: result.value.map((raw) =>
+      raw.kind === 'topic'
+        ? { kind: 'topic', topic: toTopic(raw) }
+        : { kind: 'comment', comment: toComment(raw) },
+    ),
+  }
+}

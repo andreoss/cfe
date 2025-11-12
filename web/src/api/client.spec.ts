@@ -17,6 +17,7 @@ import {
   deleteComment,
   editTopic,
   editComment,
+  search,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -463,5 +464,43 @@ describe('editComment', () => {
     )
     const result = await editComment('t1', 'c1', 'New')
     expect(result).toEqual({ ok: false, error: 'removed content cannot be edited' })
+  })
+})
+
+describe('search', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps a mixed result list into topic and comment hits', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { kind: 'topic', ...rawTopic() },
+        { kind: 'comment', ...rawComment() },
+      ]),
+    )
+    const result = await search('adapters')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toHaveLength(2)
+    const [first, second] = result.value
+    expect(first?.kind === 'topic' && first.topic.title).toBe('Hello')
+    expect(second?.kind === 'comment' && second.comment.body).toBe('Nice topic!')
+  })
+
+  it('encodes the query in the request', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await search('ports and adapters')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/search?q=ports%20and%20adapters'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error for an invalid query', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid query' }))
+    const result = await search('')
+    expect(result).toEqual({ ok: false, error: 'invalid query' })
   })
 })
