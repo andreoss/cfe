@@ -27,6 +27,7 @@ async function run() {
   const password = 'correcthorse'
   try {
     await driver.get(`${baseUrl}/register`)
+    await driver.wait(until.elementLocated(By.name('username')), 5000)
     await driver.findElement(By.name('username')).sendKeys(username)
     await driver.findElement(By.name('email')).sendKeys(email)
     await driver.findElement(By.name('password')).sendKeys(password)
@@ -36,6 +37,7 @@ async function run() {
     assert(bodyText.includes(username), 'registered user is not shown on home page')
 
     await driver.get(`${baseUrl}/sign-in`)
+    await driver.wait(until.elementLocated(By.name('username')), 5000)
     await driver.findElement(By.name('username')).sendKeys(username)
     await driver.findElement(By.name('password')).sendKeys(password)
     await driver.findElement(By.css('button[type="submit"]')).click()
@@ -57,6 +59,7 @@ async function run() {
     assert(!bodyText.includes(username), 'session persisted after sign-out')
 
     await driver.get(`${baseUrl}/sign-in`)
+    await driver.wait(until.elementLocated(By.name('username')), 5000)
     await driver.findElement(By.name('username')).sendKeys(username)
     await driver.findElement(By.name('password')).sendKeys('wrong-password')
     await driver.findElement(By.css('button[type="submit"]')).click()

@@ -21,6 +21,7 @@ async function buildDriver() {
 
 async function registerAndPost(driver, username, title, body) {
   await driver.get(`${baseUrl}/register`)
+  await driver.wait(until.elementLocated(By.name('username')), 5000)
   await driver.findElement(By.name('username')).sendKeys(username)
   await driver.findElement(By.name('email')).sendKeys(`${username}@example.com`)
   await driver.findElement(By.name('password')).sendKeys('correcthorse')
@@ -106,6 +107,7 @@ async function run() {
 
     stranger = await buildDriver()
     await stranger.get(`${baseUrl}/register`)
+    await stranger.wait(until.elementLocated(By.name('username')), 5000)
     await stranger.findElement(By.name('username')).sendKeys(strangerName)
     await stranger.findElement(By.name('email')).sendKeys(`${strangerName}@example.com`)
     await stranger.findElement(By.name('password')).sendKeys('correcthorse')

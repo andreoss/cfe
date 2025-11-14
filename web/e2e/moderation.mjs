@@ -21,6 +21,7 @@ async function buildDriver() {
 
 async function register(driver, username, email, password) {
   await driver.get(`${baseUrl}/register`)
+  await driver.wait(until.elementLocated(By.name('username')), 5000)
   await driver.findElement(By.name('username')).sendKeys(username)
   await driver.findElement(By.name('email')).sendKeys(email)
   await driver.findElement(By.name('password')).sendKeys(password)
