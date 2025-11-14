@@ -1,12 +1,12 @@
 #![cfg(test)]
 
 use crate::ports::{
-    CommentRepository, PasswordHasher, SearchRepository, SectionRepository, SessionRepository,
-    TopicRepository, UserRepository,
+    CommentRepository, NotificationRepository, PasswordHasher, SearchRepository, SectionRepository,
+    SessionRepository, TopicRepository, UserRepository,
 };
 use domain::{
-    Comment, CommentId, Email, Query, SearchHit, Section, SectionId, Session, SessionId,
-    SessionToken, Slug, Topic, TopicId, User, UserId, Username,
+    Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit, Section, SectionId,
+    Session, SessionId, SessionToken, Slug, Topic, TopicId, User, UserId, Username,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -303,5 +303,59 @@ impl SearchRepository for FakeSearchRepo {
     async fn search(&self, query: &Query) -> Vec<SearchHit> {
         *self.last_query.lock().unwrap() = Some(query.as_str().to_owned());
         self.hits.clone()
+    }
+}
+
+pub struct FakeNotificationRepo {
+    notifications: Mutex<Vec<Notification>>,
+}
+
+impl FakeNotificationRepo {
+    pub fn new() -> Self {
+        Self {
+            notifications: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl NotificationRepository for FakeNotificationRepo {
+    async fn save(&self, notification: &Notification) {
+        self.notifications.lock().unwrap().push(notification.clone());
+    }
+
+    async fn update(&self, notification: &Notification) {
+        let mut all = self.notifications.lock().unwrap();
+        if let Some(slot) = all.iter_mut().find(|n| n.id() == notification.id()) {
+            *slot = notification.clone();
+        }
+    }
+
+    async fn find_by_id(&self, id: NotificationId) -> Option<Notification> {
+        self.notifications
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|n| n.id() == id)
+            .cloned()
+    }
+
+    async fn list_by_recipient(&self, recipient_id: UserId) -> Vec<Notification> {
+        self.notifications
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.recipient_id() == recipient_id)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_unread(&self, recipient_id: UserId) -> u64 {
+        self.notifications
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.recipient_id() == recipient_id && !n.is_read())
+            .count() as u64
     }
 }

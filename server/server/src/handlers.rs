@@ -2,16 +2,18 @@ use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
+use crate::notification_repository::PgNotificationRepository;
 use crate::search_repository::PgSearchRepository;
 use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    CreateTopicError, DeleteError, EditError, ListTopicsError, PostCommentError, RegisterError,
-    SectionRepository, SessionRepository, SignInError, UpdateBioError, UserRepository,
-    create_session, create_topic, delete_comment, delete_topic, edit_comment, edit_topic,
-    get_topic, list_comments, list_sections, list_topics, list_topics_by_tag, post_comment,
-    register, search, sign_in, sign_out as end_session, update_bio,
+    CreateTopicError, DeleteError, EditError, ListTopicsError, MarkReadError, PostCommentError,
+    RegisterError, SectionRepository, SessionRepository, SignInError, UpdateBioError,
+    TopicRepository, UserRepository, count_unread, create_session, create_topic, delete_comment, delete_topic,
+    edit_comment, edit_topic, get_topic, list_comments, list_notifications, list_sections,
+    list_topics, list_topics_by_tag, mark_read, post_comment, register, search, sign_in,
+    sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -491,10 +493,13 @@ pub async fn post_comment_handler(
         .transpose()?;
     let topics = PgTopicRepository::new(state.pool.clone());
     let comments = PgCommentRepository::new(state.pool.clone());
+    let notifications = PgNotificationRepository::new(state.pool.clone());
     let comment = post_comment(
         &topics,
         &comments,
+        &notifications,
         CommentId::new(uuid::Uuid::new_v4()),
+        domain::NotificationId::new(uuid::Uuid::new_v4()),
         TopicId::new(topic_id),
         current.id(),
         parent_id,
@@ -607,6 +612,93 @@ pub async fn edit_comment_handler(
     .await
     .map_err(edit_error)?;
     Ok(Json(comment_response(&state.pool, &comment).await?))
+}
+
+#[derive(Serialize)]
+pub struct NotificationResponse {
+    pub id: String,
+    pub topic_id: String,
+    pub topic_title: String,
+    pub comment_id: String,
+    pub actor_username: String,
+    pub created_at: String,
+    pub read: bool,
+}
+
+#[derive(Serialize)]
+pub struct UnreadCountResponse {
+    pub unread: u64,
+}
+
+async fn notification_response(
+    pool: &PgPool,
+    notification: &domain::Notification,
+) -> Result<NotificationResponse, (StatusCode, Json<ErrorResponse>)> {
+    let users = PgUserRepository::new(pool.clone());
+    let topics = PgTopicRepository::new(pool.clone());
+    let actor = users
+        .find_by_id(notification.actor_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "actor missing"))?;
+    let topic = topics
+        .find_by_id(notification.topic_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "topic missing"))?;
+    let created_at = notification
+        .created_at()
+        .format(&Rfc3339)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?;
+    Ok(NotificationResponse {
+        id: notification.id().as_uuid().to_string(),
+        topic_id: notification.topic_id().as_uuid().to_string(),
+        topic_title: topic.title().as_str().to_owned(),
+        comment_id: notification.comment_id().as_uuid().to_string(),
+        actor_username: actor.username().as_str().to_owned(),
+        created_at,
+        read: notification.is_read(),
+    })
+}
+
+pub async fn list_notifications_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<Vec<NotificationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let repo = PgNotificationRepository::new(state.pool.clone());
+    let list = list_notifications(&repo, current.id()).await;
+    let mut responses = Vec::with_capacity(list.len());
+    for notification in &list {
+        responses.push(notification_response(&state.pool, notification).await?);
+    }
+    Ok(Json(responses))
+}
+
+pub async fn unread_count_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Json<UnreadCountResponse> {
+    let repo = PgNotificationRepository::new(state.pool.clone());
+    Json(UnreadCountResponse {
+        unread: count_unread(&repo, current.id()).await,
+    })
+}
+
+pub async fn mark_notification_read_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<NotificationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let repo = PgNotificationRepository::new(state.pool.clone());
+    let notification = mark_read(
+        &repo,
+        current.id(),
+        domain::NotificationId::new(id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        MarkReadError::NotFound => error(StatusCode::NOT_FOUND, "notification not found"),
+    })?;
+    Ok(Json(notification_response(&state.pool, &notification).await?))
 }
 
 pub async fn search_handler(

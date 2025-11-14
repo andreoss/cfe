@@ -1,6 +1,7 @@
 mod comments;
 mod editing;
 mod moderation;
+mod notifications;
 mod ports;
 mod profile;
 mod register;
@@ -13,9 +14,10 @@ mod topics;
 pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
+pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
 pub use ports::{
-    CommentRepository, PasswordHasher, SearchRepository, SectionRepository, SessionRepository,
-    TopicRepository, UserRepository,
+    CommentRepository, NotificationRepository, PasswordHasher, SearchRepository, SectionRepository,
+    SessionRepository, TopicRepository, UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use register::{RegisterError, register};

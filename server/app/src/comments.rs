@@ -1,5 +1,5 @@
-use crate::ports::{CommentRepository, TopicRepository};
-use domain::{Body, Comment, CommentId, TopicId, UserId};
+use crate::ports::{CommentRepository, NotificationRepository, TopicRepository};
+use domain::{Body, Comment, CommentId, Notification, NotificationId, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -12,17 +12,20 @@ pub enum PostCommentError {
 pub async fn post_comment(
     topics: &impl TopicRepository,
     comments: &impl CommentRepository,
+    notifications: &impl NotificationRepository,
     id: CommentId,
+    notification_id: NotificationId,
     topic_id: TopicId,
     author_id: UserId,
     parent_id: Option<CommentId>,
     body: Body,
     now: OffsetDateTime,
 ) -> Result<Comment, PostCommentError> {
-    topics
+    let topic = topics
         .find_by_id(topic_id)
         .await
         .ok_or(PostCommentError::TopicNotFound)?;
+    let mut recipient_id = topic.author_id();
     if let Some(parent_id) = parent_id {
         let parent = comments
             .find_by_id(parent_id)
@@ -31,9 +34,22 @@ pub async fn post_comment(
         if parent.topic_id() != topic_id {
             return Err(PostCommentError::ParentInDifferentTopic);
         }
+        recipient_id = parent.author_id();
     }
     let comment = Comment::new(id, topic_id, author_id, parent_id, body, now);
     comments.save(&comment).await;
+    if recipient_id != author_id {
+        notifications
+            .save(&Notification::new(
+                notification_id,
+                recipient_id,
+                author_id,
+                topic_id,
+                id,
+                now,
+            ))
+            .await;
+    }
     Ok(comment)
 }
 
@@ -44,7 +60,7 @@ pub async fn list_comments(comments: &impl CommentRepository, topic_id: TopicId)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+    use crate::test_support::{FakeCommentRepo, FakeNotificationRepo, FakeTopicRepo};
     use domain::{SectionId, TagSet, Title, Topic};
 
     fn topic() -> Topic {
@@ -63,10 +79,13 @@ mod tests {
     async fn posts_a_top_level_comment() {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
         let comment = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             None,
@@ -80,13 +99,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn notifies_the_topic_author_of_a_new_comment() {
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let commenter = UserId::new(uuid::Uuid::max());
+        post_comment(
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            commenter,
+            None,
+            Body::parse("Nice topic!").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let raised = notifications.list_by_recipient(topic().author_id()).await;
+        assert_eq!(raised.len(), 1);
+        assert_eq!(raised[0].actor_id(), commenter);
+        assert_eq!(raised[0].topic_id(), topic().id());
+        assert!(!raised[0].is_read());
+    }
+
+    #[tokio::test]
+    async fn notifies_the_parent_author_of_a_reply() {
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let parent_author = UserId::new(uuid::Uuid::from_u128(7));
+        let replier = UserId::new(uuid::Uuid::max());
+        let root = post_comment(
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            parent_author,
+            None,
+            Body::parse("Root").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        post_comment(
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::max()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            replier,
+            Some(root.id()),
+            Body::parse("Reply").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let raised = notifications.list_by_recipient(parent_author).await;
+        assert_eq!(raised.len(), 1);
+        assert_eq!(raised[0].actor_id(), replier);
+        assert_eq!(raised[0].comment_id(), CommentId::new(uuid::Uuid::max()));
+    }
+
+    #[tokio::test]
+    async fn does_not_notify_you_about_your_own_comment() {
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        post_comment(
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            topic().author_id(),
+            None,
+            Body::parse("Replying to myself").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert!(
+            notifications
+                .list_by_recipient(topic().author_id())
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn rejects_posting_to_an_unknown_topic() {
         let topics = FakeTopicRepo::new();
         let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
         let result = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             None,
@@ -101,10 +218,13 @@ mod tests {
     async fn posts_a_reply_to_an_existing_comment() {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
         let root = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             None,
@@ -116,7 +236,9 @@ mod tests {
         let reply = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::max()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             Some(root.id()),
@@ -133,10 +255,13 @@ mod tests {
     async fn rejects_replying_to_an_unknown_parent() {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
         let result = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             Some(CommentId::new(uuid::Uuid::max())),
@@ -151,6 +276,7 @@ mod tests {
     async fn rejects_a_parent_from_a_different_topic() {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
         let other_topic_id = TopicId::new(uuid::Uuid::max());
         let foreign_parent = Comment::new(
             CommentId::new(uuid::Uuid::max()),
@@ -164,7 +290,9 @@ mod tests {
         let result = post_comment(
             &topics,
             &comments,
+            &notifications,
             CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
             UserId::new(uuid::Uuid::nil()),
             Some(foreign_parent.id()),

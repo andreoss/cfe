@@ -2,6 +2,7 @@ mod auth;
 mod comment_repository;
 mod handlers;
 mod hasher;
+mod notification_repository;
 mod repository;
 mod search_repository;
 mod section_repository;
@@ -69,6 +70,18 @@ async fn main() {
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
+        .route(
+            "/api/notifications",
+            get(handlers::list_notifications_handler),
+        )
+        .route(
+            "/api/notifications/unread-count",
+            get(handlers::unread_count_handler),
+        )
+        .route(
+            "/api/notifications/{id}/read",
+            post(handlers::mark_notification_read_handler),
+        )
         .with_state(state)
         .layer(cors);
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
