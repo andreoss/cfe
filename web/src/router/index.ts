@@ -48,6 +48,11 @@ const router = createRouter({
       component: () => import('../views/TagView.vue'),
       props: true,
     },
+    {
+      path: '/notifications',
+      name: 'notifications',
+      component: () => import('../views/NotificationsView.vue'),
+    },
   ],
 })
 

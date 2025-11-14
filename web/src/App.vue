@@ -1,9 +1,26 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { getUnreadCount } from '@/api/client'
 
 const auth = useAuthStore()
+const unreadCount = ref(0)
+
+async function loadUnreadCount() {
+  const result = await getUnreadCount()
+  if (result.ok) {
+    unreadCount.value = result.value
+  }
+}
+
+watch(() => auth.currentUser, (newUser) => {
+  if (newUser) {
+    loadUnreadCount()
+  } else {
+    unreadCount.value = 0
+  }
+})
 
 onMounted(() => {
   auth.checkSession()
@@ -16,6 +33,9 @@ onMounted(() => {
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/search">Search</RouterLink>
       <template v-if="auth.currentUser">
+        <RouterLink to="/notifications">{{
+          unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'
+        }}</RouterLink>
         <RouterLink :to="`/u/${auth.currentUser.username}`">{{
           auth.currentUser.username
         }}</RouterLink>

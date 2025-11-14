@@ -46,3 +46,4 @@ node e2e/comments.mjs
 node e2e/markdown.mjs
 node e2e/editing.mjs
 node e2e/search.mjs
+node e2e/notifications.mjs

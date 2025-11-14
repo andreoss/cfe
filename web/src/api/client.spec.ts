@@ -18,6 +18,9 @@ import {
   editTopic,
   editComment,
   search,
+  getNotifications,
+  getUnreadCount,
+  markNotificationRead,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -45,6 +48,19 @@ function rawTopic(overrides: Partial<Record<string, unknown>> = {}) {
     created_at: '2026-09-03T00:00:00Z',
     deleted: false,
     deleted_reason: null,
+    ...overrides,
+  }
+}
+
+function rawNotification(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: '1',
+    topic_id: 't1',
+    topic_title: 'Getting Started',
+    comment_id: 'c1',
+    actor_username: 'bob_02',
+    created_at: '2026-09-03T00:00:00Z',
+    read: false,
     ...overrides,
   }
 }
@@ -502,5 +518,83 @@ describe('search', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid query' }))
     const result = await search('')
     expect(result).toEqual({ ok: false, error: 'invalid query' })
+  })
+})
+
+describe('getNotifications', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Notification type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawNotification()]))
+    const result = await getNotifications()
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: '1',
+          topicId: 't1',
+          topicTitle: 'Getting Started',
+          commentId: 'c1',
+          actorUsername: 'bob_02',
+          createdAt: '2026-09-03T00:00:00Z',
+          read: false,
+        },
+      ],
+    })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getNotifications()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getUnreadCount', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the unread envelope to a plain number', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { unread: 3 }))
+    const result = await getUnreadCount()
+    expect(result).toEqual({ ok: true, value: 3 })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getUnreadCount()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('markNotificationRead', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the updated notification mapped to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawNotification({ read: true })))
+    const result = await markNotificationRead('1')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.read).toBe(true)
+  })
+
+  it('url-encodes the notification id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawNotification()))
+    await markNotificationRead('n/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/notifications/n%2F1/read'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await markNotificationRead('1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

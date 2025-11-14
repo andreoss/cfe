@@ -24,6 +24,15 @@ export type Comment = {
   deletedReason: string | null
   edited: boolean
 }
+export type Notification = {
+  id: string
+  topicId: string
+  topicTitle: string
+  commentId: string
+  actorUsername: string
+  createdAt: string
+  read: boolean
+}
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -275,4 +284,48 @@ export async function search(query: string): Promise<ApiResult<SearchHit[]>> {
         : { kind: 'comment', comment: toComment(raw) },
     ),
   }
+}
+
+type RawNotification = {
+  id: string
+  topic_id: string
+  topic_title: string
+  comment_id: string
+  actor_username: string
+  created_at: string
+  read: boolean
+}
+
+function toNotification(raw: RawNotification): Notification {
+  return {
+    id: raw.id,
+    topicId: raw.topic_id,
+    topicTitle: raw.topic_title,
+    commentId: raw.comment_id,
+    actorUsername: raw.actor_username,
+    createdAt: raw.created_at,
+    read: raw.read,
+  }
+}
+
+export async function getNotifications(): Promise<ApiResult<Notification[]>> {
+  const result = await request<RawNotification[]>('/api/notifications', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toNotification) } : result
+}
+
+export async function getUnreadCount(): Promise<ApiResult<number>> {
+  const result = await request<{ unread: number }>('/api/notifications/unread-count', {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.unread } : result
+}
+
+export async function markNotificationRead(id: string): Promise<ApiResult<Notification>> {
+  const result = await request<RawNotification>(
+    `/api/notifications/${encodeURIComponent(id)}/read`,
+    {
+      method: 'POST',
+    },
+  )
+  return result.ok ? { ok: true, value: toNotification(result.value) } : result
 }
