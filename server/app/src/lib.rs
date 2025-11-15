@@ -1,3 +1,4 @@
+mod avatars;
 mod bookmarks;
 mod comments;
 mod editing;
@@ -14,6 +15,7 @@ mod sign_in;
 mod test_support;
 mod topics;
 
+pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
 pub use bookmarks::{
     BookmarkError, add_bookmark, is_bookmarked, list_bookmarked_topics, remove_bookmark,
 };
@@ -25,7 +27,8 @@ pub use polls::{
     CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,
 };
 pub use ports::{
-    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher, PollRepository,
+    AvatarRepository, BookmarkRepository, CommentRepository, NotificationRepository,
+    PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };

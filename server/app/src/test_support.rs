@@ -1,12 +1,14 @@
 #![cfg(test)]
 
 use crate::ports::{
-    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher, PollRepository,
+    AvatarRepository, BookmarkRepository, CommentRepository, NotificationRepository,
+    PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };
 use domain::{
-    Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, Reaction,
+    Avatar, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query,
+    Reaction,
     ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
 };
@@ -547,5 +549,39 @@ impl PollRepository for FakePollRepo {
             .iter()
             .find(|v| v.poll_id() == poll_id && v.user_id() == user_id)
             .map(|v| v.option_id())
+    }
+}
+
+pub struct FakeAvatarRepo {
+    avatars: Mutex<Vec<(UserId, Avatar)>>,
+}
+
+impl FakeAvatarRepo {
+    pub fn new() -> Self {
+        Self {
+            avatars: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AvatarRepository for FakeAvatarRepo {
+    async fn save(&self, user_id: UserId, avatar: &Avatar) {
+        let mut all = self.avatars.lock().unwrap();
+        all.retain(|(id, _)| *id != user_id);
+        all.push((user_id, avatar.clone()));
+    }
+
+    async fn find_by_user(&self, user_id: UserId) -> Option<Avatar> {
+        self.avatars
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| *id == user_id)
+            .map(|(_, a)| a.clone())
+    }
+
+    async fn delete(&self, user_id: UserId) {
+        self.avatars.lock().unwrap().retain(|(id, _)| *id != user_id);
     }
 }

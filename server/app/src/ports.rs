@@ -1,5 +1,6 @@
 use domain::{
-    Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId, PollOptionId,
+    Avatar, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId,
+    PollOptionId,
     Query, Reaction,
     ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
     Slug, Topic, TopicId, User, UserId, Username, Vote,
@@ -43,6 +44,13 @@ pub trait TopicRepository {
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
     async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
+}
+
+#[async_trait::async_trait]
+pub trait AvatarRepository {
+    async fn save(&self, user_id: UserId, avatar: &Avatar);
+    async fn find_by_user(&self, user_id: UserId) -> Option<Avatar>;
+    async fn delete(&self, user_id: UserId);
 }
 
 #[async_trait::async_trait]
