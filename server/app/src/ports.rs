@@ -1,6 +1,7 @@
 use domain::{
-    Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit, Section,
-    SectionId, Session, SessionId, SessionToken, Slug, Topic, TopicId, User, UserId, Username,
+    Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, Reaction,
+    ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
+    Slug, Topic, TopicId, User, UserId, Username,
 };
 use time::OffsetDateTime;
 
@@ -49,6 +50,14 @@ pub trait BookmarkRepository {
     async fn delete(&self, user_id: UserId, topic_id: TopicId);
     async fn exists(&self, user_id: UserId, topic_id: TopicId) -> bool;
     async fn list_topics(&self, user_id: UserId) -> Vec<Topic>;
+}
+
+#[async_trait::async_trait]
+pub trait ReactionRepository {
+    async fn save(&self, reaction: &Reaction);
+    async fn delete(&self, user_id: UserId, target: ReactionTarget);
+    async fn counts(&self, target: ReactionTarget) -> Vec<(ReactionKind, u64)>;
+    async fn find_mine(&self, user_id: UserId, target: ReactionTarget) -> Option<ReactionKind>;
 }
 
 #[async_trait::async_trait]

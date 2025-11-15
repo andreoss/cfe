@@ -2,12 +2,13 @@
 
 use crate::ports::{
     BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 use domain::{
-    Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit,
-    Section, SectionId, Session, SessionId, SessionToken, Slug, TagSet, Title, Topic, TopicId,
-    User, UserId, Username,
+    Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, Reaction,
+    ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
+    Slug, TagSet, Title, Topic, TopicId, User, UserId, Username,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -431,4 +432,55 @@ fn placeholder_topic(id: TopicId) -> Topic {
         TagSet::empty(),
         OffsetDateTime::UNIX_EPOCH,
     )
+}
+
+pub struct FakeReactionRepo {
+    reactions: Mutex<Vec<Reaction>>,
+}
+
+impl FakeReactionRepo {
+    pub fn new() -> Self {
+        Self {
+            reactions: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ReactionRepository for FakeReactionRepo {
+    async fn save(&self, reaction: &Reaction) {
+        let mut all = self.reactions.lock().unwrap();
+        all.retain(|r| !(r.user_id() == reaction.user_id() && r.target() == reaction.target()));
+        all.push(reaction.clone());
+    }
+
+    async fn delete(&self, user_id: UserId, target: ReactionTarget) {
+        self.reactions
+            .lock()
+            .unwrap()
+            .retain(|r| !(r.user_id() == user_id && r.target() == target));
+    }
+
+    async fn counts(&self, target: ReactionTarget) -> Vec<(ReactionKind, u64)> {
+        let all = self.reactions.lock().unwrap();
+        ReactionKind::all()
+            .into_iter()
+            .filter_map(|kind| {
+                let count = all
+                    .iter()
+                    .filter(|r| r.target() == target && r.kind() == kind)
+                    .count() as u64;
+                (count > 0).then_some((kind, count))
+            })
+            .collect()
+    }
+
+    async fn find_mine(&self, user_id: UserId, target: ReactionTarget) -> Option<ReactionKind> {
+        self.reactions
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.user_id() == user_id && r.target() == target)
+            .map(|r| r.kind())
+    }
 }

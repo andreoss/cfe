@@ -5,6 +5,7 @@ mod moderation;
 mod notifications;
 mod ports;
 mod profile;
+mod reactions;
 mod register;
 mod search;
 mod session;
@@ -21,9 +22,11 @@ pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
 pub use ports::{
     BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
+pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};
 pub use register::{RegisterError, register};
 pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
