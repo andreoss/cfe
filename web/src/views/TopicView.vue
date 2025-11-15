@@ -7,6 +7,9 @@ import {
   postComment,
   deleteTopic,
   editTopic,
+  getBookmarkState,
+  addBookmark,
+  removeBookmark,
   type Topic,
   type Comment,
 } from '@/api/client'
@@ -29,6 +32,8 @@ const editTitle = ref('')
 const editBody = ref('')
 const editTags = ref('')
 const editError = ref('')
+const bookmarked = ref(false)
+const bookmarkError = ref('')
 
 const mayEdit = computed(
   () =>
@@ -48,6 +53,20 @@ function startEdit() {
   editing.value = true
 }
 
+async function loadBookmarkState() {
+  if (auth.currentUser === null) {
+    bookmarked.value = false
+    return
+  }
+  bookmarkError.value = ''
+  const result = await getBookmarkState(props.id)
+  if (result.ok) {
+    bookmarked.value = result.value
+  } else {
+    bookmarkError.value = result.error
+  }
+}
+
 async function load() {
   notFound.value = false
   topic.value = null
@@ -59,6 +78,7 @@ async function load() {
     return
   }
   await loadComments()
+  await loadBookmarkState()
 }
 
 async function loadComments() {
@@ -105,6 +125,26 @@ async function onEdit() {
   }
   topic.value = result.value
   editing.value = false
+}
+
+async function onSave() {
+  bookmarkError.value = ''
+  const result = await addBookmark(props.id)
+  if (!result.ok) {
+    bookmarkError.value = result.error
+    return
+  }
+  bookmarked.value = result.value
+}
+
+async function onUnsave() {
+  bookmarkError.value = ''
+  const result = await removeBookmark(props.id)
+  if (!result.ok) {
+    bookmarkError.value = result.error
+    return
+  }
+  bookmarked.value = result.value
 }
 </script>
 
@@ -158,6 +198,12 @@ async function onEdit() {
           <button type="submit">Confirm delete</button>
           <button type="button" @click="deleting = false">Cancel</button>
         </form>
+      </template>
+
+      <template v-if="auth.currentUser && !topic.deleted">
+        <button v-if="!bookmarked" type="button" @click="onSave">Save topic</button>
+        <button v-else type="button" @click="onUnsave">Unsave topic</button>
+        <p v-if="bookmarkError" role="alert">{{ bookmarkError }}</p>
       </template>
 
       <h2>Comments</h2>

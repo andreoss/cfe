@@ -21,6 +21,10 @@ import {
   getNotifications,
   getUnreadCount,
   markNotificationRead,
+  getBookmarks,
+  getBookmarkState,
+  addBookmark,
+  removeBookmark,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -595,6 +599,123 @@ describe('markNotificationRead', () => {
   it('returns an error when not authenticated', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await markNotificationRead('1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getBookmarks', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Topic type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    const result = await getBookmarks()
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: '1',
+          sectionSlug: 'general',
+          title: 'Hello',
+          body: 'World',
+          tags: ['rust'],
+          authorUsername: 'alice_01',
+          createdAt: '2026-09-03T00:00:00Z',
+          deleted: false,
+          deletedReason: null,
+        },
+      ],
+    })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getBookmarks()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getBookmarkState', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the bookmarked envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { bookmarked: true }))
+    const result = await getBookmarkState('t1')
+    expect(result).toEqual({ ok: true, value: true })
+  })
+
+  it('url-encodes the topic id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { bookmarked: false }))
+    await getBookmarkState('t/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/bookmark'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getBookmarkState('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('addBookmark', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the bookmarked envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { bookmarked: true }))
+    const result = await addBookmark('t1')
+    expect(result).toEqual({ ok: true, value: true })
+  })
+
+  it('uses POST method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { bookmarked: true }))
+    await addBookmark('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await addBookmark('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('removeBookmark', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the bookmarked envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { bookmarked: false }))
+    const result = await removeBookmark('t1')
+    expect(result).toEqual({ ok: true, value: false })
+  })
+
+  it('uses DELETE method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { bookmarked: false }))
+    await removeBookmark('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await removeBookmark('t1')
     expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

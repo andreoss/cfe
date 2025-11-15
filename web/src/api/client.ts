@@ -329,3 +329,32 @@ export async function markNotificationRead(id: string): Promise<ApiResult<Notifi
   )
   return result.ok ? { ok: true, value: toNotification(result.value) } : result
 }
+
+export async function getBookmarks(): Promise<ApiResult<Topic[]>> {
+  const result = await request<RawTopic[]>('/api/bookmarks', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+}
+
+export async function getBookmarkState(topicId: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ bookmarked: boolean }>(
+    `/api/topics/${encodeURIComponent(topicId)}/bookmark`,
+    { method: 'GET' },
+  )
+  return result.ok ? { ok: true, value: result.value.bookmarked } : result
+}
+
+export async function addBookmark(topicId: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ bookmarked: boolean }>(
+    `/api/topics/${encodeURIComponent(topicId)}/bookmark`,
+    { method: 'POST' },
+  )
+  return result.ok ? { ok: true, value: result.value.bookmarked } : result
+}
+
+export async function removeBookmark(topicId: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ bookmarked: boolean }>(
+    `/api/topics/${encodeURIComponent(topicId)}/bookmark`,
+    { method: 'DELETE' },
+  )
+  return result.ok ? { ok: true, value: result.value.bookmarked } : result
+}
