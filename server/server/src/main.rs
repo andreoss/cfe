@@ -4,6 +4,7 @@ mod handlers;
 mod hasher;
 mod bookmark_repository;
 mod notification_repository;
+mod reaction_repository;
 mod repository;
 mod search_repository;
 mod section_repository;
@@ -72,6 +73,18 @@ async fn main() {
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
         .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
+        .route(
+            "/api/topics/{id}/reactions",
+            get(handlers::topic_reactions_handler)
+                .post(handlers::react_to_topic_handler)
+                .delete(handlers::clear_topic_reaction_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/comments/{id}/reactions",
+            get(handlers::comment_reactions_handler)
+                .post(handlers::react_to_comment_handler)
+                .delete(handlers::clear_comment_reaction_handler),
+        )
         .route(
             "/api/topics/{id}/bookmark",
             get(handlers::bookmark_state_handler)

@@ -1,7 +1,8 @@
-use crate::auth::{CurrentUser, SESSION_COOKIE};
+use crate::auth::{CurrentUser, OptionalUser, SESSION_COOKIE};
 use crate::bookmark_repository::PgBookmarkRepository;
 use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
+use crate::reaction_repository::PgReactionRepository;
 use crate::repository::PgUserRepository;
 use crate::notification_repository::PgNotificationRepository;
 use crate::search_repository::PgSearchRepository;
@@ -9,21 +10,23 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    BookmarkError, CreateTopicError, DeleteError, EditError, ListTopicsError, MarkReadError,
+    BookmarkError, CommentRepository, CreateTopicError, DeleteError, EditError, ListTopicsError,
+    MarkReadError,
     PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
     TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
     create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
-    is_bookmarked, list_bookmarked_topics, list_comments, list_notifications, list_sections,
-    list_topics, list_topics_by_tag, mark_read, post_comment, register, remove_bookmark, search,
-    sign_in, sign_out as end_session, update_bio,
+    ReactionSummary, clear_reaction, is_bookmarked, list_bookmarked_topics, list_comments,
+    list_notifications, list_sections, list_topics, list_topics_by_tag, mark_read, post_comment,
+    react, register, remove_bookmark, search, sign_in, sign_out as end_session,
+    summarize_reactions, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, CommentId, Email, Reason, SearchHit, Session, SessionId, SessionToken, Slug, TagSet,
-    Title, TopicId, UserId, Username,
+    Bio, Body, CommentId, Email, Reason, ReactionTarget, SearchHit, Session, SessionId,
+    SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -761,6 +764,146 @@ pub async fn list_bookmarks_handler(
         responses.push(topic_response(&state.pool, topic).await?.0);
     }
     Ok(Json(responses))
+}
+
+#[derive(Deserialize)]
+pub struct ReactRequest {
+    pub kind: String,
+}
+
+#[derive(Serialize)]
+pub struct ReactionCountResponse {
+    pub kind: String,
+    pub count: u64,
+}
+
+#[derive(Serialize)]
+pub struct ReactionsResponse {
+    pub counts: Vec<ReactionCountResponse>,
+    pub mine: Option<String>,
+}
+
+fn to_reactions_response(summary: ReactionSummary) -> ReactionsResponse {
+    ReactionsResponse {
+        counts: summary
+            .counts
+            .into_iter()
+            .map(|(kind, count)| ReactionCountResponse {
+                kind: kind.as_str().to_owned(),
+                count,
+            })
+            .collect(),
+        mine: summary.mine.map(|k| k.as_str().to_owned()),
+    }
+}
+
+async fn reaction_target(
+    pool: &PgPool,
+    topic_id: uuid::Uuid,
+    comment_id: Option<uuid::Uuid>,
+) -> Result<ReactionTarget, (StatusCode, Json<ErrorResponse>)> {
+    match comment_id {
+        Some(id) => {
+            let comments = PgCommentRepository::new(pool.clone());
+            let comment = comments
+                .find_by_id(CommentId::new(id))
+                .await
+                .ok_or_else(|| error(StatusCode::NOT_FOUND, "comment not found"))?;
+            if comment.topic_id() != TopicId::new(topic_id) {
+                return Err(error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "comment in different topic",
+                ));
+            }
+            Ok(ReactionTarget::Comment(comment.id()))
+        }
+        None => {
+            let topics = PgTopicRepository::new(pool.clone());
+            let topic = topics
+                .find_by_id(TopicId::new(topic_id))
+                .await
+                .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+            Ok(ReactionTarget::Topic(topic.id()))
+        }
+    }
+}
+
+async fn reactions_for(
+    pool: &PgPool,
+    viewer: Option<&domain::User>,
+    target: ReactionTarget,
+) -> Json<ReactionsResponse> {
+    let repo = PgReactionRepository::new(pool.clone());
+    let summary = summarize_reactions(&repo, viewer.map(|u| u.id()), target).await;
+    Json(to_reactions_response(summary))
+}
+
+pub async fn topic_reactions_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    OptionalUser(viewer): OptionalUser,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = reaction_target(&state.pool, id, None).await?;
+    Ok(reactions_for(&state.pool, viewer.as_ref(), target).await)
+}
+
+pub async fn react_to_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ReactRequest>,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let kind = domain::ReactionKind::parse(&body.kind)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
+    let target = reaction_target(&state.pool, id, None).await?;
+    let repo = PgReactionRepository::new(state.pool.clone());
+    react(&repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    Ok(reactions_for(&state.pool, Some(&current), target).await)
+}
+
+pub async fn clear_topic_reaction_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = reaction_target(&state.pool, id, None).await?;
+    let repo = PgReactionRepository::new(state.pool.clone());
+    clear_reaction(&repo, current.id(), target).await;
+    Ok(reactions_for(&state.pool, Some(&current), target).await)
+}
+
+pub async fn comment_reactions_handler(
+    State(state): State<AppState>,
+    Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    OptionalUser(viewer): OptionalUser,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
+    Ok(reactions_for(&state.pool, viewer.as_ref(), target).await)
+}
+
+pub async fn react_to_comment_handler(
+    State(state): State<AppState>,
+    Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ReactRequest>,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let kind = domain::ReactionKind::parse(&body.kind)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
+    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
+    let repo = PgReactionRepository::new(state.pool.clone());
+    react(&repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    Ok(reactions_for(&state.pool, Some(&current), target).await)
+}
+
+pub async fn clear_comment_reaction_handler(
+    State(state): State<AppState>,
+    Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
+    let repo = PgReactionRepository::new(state.pool.clone());
+    clear_reaction(&repo, current.id(), target).await;
+    Ok(reactions_for(&state.pool, Some(&current), target).await)
 }
 
 pub async fn search_handler(

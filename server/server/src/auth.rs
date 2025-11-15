@@ -1,4 +1,5 @@
-use crate::handlers::AppState;
+use crate::handlers::{AppState, ErrorResponse};
+use axum::Json;
 use crate::repository::PgUserRepository;
 use crate::session_repository::PgSessionRepository;
 use app::current_user as resolve_current_user;
@@ -13,25 +14,47 @@ pub const SESSION_COOKIE: &str = "session";
 
 pub struct CurrentUser(pub User);
 
+pub struct OptionalUser(pub Option<User>);
+
+fn unauthorized(message: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorResponse {
+            error: message.to_owned(),
+        }),
+    )
+}
+
+async fn resolve(parts: &Parts, state: &AppState) -> Option<User> {
+    let jar = CookieJar::from_headers(&parts.headers);
+    let token_str = jar.get(SESSION_COOKIE).map(|c| c.value().to_owned())?;
+    let token = SessionToken::parse(&token_str).ok()?;
+    let sessions = PgSessionRepository::new(state.pool.clone());
+    let users = PgUserRepository::new(state.pool.clone());
+    resolve_current_user(&sessions, &users, &token, OffsetDateTime::now_utc()).await
+}
+
 impl FromRequestParts<AppState> for CurrentUser {
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = (StatusCode, Json<ErrorResponse>);
 
     async fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let jar = CookieJar::from_headers(&parts.headers);
-        let token_str = jar
-            .get(SESSION_COOKIE)
-            .map(|c| c.value().to_owned())
-            .ok_or((StatusCode::UNAUTHORIZED, "missing session"))?;
-        let token = SessionToken::parse(&token_str)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid session"))?;
-        let sessions = PgSessionRepository::new(state.pool.clone());
-        let users = PgUserRepository::new(state.pool.clone());
-        let user = resolve_current_user(&sessions, &users, &token, OffsetDateTime::now_utc())
+        resolve(parts, state)
             .await
-            .ok_or((StatusCode::UNAUTHORIZED, "invalid session"))?;
-        Ok(CurrentUser(user))
+            .map(CurrentUser)
+            .ok_or_else(|| unauthorized("missing session"))
+    }
+}
+
+impl FromRequestParts<AppState> for OptionalUser {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(OptionalUser(resolve(parts, state).await))
     }
 }
