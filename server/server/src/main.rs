@@ -5,6 +5,7 @@ mod hasher;
 mod bookmark_repository;
 mod notification_repository;
 mod reaction_repository;
+mod poll_repository;
 mod repository;
 mod search_repository;
 mod section_repository;
@@ -73,6 +74,11 @@ async fn main() {
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
         .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
+        .route(
+            "/api/topics/{id}/poll",
+            get(handlers::get_poll_handler).post(handlers::create_poll_handler),
+        )
+        .route("/api/topics/{id}/poll/vote", post(handlers::vote_handler))
         .route(
             "/api/topics/{id}/reactions",
             get(handlers::topic_reactions_handler)

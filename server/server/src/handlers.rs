@@ -5,13 +5,14 @@ use crate::hasher::Argon2Hasher;
 use crate::reaction_repository::PgReactionRepository;
 use crate::repository::PgUserRepository;
 use crate::notification_repository::PgNotificationRepository;
+use crate::poll_repository::PgPollRepository;
 use crate::search_repository::PgSearchRepository;
 use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    BookmarkError, CommentRepository, CreateTopicError, DeleteError, EditError, ListTopicsError,
-    MarkReadError,
+    BookmarkError, CommentRepository, CreatePollError, CreateTopicError, DeleteError, EditError,
+    ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
     PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
     TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
     create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
@@ -25,8 +26,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, CommentId, Email, Reason, ReactionTarget, SearchHit, Session, SessionId,
-    SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
+    Bio, Body, CommentId, Email, PollId, PollOption, PollOptionId, Question, Reason,
+    ReactionTarget, SearchHit, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
+    UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -904,6 +906,144 @@ pub async fn clear_comment_reaction_handler(
     let repo = PgReactionRepository::new(state.pool.clone());
     clear_reaction(&repo, current.id(), target).await;
     Ok(reactions_for(&state.pool, Some(&current), target).await)
+}
+
+#[derive(Deserialize)]
+pub struct CreatePollRequest {
+    pub question: String,
+    pub options: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct VoteRequest {
+    pub option_id: String,
+}
+
+#[derive(Serialize)]
+pub struct PollOptionResponse {
+    pub id: String,
+    pub text: String,
+    pub votes: u64,
+}
+
+#[derive(Serialize)]
+pub struct PollResponse {
+    pub id: String,
+    pub topic_id: String,
+    pub question: String,
+    pub options: Vec<PollOptionResponse>,
+    pub mine: Option<String>,
+    pub total_votes: u64,
+}
+
+fn to_poll_response(results: PollResults) -> PollResponse {
+    let options: Vec<PollOptionResponse> = results
+        .poll
+        .options()
+        .iter()
+        .map(|o| PollOptionResponse {
+            id: o.id().as_uuid().to_string(),
+            text: o.text().as_str().to_owned(),
+            votes: results
+                .counts
+                .iter()
+                .find(|(id, _)| *id == o.id())
+                .map(|(_, c)| *c)
+                .unwrap_or(0),
+        })
+        .collect();
+    PollResponse {
+        id: results.poll.id().as_uuid().to_string(),
+        topic_id: results.poll.topic_id().as_uuid().to_string(),
+        question: results.poll.question().as_str().to_owned(),
+        total_votes: options.iter().map(|o| o.votes).sum(),
+        options,
+        mine: results.mine.map(|id| id.as_uuid().to_string()),
+    }
+}
+
+pub async fn get_poll_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    OptionalUser(viewer): OptionalUser,
+) -> Result<Json<PollResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let polls = PgPollRepository::new(state.pool.clone());
+    let results = poll_results(&polls, viewer.map(|u| u.id()), TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "poll not found"))?;
+    Ok(Json(to_poll_response(results)))
+}
+
+pub async fn create_poll_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<CreatePollRequest>,
+) -> Result<Json<PollResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let question = Question::parse(&body.question)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid question"))?;
+    let mut options = Vec::with_capacity(body.options.len());
+    for text in &body.options {
+        let parsed = Question::parse(text)
+            .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid option"))?;
+        options.push(PollOption::new(
+            PollOptionId::new(uuid::Uuid::new_v4()),
+            parsed,
+        ));
+    }
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let polls = PgPollRepository::new(state.pool.clone());
+    create_poll(
+        &topics,
+        &polls,
+        &current,
+        PollId::new(uuid::Uuid::new_v4()),
+        TopicId::new(id),
+        question,
+        options,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        CreatePollError::TopicNotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        CreatePollError::NotTheAuthor => error(StatusCode::FORBIDDEN, "not the author"),
+        CreatePollError::AlreadyExists => error(StatusCode::CONFLICT, "poll already exists"),
+        CreatePollError::Invalid(_) => {
+            error(StatusCode::UNPROCESSABLE_ENTITY, "invalid option count")
+        }
+    })?;
+    let results = poll_results(&polls, Some(current.id()), TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
+    Ok(Json(to_poll_response(results)))
+}
+
+pub async fn vote_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<VoteRequest>,
+) -> Result<Json<PollResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let option_id = uuid::Uuid::parse_str(&body.option_id)
+        .map(PollOptionId::new)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid option id"))?;
+    let polls = PgPollRepository::new(state.pool.clone());
+    cast_vote(
+        &polls,
+        &current,
+        TopicId::new(id),
+        option_id,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        VoteError::PollNotFound => error(StatusCode::NOT_FOUND, "poll not found"),
+        VoteError::UnknownOption => error(StatusCode::UNPROCESSABLE_ENTITY, "unknown option"),
+    })?;
+    let results = poll_results(&polls, Some(current.id()), TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
+    Ok(Json(to_poll_response(results)))
 }
 
 pub async fn search_handler(
