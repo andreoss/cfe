@@ -50,3 +50,4 @@ node e2e/notifications.mjs
 node e2e/bookmarks.mjs
 node e2e/reactions.mjs
 node e2e/polls.mjs
+node e2e/feeds.mjs

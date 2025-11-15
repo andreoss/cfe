@@ -1,6 +1,7 @@
 mod auth;
 mod comment_repository;
 mod handlers;
+mod feed;
 mod hasher;
 mod bookmark_repository;
 mod notification_repository;
@@ -73,6 +74,11 @@ async fn main() {
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
+        .route(
+            "/api/sections/{slug}/feed",
+            get(handlers::section_feed_handler),
+        )
+        .route("/api/tags/{tag}/feed", get(handlers::tag_feed_handler))
         .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
         .route(
             "/api/topics/{id}/poll",

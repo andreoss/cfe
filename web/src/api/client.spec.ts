@@ -18,6 +18,8 @@ import {
   editTopic,
   editComment,
   search,
+  sectionFeedUrl,
+  tagFeedUrl,
   getNotifications,
   getUnreadCount,
   markNotificationRead,
@@ -1035,5 +1037,19 @@ describe('votePoll', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await votePoll('t1', 'o1')
     expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('feed urls', () => {
+  it('builds a section feed url', () => {
+    expect(sectionFeedUrl('general')).toContain('/api/sections/general/feed')
+  })
+
+  it('builds a tag feed url', () => {
+    expect(tagFeedUrl('news')).toContain('/api/tags/news/feed')
+  })
+
+  it('encodes an awkward slug', () => {
+    expect(sectionFeedUrl('a b')).toContain('/api/sections/a%20b/feed')
   })
 })

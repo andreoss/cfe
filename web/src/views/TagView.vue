@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { getTopicsByTag, type Topic } from '@/api/client'
+import { getTopicsByTag, tagFeedUrl, type Topic } from '@/api/client'
 
 const props = defineProps<{ tag: string }>()
 
@@ -23,6 +23,7 @@ watch(() => props.tag, load, { immediate: true })
 <template>
   <main>
     <h1>#{{ tag }}</h1>
+    <p><a :href="tagFeedUrl(tag)">Atom feed</a></p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="topic in topics" :key="topic.id">

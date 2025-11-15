@@ -492,3 +492,11 @@ export async function votePoll(topicId: string, optionId: string): Promise<ApiRe
   })
   return result.ok ? { ok: true, value: toPoll(result.value) } : result
 }
+
+export function sectionFeedUrl(slug: string): string {
+  return `${BASE_URL}/api/sections/${encodeURIComponent(slug)}/feed`
+}
+
+export function tagFeedUrl(tag: string): string {
+  return `${BASE_URL}/api/tags/${encodeURIComponent(tag)}/feed`
+}

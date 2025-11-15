@@ -23,7 +23,8 @@ use app::{
 };
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
     Bio, Body, CommentId, Email, PollId, PollOption, PollOptionId, Question, Reason,
@@ -1044,6 +1045,71 @@ pub async fn vote_handler(
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
+}
+
+const ATOM_CONTENT_TYPE: &str = "application/atom+xml; charset=utf-8";
+
+async fn feed_entries(pool: &PgPool, topics: &[domain::Topic]) -> Vec<crate::feed::FeedEntry> {
+    let users = PgUserRepository::new(pool.clone());
+    let mut entries = Vec::with_capacity(topics.len());
+    for topic in topics {
+        let author = match users.find_by_id(topic.author_id()).await {
+            Some(user) => user.username().as_str().to_owned(),
+            None => continue,
+        };
+        entries.push(crate::feed::entry_from(topic, &author));
+    }
+    entries
+}
+
+fn feed_response(title: &str, self_url: &str, entries: Vec<crate::feed::FeedEntry>) -> Response {
+    let updated = entries
+        .first()
+        .map(|e| e.updated.clone())
+        .unwrap_or_else(|| {
+            OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
+        });
+    let body = crate::feed::render(title, self_url, &updated, &entries);
+    ([(header::CONTENT_TYPE, ATOM_CONTENT_TYPE)], body).into_response()
+}
+
+pub async fn section_feed_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let sections = PgSectionRepository::new(state.pool.clone());
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let list = list_topics(&sections, &topics, &slug)
+        .await
+        .map_err(|e| match e {
+            ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+        })?;
+    let entries = feed_entries(&state.pool, &list).await;
+    Ok(feed_response(
+        slug.as_str(),
+        &format!("/api/sections/{}/feed", slug.as_str()),
+        entries,
+    ))
+}
+
+pub async fn tag_feed_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let tag =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let list = list_topics_by_tag(&topics, &tag).await;
+    let entries = feed_entries(&state.pool, &list).await;
+    Ok(feed_response(
+        tag.as_str(),
+        &format!("/api/tags/{}/feed", tag.as_str()),
+        entries,
+    ))
 }
 
 pub async fn search_handler(

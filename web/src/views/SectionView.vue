@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { getTopics, createTopic, type Topic } from '@/api/client'
+import { getTopics, createTopic, sectionFeedUrl, type Topic } from '@/api/client'
 
 const props = defineProps<{ slug: string }>()
 const auth = useAuthStore()
@@ -56,6 +56,7 @@ async function onCreate() {
 <template>
   <main>
     <h1>{{ slug }}</h1>
+    <p><a :href="sectionFeedUrl(slug)">Atom feed</a></p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="topic in topics" :key="topic.id">
