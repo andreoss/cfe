@@ -1,6 +1,6 @@
 use domain::{
-    Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit, Section, SectionId,
-    Session, SessionId, SessionToken, Slug, Topic, TopicId, User, UserId, Username,
+    Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit, Section,
+    SectionId, Session, SessionId, SessionToken, Slug, Topic, TopicId, User, UserId, Username,
 };
 use time::OffsetDateTime;
 
@@ -41,6 +41,14 @@ pub trait TopicRepository {
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
     async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
+}
+
+#[async_trait::async_trait]
+pub trait BookmarkRepository {
+    async fn save(&self, bookmark: &Bookmark);
+    async fn delete(&self, user_id: UserId, topic_id: TopicId);
+    async fn exists(&self, user_id: UserId, topic_id: TopicId) -> bool;
+    async fn list_topics(&self, user_id: UserId) -> Vec<Topic>;
 }
 
 #[async_trait::async_trait]

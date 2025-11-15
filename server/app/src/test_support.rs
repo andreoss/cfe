@@ -1,12 +1,13 @@
 #![cfg(test)]
 
 use crate::ports::{
-    CommentRepository, NotificationRepository, PasswordHasher, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository,
+    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
+    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
 };
 use domain::{
-    Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit, Section, SectionId,
-    Session, SessionId, SessionToken, Slug, Topic, TopicId, User, UserId, Username,
+    Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, SearchHit,
+    Section, SectionId, Session, SessionId, SessionToken, Slug, TagSet, Title, Topic, TopicId,
+    User, UserId, Username,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -358,4 +359,76 @@ impl NotificationRepository for FakeNotificationRepo {
             .filter(|n| n.recipient_id() == recipient_id && !n.is_read())
             .count() as u64
     }
+}
+
+pub struct FakeBookmarkRepo {
+    bookmarks: Mutex<Vec<Bookmark>>,
+    topics: Mutex<Vec<Topic>>,
+}
+
+impl FakeBookmarkRepo {
+    pub fn new() -> Self {
+        Self {
+            bookmarks: Mutex::new(Vec::new()),
+            topics: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl BookmarkRepository for FakeBookmarkRepo {
+    async fn save(&self, bookmark: &Bookmark) {
+        let mut all = self.bookmarks.lock().unwrap();
+        if all
+            .iter()
+            .any(|b| b.user_id() == bookmark.user_id() && b.topic_id() == bookmark.topic_id())
+        {
+            return;
+        }
+        all.push(bookmark.clone());
+    }
+
+    async fn delete(&self, user_id: UserId, topic_id: TopicId) {
+        self.bookmarks
+            .lock()
+            .unwrap()
+            .retain(|b| !(b.user_id() == user_id && b.topic_id() == topic_id));
+    }
+
+    async fn exists(&self, user_id: UserId, topic_id: TopicId) -> bool {
+        self.bookmarks
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|b| b.user_id() == user_id && b.topic_id() == topic_id)
+    }
+
+    async fn list_topics(&self, user_id: UserId) -> Vec<Topic> {
+        let known = self.topics.lock().unwrap();
+        self.bookmarks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|b| b.user_id() == user_id)
+            .map(|b| {
+                known
+                    .iter()
+                    .find(|t| t.id() == b.topic_id())
+                    .cloned()
+                    .unwrap_or_else(|| placeholder_topic(b.topic_id()))
+            })
+            .collect()
+    }
+}
+
+fn placeholder_topic(id: TopicId) -> Topic {
+    Topic::new(
+        id,
+        SectionId::new(uuid::Uuid::nil()),
+        UserId::new(uuid::Uuid::max()),
+        Title::parse("Saved").unwrap(),
+        Body::parse("Saved").unwrap(),
+        TagSet::empty(),
+        OffsetDateTime::UNIX_EPOCH,
+    )
 }

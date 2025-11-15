@@ -1,3 +1,4 @@
+mod bookmarks;
 mod comments;
 mod editing;
 mod moderation;
@@ -11,13 +12,16 @@ mod sign_in;
 mod test_support;
 mod topics;
 
+pub use bookmarks::{
+    BookmarkError, add_bookmark, is_bookmarked, list_bookmarked_topics, remove_bookmark,
+};
 pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
 pub use ports::{
-    CommentRepository, NotificationRepository, PasswordHasher, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository,
+    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
+    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use register::{RegisterError, register};

@@ -1,4 +1,5 @@
 mod bio;
+mod bookmark;
 mod body;
 mod comment;
 mod email;
@@ -18,6 +19,7 @@ mod user;
 mod username;
 
 pub use bio::{Bio, BioError};
+pub use bookmark::Bookmark;
 pub use body::{Body, BodyError};
 pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
