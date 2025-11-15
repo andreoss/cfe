@@ -5,6 +5,7 @@ mod comment;
 mod email;
 mod moderation;
 mod notification;
+mod poll;
 mod query;
 mod reaction;
 mod revision;
@@ -26,6 +27,9 @@ pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use notification::{Notification, NotificationId};
+pub use poll::{
+    Poll, PollError, PollId, PollOption, PollOptionId, Question, QuestionError, Vote,
+};
 pub use query::{Query, QueryError};
 pub use reaction::{Reaction, ReactionKind, ReactionKindError, ReactionTarget};
 pub use revision::Revision;

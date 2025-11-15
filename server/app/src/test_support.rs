@@ -1,14 +1,14 @@
 #![cfg(test)]
 
 use crate::ports::{
-    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
+    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };
 use domain::{
     Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query, Reaction,
     ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
-    Slug, TagSet, Title, Topic, TopicId, User, UserId, Username,
+    Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -482,5 +482,70 @@ impl ReactionRepository for FakeReactionRepo {
             .iter()
             .find(|r| r.user_id() == user_id && r.target() == target)
             .map(|r| r.kind())
+    }
+}
+
+pub struct FakePollRepo {
+    polls: Mutex<Vec<Poll>>,
+    votes: Mutex<Vec<Vote>>,
+}
+
+impl FakePollRepo {
+    pub fn new() -> Self {
+        Self {
+            polls: Mutex::new(Vec::new()),
+            votes: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl PollRepository for FakePollRepo {
+    async fn save(&self, poll: &Poll) {
+        self.polls.lock().unwrap().push(poll.clone());
+    }
+
+    async fn find_by_topic(&self, topic_id: TopicId) -> Option<Poll> {
+        self.polls
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| p.topic_id() == topic_id)
+            .cloned()
+    }
+
+    async fn save_vote(&self, vote: &Vote) {
+        let mut votes = self.votes.lock().unwrap();
+        votes.retain(|v| !(v.poll_id() == vote.poll_id() && v.user_id() == vote.user_id()));
+        votes.push(vote.clone());
+    }
+
+    async fn counts(&self, poll_id: PollId) -> Vec<(PollOptionId, u64)> {
+        let votes = self.votes.lock().unwrap();
+        let polls = self.polls.lock().unwrap();
+        let poll = polls.iter().find(|p| p.id() == poll_id);
+        match poll {
+            Some(poll) => poll
+                .options()
+                .iter()
+                .map(|o| {
+                    let count = votes
+                        .iter()
+                        .filter(|v| v.poll_id() == poll_id && v.option_id() == o.id())
+                        .count() as u64;
+                    (o.id(), count)
+                })
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    async fn find_vote(&self, poll_id: PollId, user_id: UserId) -> Option<PollOptionId> {
+        self.votes
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|v| v.poll_id() == poll_id && v.user_id() == user_id)
+            .map(|v| v.option_id())
     }
 }

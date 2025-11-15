@@ -3,6 +3,7 @@ mod comments;
 mod editing;
 mod moderation;
 mod notifications;
+mod polls;
 mod ports;
 mod profile;
 mod reactions;
@@ -20,8 +21,11 @@ pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
+pub use polls::{
+    CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,
+};
 pub use ports::{
-    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher,
+    BookmarkRepository, CommentRepository, NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };
