@@ -330,6 +330,80 @@ export async function markNotificationRead(id: string): Promise<ApiResult<Notifi
   return result.ok ? { ok: true, value: toNotification(result.value) } : result
 }
 
+export const REACTION_KINDS = ['like', 'agree', 'disagree', 'thanks'] as const
+
+export type ReactionCount = { kind: string; count: number }
+export type ReactionSummary = { counts: ReactionCount[]; mine: string | null }
+
+type RawReactions = { counts?: ReactionCount[]; mine?: string | null }
+
+function toReactionSummary(raw: RawReactions): ReactionSummary {
+  return { counts: raw.counts ?? [], mine: raw.mine ?? null }
+}
+
+function topicReactionsPath(topicId: string): string {
+  return `/api/topics/${encodeURIComponent(topicId)}/reactions`
+}
+
+function commentReactionsPath(topicId: string, commentId: string): string {
+  return `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(
+    commentId,
+  )}/reactions`
+}
+
+async function reactionRequest(
+  path: string,
+  init: RequestInit,
+): Promise<ApiResult<ReactionSummary>> {
+  const result = await request<RawReactions>(path, init)
+  return result.ok ? { ok: true, value: toReactionSummary(result.value) } : result
+}
+
+export function getTopicReactions(topicId: string): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(topicReactionsPath(topicId), { method: 'GET' })
+}
+
+export function reactToTopic(
+  topicId: string,
+  kind: string,
+): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(topicReactionsPath(topicId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind }),
+  })
+}
+
+export function clearTopicReaction(topicId: string): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(topicReactionsPath(topicId), { method: 'DELETE' })
+}
+
+export function getCommentReactions(
+  topicId: string,
+  commentId: string,
+): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(commentReactionsPath(topicId, commentId), { method: 'GET' })
+}
+
+export function reactToComment(
+  topicId: string,
+  commentId: string,
+  kind: string,
+): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(commentReactionsPath(topicId, commentId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind }),
+  })
+}
+
+export function clearCommentReaction(
+  topicId: string,
+  commentId: string,
+): Promise<ApiResult<ReactionSummary>> {
+  return reactionRequest(commentReactionsPath(topicId, commentId), { method: 'DELETE' })
+}
+
 export async function getBookmarks(): Promise<ApiResult<Topic[]>> {
   const result = await request<RawTopic[]>('/api/bookmarks', { method: 'GET' })
   return result.ok ? { ok: true, value: result.value.map(toTopic) } : result

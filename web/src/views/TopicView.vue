@@ -10,10 +10,15 @@ import {
   getBookmarkState,
   addBookmark,
   removeBookmark,
+  getTopicReactions,
+  reactToTopic,
+  clearTopicReaction,
   type Topic,
   type Comment,
+  type ReactionSummary,
 } from '@/api/client'
 import CommentThread from '@/components/CommentThread.vue'
+import ReactionBar from '@/components/ReactionBar.vue'
 import { renderMarkdown } from '@/lib/markdown'
 
 const props = defineProps<{ id: string }>()
@@ -34,6 +39,7 @@ const editTags = ref('')
 const editError = ref('')
 const bookmarked = ref(false)
 const bookmarkError = ref('')
+const reactions = ref<ReactionSummary | null>(null)
 
 const mayEdit = computed(
   () =>
@@ -67,6 +73,24 @@ async function loadBookmarkState() {
   }
 }
 
+async function loadReactions() {
+  reactions.value = null
+  const result = await getTopicReactions(props.id)
+  if (result.ok) {
+    reactions.value = result.value
+  }
+}
+
+async function onReact(kind: string) {
+  const result =
+    reactions.value?.mine === kind
+      ? await clearTopicReaction(props.id)
+      : await reactToTopic(props.id, kind)
+  if (result.ok) {
+    reactions.value = result.value
+  }
+}
+
 async function load() {
   notFound.value = false
   topic.value = null
@@ -79,6 +103,7 @@ async function load() {
   }
   await loadComments()
   await loadBookmarkState()
+  await loadReactions()
 }
 
 async function loadComments() {
@@ -165,6 +190,13 @@ async function onUnsave() {
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
+
+      <ReactionBar
+        v-if="!topic.deleted"
+        :summary="reactions"
+        :disabled="auth.currentUser === null"
+        :on-pick="onReact"
+      />
 
       <template v-if="mayEdit">
         <button v-if="!editing" type="button" @click="startEdit">Edit topic</button>

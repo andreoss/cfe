@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { postComment, deleteComment, editComment, type Comment } from '@/api/client'
+import {
+  postComment,
+  deleteComment,
+  editComment,
+  getCommentReactions,
+  reactToComment,
+  clearCommentReaction,
+  type Comment,
+  type ReactionSummary,
+} from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
+import ReactionBar from '@/components/ReactionBar.vue'
 
 const props = defineProps<{
   comments: Comment[]
@@ -22,8 +32,45 @@ const editingId = ref<string | null>(null)
 const editDraft = ref('')
 const editError = ref('')
 
+const summaries = ref<Record<string, ReactionSummary>>({})
+const requested = new Set<string>()
+
 function children(id: string | null) {
   return props.comments.filter((c) => c.parentId === id)
+}
+
+const reactable = computed(() => children(props.parentId).filter((c) => !c.deleted))
+
+async function loadSummary(commentId: string) {
+  if (requested.has(commentId)) return
+  requested.add(commentId)
+  const result = await getCommentReactions(props.topicId, commentId)
+  if (result.ok) {
+    summaries.value = { ...summaries.value, [commentId]: result.value }
+  } else {
+    requested.delete(commentId)
+  }
+}
+
+watch(
+  reactable,
+  (list) => {
+    for (const comment of list) {
+      void loadSummary(comment.id)
+    }
+  },
+  { immediate: true },
+)
+
+async function onReact(commentId: string, kind: string) {
+  const current = summaries.value[commentId]
+  const result =
+    current?.mine === kind
+      ? await clearCommentReaction(props.topicId, commentId)
+      : await reactToComment(props.topicId, commentId, kind)
+  if (result.ok) {
+    summaries.value = { ...summaries.value, [commentId]: result.value }
+  }
 }
 
 function mayEdit(comment: Comment) {
@@ -87,6 +134,12 @@ async function onEdit(commentId: string) {
       <p v-if="comment.edited && !comment.deleted" class="edited">(edited)</p>
 
       <template v-if="!comment.deleted">
+        <ReactionBar
+          :summary="summaries[comment.id] ?? null"
+          :disabled="auth.currentUser === null"
+          :on-pick="(kind: string) => onReact(comment.id, kind)"
+        />
+
         <template v-if="mayEdit(comment)">
           <button
             v-if="editingId !== comment.id"

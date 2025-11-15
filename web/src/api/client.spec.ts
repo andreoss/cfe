@@ -25,6 +25,13 @@ import {
   getBookmarkState,
   addBookmark,
   removeBookmark,
+  REACTION_KINDS,
+  getTopicReactions,
+  reactToTopic,
+  clearTopicReaction,
+  getCommentReactions,
+  reactToComment,
+  clearCommentReaction,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -716,6 +723,188 @@ describe('removeBookmark', () => {
   it('returns an error when not authenticated', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await removeBookmark('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('REACTION_KINDS', () => {
+  it('lists the four supported kinds in display order', () => {
+    expect(REACTION_KINDS).toEqual(['like', 'agree', 'disagree', 'thanks'])
+  })
+})
+
+describe('getTopicReactions', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the counts and the viewer choice', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { counts: [{ kind: 'like', count: 2 }], mine: 'like' }),
+    )
+    const result = await getTopicReactions('t1')
+    expect(result).toEqual({
+      ok: true,
+      value: { counts: [{ kind: 'like', count: 2 }], mine: 'like' },
+    })
+  })
+
+  it('defaults a missing choice to null', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { counts: [] }))
+    const result = await getTopicReactions('t1')
+    expect(result).toEqual({ ok: true, value: { counts: [], mine: null } })
+  })
+
+  it('url-encodes the topic id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { counts: [], mine: null }))
+    await getTopicReactions('t/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/reactions'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error for an unknown topic', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'topic not found' }))
+    const result = await getTopicReactions('ghost')
+    expect(result).toEqual({ ok: false, error: 'topic not found' })
+  })
+})
+
+describe('reactToTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the chosen kind and returns the new summary', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { counts: [{ kind: 'agree', count: 1 }], mine: 'agree' }),
+    )
+    const result = await reactToTopic('t1', 'agree')
+    expect(result.ok && result.value.mine).toBe('agree')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/reactions'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ kind: 'agree' }) }),
+    )
+  })
+
+  it('returns an error for an unknown kind', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'unknown reaction' }))
+    const result = await reactToTopic('t1', 'shrug')
+    expect(result).toEqual({ ok: false, error: 'unknown reaction' })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await reactToTopic('t1', 'like')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('clearTopicReaction', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a DELETE and returns the summary without a choice', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { counts: [{ kind: 'like', count: 0 }], mine: null }),
+    )
+    const result = await clearTopicReaction('t1')
+    expect(result.ok && result.value.mine).toBeNull()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/reactions'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await clearTopicReaction('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getCommentReactions', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the counts for a comment', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { counts: [{ kind: 'thanks', count: 3 }], mine: null }),
+    )
+    const result = await getCommentReactions('t1', 'c1')
+    expect(result).toEqual({
+      ok: true,
+      value: { counts: [{ kind: 'thanks', count: 3 }], mine: null },
+    })
+  })
+
+  it('url-encodes both ids', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { counts: [], mine: null }))
+    await getCommentReactions('t/1', 'c/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/comments/c%2F1/reactions'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error for an unknown comment', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'comment not found' }))
+    const result = await getCommentReactions('t1', 'ghost')
+    expect(result).toEqual({ ok: false, error: 'comment not found' })
+  })
+})
+
+describe('reactToComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the chosen kind for a comment', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { counts: [{ kind: 'like', count: 1 }], mine: 'like' }),
+    )
+    const result = await reactToComment('t1', 'c1', 'like')
+    expect(result.ok && result.value.counts).toEqual([{ kind: 'like', count: 1 }])
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/reactions'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ kind: 'like' }) }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await reactToComment('t1', 'c1', 'like')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('clearCommentReaction', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a DELETE for the comment', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { counts: [], mine: null }))
+    const result = await clearCommentReaction('t1', 'c1')
+    expect(result).toEqual({ ok: true, value: { counts: [], mine: null } })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/reactions'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await clearCommentReaction('t1', 'c1')
     expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })
