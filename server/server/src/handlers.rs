@@ -1,4 +1,5 @@
 use crate::auth::{CurrentUser, SESSION_COOKIE};
+use crate::bookmark_repository::PgBookmarkRepository;
 use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
 use crate::repository::PgUserRepository;
@@ -8,12 +9,13 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    CreateTopicError, DeleteError, EditError, ListTopicsError, MarkReadError, PostCommentError,
-    RegisterError, SectionRepository, SessionRepository, SignInError, UpdateBioError,
-    TopicRepository, UserRepository, count_unread, create_session, create_topic, delete_comment, delete_topic,
-    edit_comment, edit_topic, get_topic, list_comments, list_notifications, list_sections,
-    list_topics, list_topics_by_tag, mark_read, post_comment, register, search, sign_in,
-    sign_out as end_session, update_bio,
+    BookmarkError, CreateTopicError, DeleteError, EditError, ListTopicsError, MarkReadError,
+    PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
+    TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
+    create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
+    is_bookmarked, list_bookmarked_topics, list_comments, list_notifications, list_sections,
+    list_topics, list_topics_by_tag, mark_read, post_comment, register, remove_bookmark, search,
+    sign_in, sign_out as end_session, update_bio,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -699,6 +701,66 @@ pub async fn mark_notification_read_handler(
         MarkReadError::NotFound => error(StatusCode::NOT_FOUND, "notification not found"),
     })?;
     Ok(Json(notification_response(&state.pool, &notification).await?))
+}
+
+#[derive(Serialize)]
+pub struct BookmarkStateResponse {
+    pub bookmarked: bool,
+}
+
+pub async fn add_bookmark_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<BookmarkStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = PgTopicRepository::new(state.pool.clone());
+    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    add_bookmark(
+        &topics,
+        &bookmarks,
+        current.id(),
+        TopicId::new(id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        BookmarkError::TopicNotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+    })?;
+    Ok(Json(BookmarkStateResponse { bookmarked: true }))
+}
+
+pub async fn remove_bookmark_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Json<BookmarkStateResponse> {
+    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    remove_bookmark(&bookmarks, current.id(), TopicId::new(id)).await;
+    Json(BookmarkStateResponse { bookmarked: false })
+}
+
+pub async fn bookmark_state_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Json<BookmarkStateResponse> {
+    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    Json(BookmarkStateResponse {
+        bookmarked: is_bookmarked(&bookmarks, current.id(), TopicId::new(id)).await,
+    })
+}
+
+pub async fn list_bookmarks_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    let list = list_bookmarked_topics(&bookmarks, current.id()).await;
+    let mut responses = Vec::with_capacity(list.len());
+    for topic in &list {
+        responses.push(topic_response(&state.pool, topic).await?.0);
+    }
+    Ok(Json(responses))
 }
 
 pub async fn search_handler(

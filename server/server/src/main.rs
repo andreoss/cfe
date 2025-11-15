@@ -2,6 +2,7 @@ mod auth;
 mod comment_repository;
 mod handlers;
 mod hasher;
+mod bookmark_repository;
 mod notification_repository;
 mod repository;
 mod search_repository;
@@ -70,6 +71,13 @@ async fn main() {
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
+        .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
+        .route(
+            "/api/topics/{id}/bookmark",
+            get(handlers::bookmark_state_handler)
+                .post(handlers::add_bookmark_handler)
+                .delete(handlers::remove_bookmark_handler),
+        )
         .route(
             "/api/notifications",
             get(handlers::list_notifications_handler),
