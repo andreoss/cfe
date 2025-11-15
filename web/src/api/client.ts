@@ -33,6 +33,15 @@ export type Notification = {
   createdAt: string
   read: boolean
 }
+export type PollOption = { id: string; text: string; votes: number }
+export type Poll = {
+  id: string
+  topicId: string
+  question: string
+  options: PollOption[]
+  mine: string | null
+  totalVotes: number
+}
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -431,4 +440,55 @@ export async function removeBookmark(topicId: string): Promise<ApiResult<boolean
     { method: 'DELETE' },
   )
   return result.ok ? { ok: true, value: result.value.bookmarked } : result
+}
+
+type RawPoll = {
+  id: string
+  topic_id: string
+  question: string
+  options: PollOption[]
+  mine: string | null
+  total_votes: number
+}
+
+function toPoll(raw: RawPoll): Poll {
+  return {
+    id: raw.id,
+    topicId: raw.topic_id,
+    question: raw.question,
+    options: raw.options,
+    mine: raw.mine,
+    totalVotes: raw.total_votes,
+  }
+}
+
+function pollPath(topicId: string): string {
+  return `/api/topics/${encodeURIComponent(topicId)}/poll`
+}
+
+export async function getPoll(topicId: string): Promise<ApiResult<Poll>> {
+  const result = await request<RawPoll>(pollPath(topicId), { method: 'GET' })
+  return result.ok ? { ok: true, value: toPoll(result.value) } : result
+}
+
+export async function createPoll(
+  topicId: string,
+  question: string,
+  options: string[],
+): Promise<ApiResult<Poll>> {
+  const result = await request<RawPoll>(pollPath(topicId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, options }),
+  })
+  return result.ok ? { ok: true, value: toPoll(result.value) } : result
+}
+
+export async function votePoll(topicId: string, optionId: string): Promise<ApiResult<Poll>> {
+  const result = await request<RawPoll>(`${pollPath(topicId)}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ option_id: optionId }),
+  })
+  return result.ok ? { ok: true, value: toPoll(result.value) } : result
 }

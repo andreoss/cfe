@@ -32,6 +32,9 @@ import {
   getCommentReactions,
   reactToComment,
   clearCommentReaction,
+  getPoll,
+  createPoll,
+  votePoll,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -72,6 +75,21 @@ function rawNotification(overrides: Partial<Record<string, unknown>> = {}) {
     actor_username: 'bob_02',
     created_at: '2026-09-03T00:00:00Z',
     read: false,
+    ...overrides,
+  }
+}
+
+function rawPoll(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'p1',
+    topic_id: 't1',
+    question: 'Which one?',
+    options: [
+      { id: 'o1', text: 'Alpha', votes: 0 },
+      { id: 'o2', text: 'Beta', votes: 2 },
+    ],
+    mine: null,
+    total_votes: 2,
     ...overrides,
   }
 }
@@ -905,6 +923,117 @@ describe('clearCommentReaction', () => {
   it('returns an error when not authenticated', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await clearCommentReaction('t1', 'c1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getPoll', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields and nested options to the Poll type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawPoll({ mine: 'o2' })))
+    const result = await getPoll('t1')
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        id: 'p1',
+        topicId: 't1',
+        question: 'Which one?',
+        options: [
+          { id: 'o1', text: 'Alpha', votes: 0 },
+          { id: 'o2', text: 'Beta', votes: 2 },
+        ],
+        mine: 'o2',
+        totalVotes: 2,
+      },
+    })
+  })
+
+  it('url-encodes the topic id and uses GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawPoll()))
+    await getPoll('t/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/poll'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error for a topic without a poll', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'poll not found' }))
+    const result = await getPoll('t1')
+    expect(result).toEqual({ ok: false, error: 'poll not found' })
+  })
+})
+
+describe('createPoll', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the question and options and returns the mapped poll', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawPoll({ total_votes: 0 })))
+    const result = await createPoll('t1', 'Which one?', ['Alpha', 'Beta'])
+    expect(result.ok && result.value.totalVotes).toBe(0)
+    expect(result.ok && result.value.topicId).toBe('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/poll'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ question: 'Which one?', options: ['Alpha', 'Beta'] }),
+      }),
+    )
+  })
+
+  it('returns an error when not the author', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not the author' }))
+    const result = await createPoll('t1', 'Which one?', ['Alpha', 'Beta'])
+    expect(result).toEqual({ ok: false, error: 'not the author' })
+  })
+
+  it('returns an error when a poll already exists', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'poll already exists' }))
+    const result = await createPoll('t1', 'Which one?', ['Alpha', 'Beta'])
+    expect(result).toEqual({ ok: false, error: 'poll already exists' })
+  })
+})
+
+describe('votePoll', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the chosen option and returns the updated poll', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawPoll({ mine: 'o2' })))
+    const result = await votePoll('t1', 'o2')
+    expect(result.ok && result.value.mine).toBe('o2')
+    expect(result.ok && result.value.options[1]?.votes).toBe(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/poll/vote'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ option_id: 'o2' }),
+      }),
+    )
+  })
+
+  it('url-encodes the topic id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawPoll()))
+    await votePoll('t/1', 'o1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/poll/vote'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await votePoll('t1', 'o1')
     expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

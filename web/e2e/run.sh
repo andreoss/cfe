@@ -49,3 +49,4 @@ node e2e/search.mjs
 node e2e/notifications.mjs
 node e2e/bookmarks.mjs
 node e2e/reactions.mjs
+node e2e/polls.mjs

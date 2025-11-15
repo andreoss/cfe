@@ -13,11 +13,16 @@ import {
   getTopicReactions,
   reactToTopic,
   clearTopicReaction,
+  getPoll,
+  createPoll,
+  votePoll,
   type Topic,
   type Comment,
   type ReactionSummary,
+  type Poll,
 } from '@/api/client'
 import CommentThread from '@/components/CommentThread.vue'
+import PollPanel from '@/components/PollPanel.vue'
 import ReactionBar from '@/components/ReactionBar.vue'
 import { renderMarkdown } from '@/lib/markdown'
 
@@ -40,6 +45,20 @@ const editError = ref('')
 const bookmarked = ref(false)
 const bookmarkError = ref('')
 const reactions = ref<ReactionSummary | null>(null)
+const poll = ref<Poll | null>(null)
+const creatingPoll = ref(false)
+const pollQuestion = ref('')
+const pollOptions = ref(['', '', ''])
+const pollError = ref('')
+
+const mayAddPoll = computed(
+  () =>
+    topic.value !== null &&
+    !topic.value.deleted &&
+    poll.value === null &&
+    auth.currentUser !== null &&
+    auth.currentUser.username === topic.value.authorUsername,
+)
 
 const mayEdit = computed(
   () =>
@@ -91,6 +110,42 @@ async function onReact(kind: string) {
   }
 }
 
+async function loadPoll() {
+  poll.value = null
+  creatingPoll.value = false
+  pollError.value = ''
+  const result = await getPoll(props.id)
+  if (result.ok) {
+    poll.value = result.value
+  }
+}
+
+async function onVote(optionId: string) {
+  const result = await votePoll(props.id, optionId)
+  if (result.ok) {
+    poll.value = result.value
+  }
+}
+
+function startPollCreate() {
+  pollQuestion.value = ''
+  pollOptions.value = ['', '', '']
+  pollError.value = ''
+  creatingPoll.value = true
+}
+
+async function onCreatePoll() {
+  pollError.value = ''
+  const options = pollOptions.value.map((o) => o.trim()).filter((o) => o.length > 0)
+  const result = await createPoll(props.id, pollQuestion.value, options)
+  if (!result.ok) {
+    pollError.value = result.error
+    return
+  }
+  poll.value = result.value
+  creatingPoll.value = false
+}
+
 async function load() {
   notFound.value = false
   topic.value = null
@@ -104,6 +159,7 @@ async function load() {
   await loadComments()
   await loadBookmarkState()
   await loadReactions()
+  await loadPoll()
 }
 
 async function loadComments() {
@@ -190,6 +246,33 @@ async function onUnsave() {
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
+
+      <PollPanel :poll="poll" :can-vote="auth.currentUser !== null" :on-vote="onVote" />
+
+      <template v-if="mayAddPoll">
+        <button v-if="!creatingPoll" type="button" @click="startPollCreate">Add poll</button>
+        <form v-else @submit.prevent="onCreatePoll">
+          <label>
+            Question
+            <input v-model="pollQuestion" name="poll-question" type="text" />
+          </label>
+          <label>
+            Option 1
+            <input v-model="pollOptions[0]" name="poll-option-1" type="text" />
+          </label>
+          <label>
+            Option 2
+            <input v-model="pollOptions[1]" name="poll-option-2" type="text" />
+          </label>
+          <label>
+            Option 3
+            <input v-model="pollOptions[2]" name="poll-option-3" type="text" />
+          </label>
+          <p v-if="pollError" role="alert">{{ pollError }}</p>
+          <button type="submit">Create poll</button>
+          <button type="button" @click="creatingPoll = false">Cancel</button>
+        </form>
+      </template>
 
       <ReactionBar
         v-if="!topic.deleted"
