@@ -1,5 +1,6 @@
 use domain::{
-    Avatar, Ban, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Page, Poll,
+    Avatar, Ban, Bookmark, Comment, CommentId, Email, MailToken, Notification, NotificationId,
+    Page, Poll,
     PollId,
     PollOptionId,
     Query, Reaction,
@@ -122,4 +123,25 @@ pub trait CommentRepository {
     async fn find_by_id(&self, id: CommentId) -> Option<Comment>;
     async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment>;
     async fn count_roots(&self, topic_id: TopicId) -> u64;
+}
+
+pub struct Message {
+    pub to: String,
+    pub subject: String,
+    pub body: String,
+}
+
+#[async_trait::async_trait]
+pub trait Mailer {
+    async fn send(&self, message: &Message);
+}
+
+pub trait TokenDigest {
+    fn digest(&self, secret: &str) -> String;
+}
+
+#[async_trait::async_trait]
+pub trait MailTokenRepository {
+    async fn save(&self, token: &MailToken);
+    async fn find_by_digest(&self, digest: &str) -> Option<MailToken>;
 }

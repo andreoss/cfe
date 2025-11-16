@@ -3,12 +3,14 @@
 use crate::ports::{
     ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository,
-    NotificationRepository, PasswordHasher, PollRepository,
+    MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
+    TokenDigest,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };
 use domain::{
-    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Page,
+    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, MailToken, Notification,
+    NotificationId, Page,
     Query,
     Reaction, Warning,
     ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
@@ -760,5 +762,89 @@ impl ActivityRepository for FakeActivityRepo {
     async fn recent(&self, limit: u32) -> Vec<ContentItem> {
         *self.last_limit.lock().unwrap() = Some(limit);
         self.items.clone()
+    }
+}
+
+pub struct PlainDigest;
+
+impl TokenDigest for PlainDigest {
+    fn digest(&self, secret: &str) -> String {
+        format!("digest:{secret}")
+    }
+}
+
+pub struct FakeMailer {
+    sent: Mutex<Vec<(String, String, String)>>,
+}
+
+pub struct SentMessage {
+    pub to: String,
+    pub subject: String,
+    pub body: String,
+}
+
+impl FakeMailer {
+    pub fn new() -> Self {
+        Self {
+            sent: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn sent(&self) -> Vec<SentMessage> {
+        self.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(to, subject, body)| SentMessage {
+                to: to.clone(),
+                subject: subject.clone(),
+                body: body.clone(),
+            })
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl Mailer for FakeMailer {
+    async fn send(&self, message: &Message) {
+        self.sent.lock().unwrap().push((
+            message.to.clone(),
+            message.subject.clone(),
+            message.body.clone(),
+        ));
+    }
+}
+
+pub struct FakeMailTokenRepo {
+    tokens: Mutex<Vec<MailToken>>,
+}
+
+impl FakeMailTokenRepo {
+    pub fn new() -> Self {
+        Self {
+            tokens: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn all(&self) -> Vec<MailToken> {
+        self.tokens.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl MailTokenRepository for FakeMailTokenRepo {
+    async fn save(&self, token: &MailToken) {
+        let mut all = self.tokens.lock().unwrap();
+        all.retain(|t| t.id() != token.id());
+        all.push(token.clone());
+    }
+
+    async fn find_by_digest(&self, digest: &str) -> Option<MailToken> {
+        self.tokens
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|t| t.digest() == digest)
+            .cloned()
     }
 }

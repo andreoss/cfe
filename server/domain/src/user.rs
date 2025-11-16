@@ -23,6 +23,7 @@ pub struct User {
     bio: Option<Bio>,
     role: Role,
     deregistered_at: Option<OffsetDateTime>,
+    confirmed_at: Option<OffsetDateTime>,
 }
 
 impl User {
@@ -35,6 +36,7 @@ impl User {
             bio: None,
             role: Role::User,
             deregistered_at: None,
+            confirmed_at: None,
         }
     }
 
@@ -46,6 +48,7 @@ impl User {
         bio: Option<Bio>,
         role: Role,
         deregistered_at: Option<OffsetDateTime>,
+        confirmed_at: Option<OffsetDateTime>,
     ) -> Self {
         Self {
             id,
@@ -55,6 +58,7 @@ impl User {
             bio,
             role,
             deregistered_at,
+            confirmed_at,
         }
     }
 
@@ -92,6 +96,28 @@ impl User {
     pub fn promoted_to_moderator(&self) -> Self {
         Self {
             role: Role::Moderator,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_email(&self, email: Email) -> Self {
+        Self {
+            email,
+            ..self.clone()
+        }
+    }
+
+    pub fn confirmed_at(&self) -> Option<OffsetDateTime> {
+        self.confirmed_at
+    }
+
+    pub fn is_confirmed(&self) -> bool {
+        self.confirmed_at.is_some()
+    }
+
+    pub fn confirmed(&self, at: OffsetDateTime) -> Self {
+        Self {
+            confirmed_at: Some(at),
             ..self.clone()
         }
     }

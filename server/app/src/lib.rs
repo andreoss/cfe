@@ -5,6 +5,7 @@ mod bookmarks;
 mod comments;
 mod editing;
 mod enforcement;
+mod lifecycle;
 mod moderation;
 mod notifications;
 mod polls;
@@ -30,6 +31,10 @@ pub use editing::{EditError, edit_comment, edit_topic};
 pub use enforcement::{
     EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
     lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
+};
+pub use lifecycle::{
+    ChangeEmailError, RedeemError, confirm_activation, confirm_email_change, request_activation,
+    request_email_change, request_password_reset, reset_password,
 };
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
