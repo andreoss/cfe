@@ -5,6 +5,7 @@ mod body;
 mod comment;
 mod email;
 mod moderation;
+mod password;
 mod notification;
 mod poll;
 mod query;
@@ -28,6 +29,7 @@ pub use body::{Body, BodyError};
 pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use moderation::{Deletion, Reason, ReasonError};
+pub use password::{Password, PasswordError};
 pub use notification::{Notification, NotificationId};
 pub use poll::{
     Poll, PollError, PollId, PollOption, PollOptionId, Question, QuestionError, Vote,

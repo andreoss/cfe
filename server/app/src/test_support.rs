@@ -133,6 +133,13 @@ impl SessionRepository for FakeSessionRepo {
     async fn delete(&self, id: SessionId) {
         self.sessions.lock().unwrap().retain(|s| s.id() != id);
     }
+
+    async fn delete_for_user(&self, user_id: UserId) {
+        self.sessions
+            .lock()
+            .unwrap()
+            .retain(|s| s.user_id() != user_id);
+    }
 }
 
 pub struct FakeSectionRepo {

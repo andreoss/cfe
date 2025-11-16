@@ -28,6 +28,7 @@ pub trait SessionRepository {
     async fn find_by_token(&self, token: &SessionToken) -> Option<Session>;
     async fn touch(&self, id: SessionId, new_expiry: OffsetDateTime);
     async fn delete(&self, id: SessionId);
+    async fn delete_for_user(&self, user_id: UserId);
 }
 
 #[async_trait::async_trait]

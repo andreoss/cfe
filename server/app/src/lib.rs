@@ -1,3 +1,4 @@
+mod account;
 mod avatars;
 mod bookmarks;
 mod comments;
@@ -15,6 +16,7 @@ mod sign_in;
 mod test_support;
 mod topics;
 
+pub use account::{ChangePasswordError, change_password, deregister};
 pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
 pub use bookmarks::{
     BookmarkError, add_bookmark, is_bookmarked, list_bookmarked_topics, remove_bookmark,

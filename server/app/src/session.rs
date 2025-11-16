@@ -17,7 +17,10 @@ pub async fn current_user(
     if !session.is_valid_at(now) {
         return None;
     }
-    users.find_by_id(session.user_id()).await
+    users
+        .find_by_id(session.user_id())
+        .await
+        .filter(|u| u.is_active())
 }
 
 pub async fn touch_session(
@@ -91,6 +94,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.username(), user().username());
+    }
+
+    #[tokio::test]
+    async fn current_user_returns_none_for_a_deregistered_account() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let session = Session::new(
+            DomainSessionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            token(),
+            now + Duration::days(1),
+        );
+        let sessions = FakeSessionRepo::with(session);
+        let users = FakeUserRepo::with(user().deregistered(now));
+        assert!(current_user(&sessions, &users, &token(), now).await.is_none());
     }
 
     #[tokio::test]
