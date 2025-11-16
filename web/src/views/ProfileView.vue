@@ -1,7 +1,20 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { getProfile, updateBio, uploadAvatar, deleteAvatar, type Profile } from '@/api/client'
+import {
+  getProfile,
+  updateBio,
+  uploadAvatar,
+  deleteAvatar,
+  getIgnoreState,
+  ignoreUser,
+  stopIgnoring,
+  warnUser,
+  banUser,
+  liftBan,
+  promoteUser,
+  type Profile,
+} from '@/api/client'
 import UserAvatar from '@/components/UserAvatar.vue'
 
 const props = defineProps<{ username: string }>()
@@ -16,17 +29,43 @@ const avatarError = ref('')
 const avatarVersion = ref(0)
 const avatarFile = ref<File | null>(null)
 
+const ignoring = ref(false)
+const warnOpen = ref(false)
+const warnReason = ref('')
+const banOpen = ref(false)
+const banReason = ref('')
+const banDays = ref('')
+const moderationError = ref('')
+const moderationStatus = ref('')
+
 const isOwnProfile = computed(() => auth.currentUser?.username === props.username)
+const isOtherProfile = computed(() => auth.currentUser !== null && !isOwnProfile.value)
+const isModerator = computed(() => auth.currentUser?.role === 'moderator')
 
 async function load() {
   notFound.value = false
   profile.value = null
+  ignoring.value = false
+  warnOpen.value = false
+  warnReason.value = ''
+  banOpen.value = false
+  banReason.value = ''
+  banDays.value = ''
+  moderationError.value = ''
+  moderationStatus.value = ''
   const result = await getProfile(props.username)
   if (result.ok) {
     profile.value = result.value
     bioDraft.value = result.value.bio ?? ''
   } else {
     notFound.value = true
+    return
+  }
+  if (isOtherProfile.value) {
+    const state = await getIgnoreState(props.username)
+    if (state.ok) {
+      ignoring.value = state.value
+    }
   }
 }
 
@@ -83,6 +122,67 @@ async function onRemoveAvatar() {
   }
   avatarVersion.value += 1
 }
+
+async function onToggleIgnore() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const result = ignoring.value
+    ? await stopIgnoring(props.username)
+    : await ignoreUser(props.username)
+  if (!result.ok) {
+    moderationError.value = result.error
+    return
+  }
+  ignoring.value = result.value
+}
+
+async function onWarn() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const result = await warnUser(props.username, warnReason.value)
+  if (!result.ok) {
+    moderationError.value = result.error
+    return
+  }
+  warnOpen.value = false
+  warnReason.value = ''
+  moderationStatus.value = 'Warning sent.'
+}
+
+async function onBan() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const days = banDays.value.trim()
+  const result = await banUser(props.username, banReason.value, days ? Number(days) : null)
+  if (!result.ok) {
+    moderationError.value = result.error
+    return
+  }
+  banOpen.value = false
+  banReason.value = ''
+  banDays.value = ''
+  moderationStatus.value = 'User banned.'
+}
+
+async function onLiftBan() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const result = await liftBan(props.username)
+  if (!result.ok) {
+    moderationError.value = result.error
+  }
+}
+
+async function onPromote() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const result = await promoteUser(props.username)
+  if (!result.ok) {
+    moderationError.value = result.error
+    return
+  }
+  moderationStatus.value = 'User promoted.'
+}
 </script>
 
 <template>
@@ -96,6 +196,39 @@ async function onRemoveAvatar() {
         <button type="button" @click="onUploadAvatar">Upload avatar</button>
         <button type="button" @click="onRemoveAvatar">Remove avatar</button>
         <p v-if="avatarError" role="alert">{{ avatarError }}</p>
+      </template>
+      <template v-if="isOtherProfile">
+        <button type="button" @click="onToggleIgnore">
+          {{ ignoring ? 'Stop ignoring' : 'Ignore user' }}
+        </button>
+        <template v-if="isModerator">
+          <button v-if="!warnOpen" type="button" @click="warnOpen = true">Warn user</button>
+          <form v-else @submit.prevent="onWarn">
+            <label>
+              Reason
+              <input v-model="warnReason" name="warn-reason" type="text" />
+            </label>
+            <button type="submit">Send warning</button>
+            <button type="button" @click="warnOpen = false">Cancel</button>
+          </form>
+          <button v-if="!banOpen" type="button" @click="banOpen = true">Ban user</button>
+          <form v-else @submit.prevent="onBan">
+            <label>
+              Reason
+              <input v-model="banReason" name="ban-reason" type="text" />
+            </label>
+            <label>
+              Days
+              <input v-model="banDays" name="ban-days" type="number" />
+            </label>
+            <button type="submit">Confirm ban</button>
+            <button type="button" @click="banOpen = false">Cancel</button>
+          </form>
+          <button type="button" @click="onLiftBan">Lift ban</button>
+          <button type="button" @click="onPromote">Promote to moderator</button>
+        </template>
+        <p v-if="moderationStatus" role="status">{{ moderationStatus }}</p>
+        <p v-if="moderationError" role="alert">{{ moderationError }}</p>
       </template>
       <template v-if="editing">
         <textarea v-model="bioDraft" name="bio" rows="4"></textarea>

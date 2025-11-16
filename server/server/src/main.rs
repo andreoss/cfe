@@ -93,6 +93,10 @@ async fn main() {
         )
         .route("/api/users/{username}/warn", post(handlers::warn_user_handler))
         .route(
+            "/api/users/{username}/promote",
+            post(handlers::promote_handler),
+        )
+        .route(
             "/api/users/{username}/ignore",
             get(handlers::ignore_state_handler)
                 .post(handlers::ignore_user_handler)

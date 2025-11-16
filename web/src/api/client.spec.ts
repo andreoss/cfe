@@ -42,6 +42,15 @@ import {
   deleteAvatar,
   changePassword,
   deregister,
+  banUser,
+  liftBan,
+  warnUser,
+  getMyWarnings,
+  acknowledgeWarnings,
+  getIgnoreState,
+  ignoreUser,
+  stopIgnoring,
+  promoteUser,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -378,6 +387,18 @@ describe('getComments', () => {
         },
       ],
     })
+  })
+
+  it('maps the ignored flag of a hidden comment', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [rawComment({ body: '', ignored: true })]),
+    )
+    const result = await getComments('t1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const [first] = result.value
+    expect(first?.ignored).toBe(true)
+    expect(first?.body).toBe('')
   })
 
   it('returns an error for an unknown topic', async () => {
@@ -1229,5 +1250,321 @@ describe('deregister', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await deregister()
     expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+function rawWarning(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'w1',
+    reason: 'Please stay on topic',
+    created_at: '2026-09-03T00:00:00Z',
+    acknowledged: false,
+    ...overrides,
+  }
+}
+
+describe('banUser', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the reason and days and returns the ban', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { reason: 'spam', until: '2026-09-10T00:00:00Z' }),
+    )
+    const result = await banUser('bob_02', 'spam', 7)
+    expect(result).toEqual({
+      ok: true,
+      value: { reason: 'spam', until: '2026-09-10T00:00:00Z' },
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/ban'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'spam', days: 7 }),
+      }),
+    )
+  })
+
+  it('sends a null days for a permanent ban', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { reason: 'spam', until: null }))
+    await banUser('bob_02', 'spam', null)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: JSON.stringify({ reason: 'spam', days: null }) }),
+    )
+  })
+
+  it('url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { reason: 'spam', until: null }))
+    await banUser('bob 02/x', 'spam', null)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002%2Fx/ban'),
+      expect.anything(),
+    )
+  })
+
+  it('returns the server error for a plain user', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await banUser('bob_02', 'spam', null)
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+
+  it('returns the server error for banning yourself', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'cannot ban yourself' }))
+    const result = await banUser('alice_01', 'spam', null)
+    expect(result).toEqual({ ok: false, error: 'cannot ban yourself' })
+  })
+})
+
+describe('liftBan', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a DELETE and succeeds on an empty body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await liftBan('bob_02')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/ban'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns the server error for a plain user', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await liftBan('bob_02')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('warnUser', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Warning type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawWarning()))
+    const result = await warnUser('bob_02', 'Please stay on topic')
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        id: 'w1',
+        reason: 'Please stay on topic',
+        createdAt: '2026-09-03T00:00:00Z',
+        acknowledged: false,
+      },
+    })
+  })
+
+  it('posts the reason to the warn path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawWarning()))
+    await warnUser('bob 02', 'Please stay on topic')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002/warn'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Please stay on topic' }),
+      }),
+    )
+  })
+
+  it('returns the server error for a plain user', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await warnUser('bob_02', 'Please stay on topic')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+
+  it('returns the server error for an unknown user', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'user not found' }))
+    const result = await warnUser('ghost', 'Please stay on topic')
+    expect(result).toEqual({ ok: false, error: 'user not found' })
+  })
+})
+
+describe('getMyWarnings', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps every warning to camelCase', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, [rawWarning(), rawWarning({ id: 'w2', acknowledged: true })]),
+    )
+    const result = await getMyWarnings()
+    expect(result.ok && result.value).toEqual([
+      {
+        id: 'w1',
+        reason: 'Please stay on topic',
+        createdAt: '2026-09-03T00:00:00Z',
+        acknowledged: false,
+      },
+      {
+        id: 'w2',
+        reason: 'Please stay on topic',
+        createdAt: '2026-09-03T00:00:00Z',
+        acknowledged: true,
+      },
+    ])
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/warnings'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an empty list when there are none', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getMyWarnings()
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getMyWarnings()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('acknowledgeWarnings', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the acknowledge path and succeeds on an empty body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await acknowledgeWarnings()
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/warnings/acknowledge'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await acknowledgeWarnings()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getIgnoreState', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the ignored envelope to a plain boolean', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { ignored: true }))
+    const result = await getIgnoreState('bob_02')
+    expect(result).toEqual({ ok: true, value: true })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/ignore'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getIgnoreState('bob_02')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('ignoreUser', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts and unwraps the ignored envelope', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { ignored: true }))
+    const result = await ignoreUser('bob_02')
+    expect(result).toEqual({ ok: true, value: true })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/ignore'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { ignored: true }))
+    await ignoreUser('bob 02/x')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002%2Fx/ignore'),
+      expect.anything(),
+    )
+  })
+
+  it('returns the server error for ignoring yourself', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'cannot ignore yourself' }),
+    )
+    const result = await ignoreUser('alice_01')
+    expect(result).toEqual({ ok: false, error: 'cannot ignore yourself' })
+  })
+})
+
+describe('stopIgnoring', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends a DELETE and unwraps the ignored envelope', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { ignored: false }))
+    const result = await stopIgnoring('bob_02')
+    expect(result).toEqual({ ok: true, value: false })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/ignore'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await stopIgnoring('bob_02')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('promoteUser', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the promote path and returns the promoted user', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'moderator' }),
+    )
+    const result = await promoteUser('alice_01')
+    expect(result.ok && result.value.role).toBe('moderator')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/alice_01/promote'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns an error when not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await promoteUser('alice_01')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
   })
 })

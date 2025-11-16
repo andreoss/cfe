@@ -17,7 +17,7 @@ use crate::topic_repository::PgTopicRepository;
 use app::{
     AvatarLookupError, BookmarkError, ChangePasswordError, CommentRepository, CreatePollError,
     EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
-    lift_ban, list_warnings, stop_ignoring, warn_user,
+    lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
     CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
     get_avatar, set_avatar,
     ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
@@ -1174,6 +1174,19 @@ pub async fn lift_ban_handler(
         .await
         .map_err(enforcement_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn promote_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<UserResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = find_user_id(&state.pool, &username).await?;
+    let users = PgUserRepository::new(state.pool.clone());
+    let promoted = promote_to_moderator(&users, &current, target)
+        .await
+        .map_err(enforcement_error)?;
+    Ok(to_response(&promoted))
 }
 
 pub async fn warn_user_handler(

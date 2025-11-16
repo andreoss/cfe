@@ -40,7 +40,9 @@ function children(id: string | null) {
   return props.comments.filter((c) => c.parentId === id)
 }
 
-const reactable = computed(() => children(props.parentId).filter((c) => !c.deleted))
+const reactable = computed(() =>
+  children(props.parentId).filter((c) => !c.deleted && !c.ignored),
+)
 
 async function loadSummary(commentId: string) {
   if (requested.has(commentId)) return
@@ -134,10 +136,13 @@ async function onEdit(commentId: string) {
       <p v-if="comment.deleted" class="removed">
         Removed by a moderator: {{ comment.deletedReason }}
       </p>
+      <p v-else-if="comment.ignored" class="ignored">Hidden — you ignore this author.</p>
       <div v-else class="body" v-html="renderMarkdown(comment.body)"></div>
-      <p v-if="comment.edited && !comment.deleted" class="edited">(edited)</p>
+      <p v-if="comment.edited && !comment.deleted && !comment.ignored" class="edited">
+        (edited)
+      </p>
 
-      <template v-if="!comment.deleted">
+      <template v-if="!comment.deleted && !comment.ignored">
         <ReactionBar
           :summary="summaries[comment.id] ?? null"
           :disabled="auth.currentUser === null"

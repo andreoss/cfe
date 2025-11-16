@@ -23,6 +23,7 @@ export type Comment = {
   deleted: boolean
   deletedReason: string | null
   edited: boolean
+  ignored: boolean
 }
 export type Notification = {
   id: string
@@ -42,6 +43,13 @@ export type Poll = {
   mine: string | null
   totalVotes: number
 }
+export type Warning = {
+  id: string
+  reason: string
+  createdAt: string
+  acknowledged: boolean
+}
+export type Ban = { reason: string; until: string | null }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -191,6 +199,7 @@ type RawComment = {
   deleted: boolean
   deleted_reason: string | null
   edited: boolean
+  ignored: boolean
 }
 
 function toComment(raw: RawComment): Comment {
@@ -204,6 +213,7 @@ function toComment(raw: RawComment): Comment {
     deleted: raw.deleted,
     deletedReason: raw.deleted_reason,
     edited: raw.edited,
+    ignored: raw.ignored,
   }
 }
 
@@ -534,4 +544,88 @@ export async function deleteAvatar(): Promise<ApiResult<boolean>> {
     method: 'DELETE',
   })
   return result.ok ? { ok: true, value: result.value.has_avatar } : result
+}
+
+type RawWarning = {
+  id: string
+  reason: string
+  created_at: string
+  acknowledged: boolean
+}
+
+function toWarning(raw: RawWarning): Warning {
+  return {
+    id: raw.id,
+    reason: raw.reason,
+    createdAt: raw.created_at,
+    acknowledged: raw.acknowledged,
+  }
+}
+
+function banPath(username: string): string {
+  return `/api/users/${encodeURIComponent(username)}/ban`
+}
+
+function ignorePath(username: string): string {
+  return `/api/users/${encodeURIComponent(username)}/ignore`
+}
+
+export async function banUser(
+  username: string,
+  reason: string,
+  days: number | null,
+): Promise<ApiResult<Ban>> {
+  return request<Ban>(banPath(username), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, days }),
+  })
+}
+
+export async function liftBan(username: string): Promise<ApiResult<void>> {
+  return request<void>(banPath(username), { method: 'DELETE' })
+}
+
+export async function warnUser(username: string, reason: string): Promise<ApiResult<Warning>> {
+  const result = await request<RawWarning>(
+    `/api/users/${encodeURIComponent(username)}/warn`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    },
+  )
+  return result.ok ? { ok: true, value: toWarning(result.value) } : result
+}
+
+export async function getMyWarnings(): Promise<ApiResult<Warning[]>> {
+  const result = await request<RawWarning[]>('/api/me/warnings', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toWarning) } : result
+}
+
+export async function acknowledgeWarnings(): Promise<ApiResult<void>> {
+  return request<void>('/api/me/warnings/acknowledge', { method: 'POST' })
+}
+
+export async function getIgnoreState(username: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ ignored: boolean }>(ignorePath(username), { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.ignored } : result
+}
+
+export async function ignoreUser(username: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ ignored: boolean }>(ignorePath(username), { method: 'POST' })
+  return result.ok ? { ok: true, value: result.value.ignored } : result
+}
+
+export async function stopIgnoring(username: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ ignored: boolean }>(ignorePath(username), {
+    method: 'DELETE',
+  })
+  return result.ok ? { ok: true, value: result.value.ignored } : result
+}
+
+export async function promoteUser(username: string): Promise<ApiResult<User>> {
+  return request<User>(`/api/users/${encodeURIComponent(username)}/promote`, {
+    method: 'POST',
+  })
 }

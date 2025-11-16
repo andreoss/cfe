@@ -62,6 +62,21 @@ pub async fn active_ban(
         .filter(|b| b.is_active_at(now))
 }
 
+pub async fn promote_to_moderator(
+    users: &impl UserRepository,
+    moderator: &User,
+    target_id: UserId,
+) -> Result<User, EnforcementError> {
+    require_moderator(moderator)?;
+    let target = users
+        .find_by_id(target_id)
+        .await
+        .ok_or(EnforcementError::UserNotFound)?;
+    let promoted = target.promoted_to_moderator();
+    users.update(&promoted).await;
+    Ok(promoted)
+}
+
 pub async fn warn_user(
     users: &impl UserRepository,
     enforcement: &impl EnforcementRepository,
@@ -336,6 +351,30 @@ mod tests {
         assert_eq!(theirs.len(), 1);
         assert!(!theirs[0].is_acknowledged());
         assert!(list_warnings(&enforcement, moderator().id()).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_moderator_promotes_another_user() {
+        let (users, _, _) = seeded().await;
+        let promoted = promote_to_moderator(&users, &moderator(), plain().id())
+            .await
+            .unwrap();
+        assert!(promoted.role().is_moderator());
+        assert!(
+            users
+                .find_by_id(plain().id())
+                .await
+                .unwrap()
+                .role()
+                .is_moderator()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_user_cannot_promote_anyone() {
+        let (users, _, _) = seeded().await;
+        let result = promote_to_moderator(&users, &plain(), plain().id()).await;
+        assert_eq!(result, Err(EnforcementError::NotAuthorized));
     }
 
     #[tokio::test]

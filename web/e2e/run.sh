@@ -38,6 +38,10 @@ until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
 export API_URL="http://127.0.0.1:$API_PORT"
+export E2E_ROOT_USER="e2e_root"
+export E2E_ROOT_PASS="correcthorse"
+curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$E2E_ROOT_USER\",\"email\":\"root@example.com\",\"password\":\"$E2E_ROOT_PASS\"}"
 node e2e/moderation.mjs
 node e2e/register-sign-in.mjs
 node e2e/profile.mjs
@@ -54,3 +58,4 @@ node e2e/polls.mjs
 node e2e/feeds.mjs
 node e2e/avatars.mjs
 node e2e/account.mjs
+node e2e/enforcement.mjs

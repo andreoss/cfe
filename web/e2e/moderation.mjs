@@ -1,5 +1,6 @@
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
+import { promoteViaRoot } from './support.mjs'
 
 const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:58081'
 const chromedriverPath = process.env.CHROMEDRIVER_PATH
@@ -41,6 +42,7 @@ async function run() {
   const plainDriver = await buildDriver()
   try {
     await register(modDriver, modUsername, email(modUsername), password)
+    await promoteViaRoot(modUsername)
     await register(plainDriver, plainUsername, email(plainUsername), password)
 
     await plainDriver.get(`${baseUrl}/s/general`)
