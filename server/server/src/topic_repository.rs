@@ -1,5 +1,7 @@
 use app::TopicRepository;
-use domain::{Body, Deletion, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId, UserId};
+use domain::{
+    Body, Deletion, Page, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId, UserId,
+};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -126,12 +128,15 @@ impl TopicRepository for PgTopicRepository {
         .map(to_topic)
     }
 
-    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic> {
+    async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
         sqlx::query_as::<_, Row>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics \
-             WHERE section_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC"
+             WHERE section_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC \
+             LIMIT $2 OFFSET $3"
         ))
         .bind(section_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query list_by_section")
@@ -140,17 +145,41 @@ impl TopicRepository for PgTopicRepository {
         .collect()
     }
 
-    async fn list_by_tag(&self, tag: &domain::Slug) -> Vec<Topic> {
+    async fn list_by_tag(&self, tag: &domain::Slug, page: Page) -> Vec<Topic> {
         sqlx::query_as::<_, Row>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics \
-             WHERE $1 = ANY(tags) AND deleted_at IS NULL ORDER BY created_at DESC"
+             WHERE $1 = ANY(tags) AND deleted_at IS NULL ORDER BY created_at DESC \
+             LIMIT $2 OFFSET $3"
         ))
         .bind(tag.as_str())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query list_by_tag")
         .into_iter()
         .map(to_topic)
         .collect()
+    }
+    async fn count_by_section(&self, section_id: SectionId) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM topics WHERE section_id = $1 AND deleted_at IS NULL",
+        )
+        .bind(section_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics by section");
+        count as u64
+    }
+
+    async fn count_by_tag(&self, tag: &domain::Slug) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM topics WHERE $1 = ANY(tags) AND deleted_at IS NULL",
+        )
+        .bind(tag.as_str())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics by tag");
+        count as u64
     }
 }

@@ -1,5 +1,5 @@
 use app::NotificationRepository;
-use domain::{CommentId, Notification, NotificationId, TopicId, UserId};
+use domain::{CommentId, Notification, NotificationId, Page, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -78,18 +78,31 @@ impl NotificationRepository for PgNotificationRepository {
         .map(to_notification)
     }
 
-    async fn list_by_recipient(&self, recipient_id: UserId) -> Vec<Notification> {
+    async fn list_by_recipient(&self, recipient_id: UserId, page: Page) -> Vec<Notification> {
         sqlx::query_as::<_, Row>(&format!(
             "SELECT {SELECT_COLUMNS} FROM notifications \
-             WHERE recipient_id = $1 ORDER BY created_at DESC LIMIT 50"
+             WHERE recipient_id = $1 ORDER BY created_at DESC \
+             LIMIT $2 OFFSET $3"
         ))
         .bind(recipient_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query notifications")
         .into_iter()
         .map(to_notification)
         .collect()
+    }
+
+    async fn count_by_recipient(&self, recipient_id: UserId) -> u64 {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE recipient_id = $1")
+                .bind(recipient_id.as_uuid())
+                .fetch_one(&self.pool)
+                .await
+                .expect("count notifications");
+        count as u64
     }
 
     async fn count_unread(&self, recipient_id: UserId) -> u64 {

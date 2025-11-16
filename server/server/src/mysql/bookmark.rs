@@ -1,6 +1,6 @@
 use crate::mysql::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic};
 use app::BookmarkRepository;
-use domain::{Bookmark, Topic, TopicId, UserId};
+use domain::{Bookmark, Page, Topic, TopicId, UserId};
 use sqlx::MySqlPool;
 
 pub struct MySqlBookmarkRepository {
@@ -48,11 +48,11 @@ impl BookmarkRepository for MySqlBookmarkRepository {
         count > 0
     }
 
-    async fn list_topics(&self, user_id: UserId) -> Vec<Topic> {
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic> {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {} FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
              WHERE b.user_id = ? AND t.deleted_at IS NULL \
-             ORDER BY b.created_at DESC",
+             ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
             TOPIC_COLUMNS
                 .split(", ")
                 .map(|c| format!("t.{c}"))
@@ -60,6 +60,8 @@ impl BookmarkRepository for MySqlBookmarkRepository {
                 .join(", ")
         ))
         .bind(user_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query bookmarked topics");
@@ -69,5 +71,17 @@ impl BookmarkRepository for MySqlBookmarkRepository {
             topics.push(to_topic(row, tags));
         }
         topics
+    }
+
+    async fn count_topics(&self, user_id: UserId) -> u64 {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
+             WHERE b.user_id = ? AND t.deleted_at IS NULL",
+        )
+        .bind(user_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count bookmarked topics");
+        count as u64
     }
 }

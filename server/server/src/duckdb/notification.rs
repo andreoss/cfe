@@ -1,7 +1,10 @@
 use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value};
+use crate::duckdb::topic::{
+    count, limit_value, offset_value, opt_time, read_opt_time, read_time, read_uuid, time_to_value,
+    uuid_value,
+};
 use app::NotificationRepository;
-use domain::{CommentId, Notification, NotificationId, TopicId, UserId};
+use domain::{CommentId, Notification, NotificationId, Page, TopicId, UserId};
 use duckdb::Row;
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -110,32 +113,37 @@ impl NotificationRepository for DuckNotificationRepository {
         .next()
     }
 
-    async fn list_by_recipient(&self, recipient_id: UserId) -> Vec<Notification> {
+    async fn list_by_recipient(&self, recipient_id: UserId, page: Page) -> Vec<Notification> {
         load_notifications(
             &self.db,
             format!(
                 "SELECT {NOTIFICATION_COLUMNS} FROM notifications \
-                 WHERE recipient_id = ? ORDER BY created_at DESC LIMIT 50"
+                 WHERE recipient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
             ),
+            vec![
+                uuid_value(recipient_id.as_uuid()),
+                limit_value(page),
+                offset_value(page),
+            ],
+        )
+        .await
+    }
+
+    async fn count_by_recipient(&self, recipient_id: UserId) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM notifications WHERE recipient_id = ?",
             vec![uuid_value(recipient_id.as_uuid())],
         )
         .await
     }
 
     async fn count_unread(&self, recipient_id: UserId) -> u64 {
-        let params = vec![uuid_value(recipient_id.as_uuid())];
-        let count: i64 = self
-            .db
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM notifications \
-                     WHERE recipient_id = ? AND read_at IS NULL",
-                    duckdb::params_from_iter(params.iter()),
-                    |row| row.get(0),
-                )
-                .expect("count unread notifications")
-            })
-            .await;
-        count as u64
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM notifications WHERE recipient_id = ? AND read_at IS NULL",
+            vec![uuid_value(recipient_id.as_uuid())],
+        )
+        .await
     }
 }

@@ -26,7 +26,7 @@ use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
     Avatar, AvatarError, Bio, Body, CommentId, Email, Password, PollId, PollOption, PollOptionId,
-    Question, Reason,
+    Page, Question, Reason,
     ReactionTarget, ContentItem, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
     UserId, Username,
 };
@@ -145,6 +145,54 @@ pub struct EditCommentRequest {
 #[derive(Deserialize)]
 pub struct SearchParams {
     pub q: String,
+}
+
+#[derive(Deserialize)]
+pub struct PageParams {
+    pub page: Option<u32>,
+    pub size: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct PageInfo {
+    pub number: u32,
+    pub size: u32,
+    pub total: u64,
+    pub total_pages: u64,
+    pub has_next: bool,
+    pub has_previous: bool,
+}
+
+#[derive(Serialize)]
+pub struct PagedResponse<T> {
+    pub items: Vec<T>,
+    pub page: PageInfo,
+}
+
+fn to_page(params: &PageParams) -> Result<Page, (StatusCode, Json<ErrorResponse>)> {
+    Page::parse(
+        params.page.unwrap_or(1),
+        params.size.unwrap_or(domain::PAGE_DEFAULT_SIZE),
+    )
+    .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid page"))
+}
+
+fn feed_page() -> Page {
+    Page::parse(1, domain::PAGE_MAX_SIZE).expect("feed page is valid")
+}
+
+fn paged<T, U>(source: &app::Paged<U>, items: Vec<T>) -> PagedResponse<T> {
+    PagedResponse {
+        items,
+        page: PageInfo {
+            number: source.page.number(),
+            size: source.page.size(),
+            total: source.total,
+            total_pages: source.total_pages(),
+            has_next: source.has_next(),
+            has_previous: source.has_previous(),
+        },
+    }
 }
 
 #[derive(Serialize)]
@@ -375,21 +423,23 @@ pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<Se
 pub async fn list_topics_handler(
     State(state): State<AppState>,
     Path(slug): Path<String>,
-) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let slug = Slug::parse(&slug)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let page = to_page(&params)?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug)
+    let list = list_topics(&*sections, &*topics, &slug, page)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         })?;
-    let mut responses = Vec::with_capacity(list.len());
-    for topic in &list {
+    let mut responses = Vec::with_capacity(list.items.len());
+    for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
     }
-    Ok(Json(responses))
+    Ok(Json(paged(&list, responses)))
 }
 
 pub async fn create_topic_handler(
@@ -440,16 +490,18 @@ pub async fn get_topic_handler(
 pub async fn list_topics_by_tag_handler(
     State(state): State<AppState>,
     Path(tag): Path<String>,
-) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let page = to_page(&params)?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag).await;
-    let mut responses = Vec::with_capacity(list.len());
-    for topic in &list {
+    let list = list_topics_by_tag(&*topics, &tag, page).await;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
     }
-    Ok(Json(responses))
+    Ok(Json(paged(&list, responses)))
 }
 
 async fn comment_response(
@@ -482,10 +534,12 @@ async fn comment_response(
 pub async fn list_comments_handler(
     State(state): State<AppState>,
     Path(topic_id): Path<uuid::Uuid>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
     OptionalUser(viewer): OptionalUser,
-) -> Result<Json<Vec<CommentResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<PagedResponse<CommentResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
     let comments = state.backend.comments();
-    let list = list_comments(&*comments, TopicId::new(topic_id)).await;
+    let list = list_comments(&*comments, TopicId::new(topic_id), page).await;
     let ignored = match &viewer {
         Some(user) => {
             let enforcement = state.backend.enforcement();
@@ -493,8 +547,8 @@ pub async fn list_comments_handler(
         }
         None => Vec::new(),
     };
-    let mut responses = Vec::with_capacity(list.len());
-    for comment in &list {
+    let mut responses = Vec::with_capacity(list.items.len());
+    for comment in &list.items {
         let mut response = comment_response(&state, comment).await?;
         if ignored.contains(&comment.author_id()) {
             response.body = String::new();
@@ -502,7 +556,7 @@ pub async fn list_comments_handler(
         }
         responses.push(response);
     }
-    Ok(Json(responses))
+    Ok(Json(paged(&list, responses)))
 }
 
 pub async fn post_comment_handler(
@@ -691,15 +745,17 @@ async fn notification_response(
 
 pub async fn list_notifications_handler(
     State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
     CurrentUser(current): CurrentUser,
-) -> Result<Json<Vec<NotificationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<PagedResponse<NotificationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
     let repo = state.backend.notifications();
-    let list = list_notifications(&*repo, current.id()).await;
-    let mut responses = Vec::with_capacity(list.len());
-    for notification in &list {
+    let list = list_notifications(&*repo, current.id(), page).await;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for notification in &list.items {
         responses.push(notification_response(&state, notification).await?);
     }
-    Ok(Json(responses))
+    Ok(Json(paged(&list, responses)))
 }
 
 pub async fn unread_count_handler(
@@ -780,15 +836,17 @@ pub async fn bookmark_state_handler(
 
 pub async fn list_bookmarks_handler(
     State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
     CurrentUser(current): CurrentUser,
-) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
     let bookmarks = state.backend.bookmarks();
-    let list = list_bookmarked_topics(&*bookmarks, current.id()).await;
-    let mut responses = Vec::with_capacity(list.len());
-    for topic in &list {
+    let list = list_bookmarked_topics(&*bookmarks, current.id(), page).await;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
     }
-    Ok(Json(responses))
+    Ok(Json(paged(&list, responses)))
 }
 
 #[derive(Deserialize)]
@@ -1427,12 +1485,12 @@ pub async fn section_feed_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug)
+    let list = list_topics(&*sections, &*topics, &slug, feed_page())
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         })?;
-    let entries = feed_entries(&state, &list).await;
+    let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         slug.as_str(),
         &format!("/api/sections/{}/feed", slug.as_str()),
@@ -1447,8 +1505,8 @@ pub async fn tag_feed_handler(
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag).await;
-    let entries = feed_entries(&state, &list).await;
+    let list = list_topics_by_tag(&*topics, &tag, feed_page()).await;
+    let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         tag.as_str(),
         &format!("/api/tags/{}/feed", tag.as_str()),

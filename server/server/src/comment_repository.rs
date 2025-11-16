@@ -1,5 +1,5 @@
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Reason, Revision, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Page, Reason, Revision, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -112,16 +112,35 @@ impl CommentRepository for PgCommentRepository {
         .map(to_comment)
     }
 
-    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment> {
+    async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
         sqlx::query_as::<_, Row>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM comments WHERE topic_id = $1 ORDER BY created_at ASC"
+            "SELECT {SELECT_COLUMNS} FROM comments WHERE topic_id = $1 AND (id IN (\
+             SELECT id FROM comments WHERE topic_id = $1 AND parent_id IS NULL \
+             ORDER BY created_at ASC LIMIT $2 OFFSET $3\
+             ) OR parent_id IN (\
+             SELECT id FROM comments WHERE topic_id = $1 AND parent_id IS NULL \
+             ORDER BY created_at ASC LIMIT $2 OFFSET $3\
+             )) ORDER BY created_at ASC"
         ))
         .bind(topic_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query list_by_topic")
         .into_iter()
         .map(to_comment)
         .collect()
+    }
+
+    async fn count_roots(&self, topic_id: TopicId) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM comments WHERE topic_id = $1 AND parent_id IS NULL",
+        )
+        .bind(topic_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count root comments");
+        count as u64
     }
 }

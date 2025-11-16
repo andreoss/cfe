@@ -1,9 +1,9 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    TOPIC_COLUMNS, TopicRow, tags_for, time_to_value, to_topic, topic_row, uuid_value,
+    count, limit_value, load_topics, offset_value, tagged_columns, time_to_value, uuid_value,
 };
 use app::BookmarkRepository;
-use domain::{Bookmark, Topic, TopicId, UserId};
+use domain::{Bookmark, Page, Topic, TopicId, UserId};
 use duckdb::types::Value;
 
 pub struct DuckBookmarkRepository {
@@ -64,34 +64,28 @@ impl BookmarkRepository for DuckBookmarkRepository {
         count > 0
     }
 
-    async fn list_topics(&self, user_id: UserId) -> Vec<Topic> {
-        let columns = TOPIC_COLUMNS
-            .split(", ")
-            .map(|c| format!("t.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ");
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic> {
+        let columns = tagged_columns();
         let sql = format!(
             "SELECT {columns} FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
-             WHERE b.user_id = ? AND t.deleted_at IS NULL ORDER BY b.created_at DESC"
+             WHERE b.user_id = ? AND t.deleted_at IS NULL \
+             ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
         );
-        let params: Vec<Value> = vec![uuid_value(user_id.as_uuid())];
-        let rows: Vec<TopicRow> = self
-            .db
-            .call(move |conn| {
-                let mut stmt = conn.prepare(&sql).expect("prepare bookmarked topics");
-                let mapped = stmt
-                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
-                        Ok(topic_row(row))
-                    })
-                    .expect("query bookmarked topics");
-                mapped.map(|r| r.expect("read topic")).collect()
-            })
-            .await;
-        let mut topics = Vec::with_capacity(rows.len());
-        for row in rows {
-            let tags = tags_for(&self.db, row.id).await;
-            topics.push(to_topic(row, tags));
-        }
-        topics
+        let params: Vec<Value> = vec![
+            uuid_value(user_id.as_uuid()),
+            limit_value(page),
+            offset_value(page),
+        ];
+        load_topics(&self.db, sql, params).await
+    }
+
+    async fn count_topics(&self, user_id: UserId) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
+             WHERE b.user_id = ? AND t.deleted_at IS NULL",
+            vec![uuid_value(user_id.as_uuid())],
+        )
+        .await
     }
 }

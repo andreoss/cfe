@@ -1,6 +1,6 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
+    Body, Deletion, Page, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
 };
 use sqlx::{FromRow, MySqlPool, Row};
 use time::OffsetDateTime;
@@ -155,22 +155,37 @@ impl TopicRepository for MySqlTopicRepository {
         Some(to_topic(row, tags))
     }
 
-    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic> {
+    async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {TOPIC_COLUMNS} FROM topics \
-             WHERE section_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
+             WHERE section_id = ? AND deleted_at IS NULL ORDER BY created_at DESC \
+             LIMIT ? OFFSET ?"
         ))
         .bind(section_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query list_by_section");
         with_tags(&self.pool, rows).await
     }
 
-    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic> {
+    async fn count_by_section(&self, section_id: SectionId) -> u64 {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM topics WHERE section_id = ? AND deleted_at IS NULL",
+        )
+        .bind(section_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics by section");
+        count as u64
+    }
+
+    async fn list_by_tag(&self, tag: &Slug, page: Page) -> Vec<Topic> {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {} FROM topics t JOIN topic_tags g ON g.topic_id = t.id \
-             WHERE g.tag = ? AND t.deleted_at IS NULL ORDER BY t.created_at DESC",
+             WHERE g.tag = ? AND t.deleted_at IS NULL ORDER BY t.created_at DESC \
+             LIMIT ? OFFSET ?",
             TOPIC_COLUMNS
                 .split(", ")
                 .map(|c| format!("t.{c}"))
@@ -178,9 +193,23 @@ impl TopicRepository for MySqlTopicRepository {
                 .join(", ")
         ))
         .bind(tag.as_str())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query list_by_tag");
         with_tags(&self.pool, rows).await
+    }
+
+    async fn count_by_tag(&self, tag: &Slug) -> u64 {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM topics t JOIN topic_tags g ON g.topic_id = t.id \
+             WHERE g.tag = ? AND t.deleted_at IS NULL",
+        )
+        .bind(tag.as_str())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics by tag");
+        count as u64
     }
 }

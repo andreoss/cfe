@@ -1,6 +1,7 @@
 use app::BookmarkRepository;
 use domain::{
-    Body, Bookmark, Deletion, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId, UserId,
+    Body, Bookmark, Deletion, Page, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId,
+    UserId,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -95,20 +96,35 @@ impl BookmarkRepository for PgBookmarkRepository {
         count > 0
     }
 
-    async fn list_topics(&self, user_id: UserId) -> Vec<Topic> {
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic> {
         sqlx::query_as::<_, TopicRow>(
             "SELECT t.id, t.section_id, t.author_id, t.title, t.body, t.tags, t.created_at, \
              t.deleted_reason, t.deleted_by, t.deleted_at, t.edited_by, t.edited_at \
              FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
              WHERE b.user_id = $1 AND t.deleted_at IS NULL \
-             ORDER BY b.created_at DESC",
+             ORDER BY b.created_at DESC \
+             LIMIT $2 OFFSET $3",
         )
         .bind(user_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query bookmarked topics")
         .into_iter()
         .map(to_topic)
         .collect()
+    }
+
+    async fn count_topics(&self, user_id: UserId) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM bookmarks b JOIN topics t ON t.id = b.topic_id \
+             WHERE b.user_id = $1 AND t.deleted_at IS NULL",
+        )
+        .bind(user_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count bookmarked topics");
+        count as u64
     }
 }

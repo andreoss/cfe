@@ -1,10 +1,10 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    opt_text, opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time, read_uuid, revision,
-    time_to_value, uuid_value,
+    count, limit_value, offset_value, opt_text, opt_time, opt_uuid, read_opt_time, read_opt_uuid,
+    read_time, read_uuid, revision, time_to_value, uuid_value,
 };
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Reason, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Page, Reason, TopicId, UserId};
 use duckdb::Row;
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -139,13 +139,31 @@ impl CommentRepository for DuckCommentRepository {
         .next()
     }
 
-    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment> {
+    async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
+        let roots = "SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
+                     ORDER BY created_at ASC LIMIT ? OFFSET ?";
+        let mut params = Vec::with_capacity(7);
+        params.push(uuid_value(topic_id.as_uuid()));
+        for _ in 0..2 {
+            params.push(uuid_value(topic_id.as_uuid()));
+            params.push(limit_value(page));
+            params.push(offset_value(page));
+        }
         load_comments(
             &self.db,
             format!(
-                "SELECT {COMMENT_COLUMNS} FROM comments \
-                 WHERE topic_id = ? ORDER BY created_at ASC"
+                "SELECT {COMMENT_COLUMNS} FROM comments WHERE topic_id = ? \
+                 AND (id IN ({roots}) OR parent_id IN ({roots})) ORDER BY created_at ASC"
             ),
+            params,
+        )
+        .await
+    }
+
+    async fn count_roots(&self, topic_id: TopicId) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM comments WHERE topic_id = ? AND parent_id IS NULL",
             vec![uuid_value(topic_id.as_uuid())],
         )
         .await

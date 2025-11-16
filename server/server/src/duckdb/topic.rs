@@ -1,7 +1,7 @@
 use crate::duckdb::conn::Db;
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
+    Body, Deletion, Page, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
 };
 use duckdb::Row;
 use duckdb::types::Value;
@@ -61,6 +61,34 @@ pub fn opt_uuid(id: Option<uuid::Uuid>) -> Value {
         Some(id) => uuid_value(id),
         None => Value::Null,
     }
+}
+
+pub fn limit_value(page: Page) -> Value {
+    Value::BigInt(page.limit() as i64)
+}
+
+pub fn offset_value(page: Page) -> Value {
+    Value::BigInt(page.offset() as i64)
+}
+
+pub async fn count(db: &Db, sql: &'static str, params: Vec<Value>) -> u64 {
+    let total: i64 = db
+        .call(move |conn| {
+            conn.query_row(sql, duckdb::params_from_iter(params.iter()), |row| {
+                row.get(0)
+            })
+            .expect("count rows")
+        })
+        .await;
+    total as u64
+}
+
+pub fn tagged_columns() -> String {
+    TOPIC_COLUMNS
+        .split(", ")
+        .map(|c| format!("t.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub fn opt_text(text: Option<&str>) -> Value {
@@ -175,7 +203,7 @@ async fn replace_tags(db: &Db, topic: &Topic) {
     .await;
 }
 
-async fn load_topics(db: &Db, sql: String, params: Vec<Value>) -> Vec<Topic> {
+pub async fn load_topics(db: &Db, sql: String, params: Vec<Value>) -> Vec<Topic> {
     let rows: Vec<TopicRow> = db
         .call(move |conn| {
             let mut stmt = conn.prepare(&sql).expect("prepare topics");
@@ -247,30 +275,55 @@ impl TopicRepository for DuckTopicRepository {
         found.into_iter().next()
     }
 
-    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic> {
+    async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
         load_topics(
             &self.db,
             format!(
                 "SELECT {TOPIC_COLUMNS} FROM topics \
-                 WHERE section_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
+                 WHERE section_id = ? AND deleted_at IS NULL \
+                 ORDER BY created_at DESC LIMIT ? OFFSET ?"
             ),
+            vec![
+                uuid_value(section_id.as_uuid()),
+                limit_value(page),
+                offset_value(page),
+            ],
+        )
+        .await
+    }
+
+    async fn count_by_section(&self, section_id: SectionId) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM topics WHERE section_id = ? AND deleted_at IS NULL",
             vec![uuid_value(section_id.as_uuid())],
         )
         .await
     }
 
-    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic> {
-        let columns = TOPIC_COLUMNS
-            .split(", ")
-            .map(|c| format!("t.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ");
+    async fn list_by_tag(&self, tag: &Slug, page: Page) -> Vec<Topic> {
+        let columns = tagged_columns();
         load_topics(
             &self.db,
             format!(
                 "SELECT {columns} FROM topics t JOIN topic_tags g ON g.topic_id = t.id \
-                 WHERE g.tag = ? AND t.deleted_at IS NULL ORDER BY t.created_at DESC"
+                 WHERE g.tag = ? AND t.deleted_at IS NULL \
+                 ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
             ),
+            vec![
+                Value::Text(tag.as_str().to_owned()),
+                limit_value(page),
+                offset_value(page),
+            ],
+        )
+        .await
+    }
+
+    async fn count_by_tag(&self, tag: &Slug) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM topics t JOIN topic_tags g ON g.topic_id = t.id \
+             WHERE g.tag = ? AND t.deleted_at IS NULL",
             vec![Value::Text(tag.as_str().to_owned())],
         )
         .await

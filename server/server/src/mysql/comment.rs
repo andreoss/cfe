@@ -1,6 +1,6 @@
 use crate::mysql::topic::revision;
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Reason, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Page, Reason, TopicId, UserId};
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
 
@@ -100,16 +100,40 @@ impl CommentRepository for MySqlCommentRepository {
         .map(to_comment)
     }
 
-    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment> {
+    async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
         sqlx::query_as::<_, CommentRow>(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM comments WHERE topic_id = ? ORDER BY created_at"
+            "SELECT {COMMENT_COLUMNS} FROM comments WHERE topic_id = ? AND (\
+             id IN (SELECT id FROM (\
+             SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
+             ORDER BY created_at LIMIT ? OFFSET ?) r) \
+             OR parent_id IN (SELECT id FROM (\
+             SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
+             ORDER BY created_at LIMIT ? OFFSET ?) r2)) \
+             ORDER BY created_at"
         ))
         .bind(topic_id.as_uuid())
+        .bind(topic_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
+        .bind(topic_id.as_uuid())
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query comments")
         .into_iter()
         .map(to_comment)
         .collect()
+    }
+
+    async fn count_roots(&self, topic_id: TopicId) -> u64 {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM comments WHERE topic_id = ? AND parent_id IS NULL",
+        )
+        .bind(topic_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .expect("count root comments");
+        count as u64
     }
 }
