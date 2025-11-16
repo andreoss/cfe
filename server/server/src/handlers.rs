@@ -4,6 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use crate::bookmark_repository::PgBookmarkRepository;
 use crate::comment_repository::PgCommentRepository;
+use crate::enforcement_repository::PgEnforcementRepository;
 use crate::hasher::Argon2Hasher;
 use crate::reaction_repository::PgReactionRepository;
 use crate::repository::PgUserRepository;
@@ -15,6 +16,8 @@ use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
     AvatarLookupError, BookmarkError, ChangePasswordError, CommentRepository, CreatePollError,
+    EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
+    lift_ban, list_warnings, stop_ignoring, warn_user,
     CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
     get_avatar, set_avatar,
     ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
@@ -129,6 +132,7 @@ pub struct CommentResponse {
     pub deleted: bool,
     pub deleted_reason: Option<String>,
     pub edited: bool,
+    pub ignored: bool,
 }
 
 #[derive(Deserialize)]
@@ -270,6 +274,13 @@ pub async fn sign_in_handler(
             SignInError::NotFound => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
             SignInError::WrongPassword => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
         })?;
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    if let Some(ban) = active_ban(&enforcement, user.id(), OffsetDateTime::now_utc()).await {
+        return Err(error(
+            StatusCode::FORBIDDEN,
+            &format!("account suspended: {}", ban.reason().as_str()),
+        ));
+    }
     let token = start_session(&state.pool, user.id()).await;
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
@@ -475,18 +486,32 @@ async fn comment_response(
         deleted: comment.is_deleted(),
         deleted_reason: comment.deletion().map(|d| d.reason().as_str().to_owned()),
         edited: comment.is_edited(),
+        ignored: false,
     })
 }
 
 pub async fn list_comments_handler(
     State(state): State<AppState>,
     Path(topic_id): Path<uuid::Uuid>,
+    OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<Vec<CommentResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let comments = PgCommentRepository::new(state.pool.clone());
     let list = list_comments(&comments, TopicId::new(topic_id)).await;
+    let ignored = match &viewer {
+        Some(user) => {
+            let enforcement = PgEnforcementRepository::new(state.pool.clone());
+            ignored_by(&enforcement, user.id()).await
+        }
+        None => Vec::new(),
+    };
     let mut responses = Vec::with_capacity(list.len());
     for comment in &list {
-        responses.push(comment_response(&state.pool, comment).await?);
+        let mut response = comment_response(&state.pool, comment).await?;
+        if ignored.contains(&comment.author_id()) {
+            response.body = String::new();
+            response.ignored = true;
+        }
+        responses.push(response);
     }
     Ok(Json(responses))
 }
@@ -1053,6 +1078,205 @@ pub async fn vote_handler(
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
+}
+
+#[derive(Deserialize)]
+pub struct BanRequest {
+    pub reason: String,
+    pub days: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct WarnRequest {
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct BanResponse {
+    pub reason: String,
+    pub until: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct WarningResponse {
+    pub id: String,
+    pub reason: String,
+    pub created_at: String,
+    pub acknowledged: bool,
+}
+
+fn enforcement_error(e: EnforcementError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        EnforcementError::NotAuthorized => {
+            error(StatusCode::FORBIDDEN, "moderator role required")
+        }
+        EnforcementError::UserNotFound => error(StatusCode::NOT_FOUND, "user not found"),
+        EnforcementError::NotYourself => {
+            error(StatusCode::UNPROCESSABLE_ENTITY, "not yourself")
+        }
+    }
+}
+
+async fn find_user_id(
+    pool: &PgPool,
+    username: &str,
+) -> Result<UserId, (StatusCode, Json<ErrorResponse>)> {
+    let parsed = Username::parse(username)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
+    let users = PgUserRepository::new(pool.clone());
+    users
+        .find_by_username(&parsed)
+        .await
+        .map(|u| u.id())
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "user not found"))
+}
+
+pub async fn ban_user_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<BanRequest>,
+) -> Result<Json<BanResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let target = find_user_id(&state.pool, &username).await?;
+    let now = OffsetDateTime::now_utc();
+    let until = body.days.map(|d| now + Duration::days(d));
+    let users = PgUserRepository::new(state.pool.clone());
+    let sessions = PgSessionRepository::new(state.pool.clone());
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let ban = ban_user(
+        &users,
+        &sessions,
+        &enforcement,
+        &current,
+        target,
+        reason,
+        now,
+        until,
+    )
+    .await
+    .map_err(enforcement_error)?;
+    Ok(Json(BanResponse {
+        reason: ban.reason().as_str().to_owned(),
+        until: ban.until().and_then(|u| u.format(&Rfc3339).ok()),
+    }))
+}
+
+pub async fn lift_ban_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let target = find_user_id(&state.pool, &username).await?;
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    lift_ban(&enforcement, &current, target)
+        .await
+        .map_err(enforcement_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn warn_user_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<WarnRequest>,
+) -> Result<Json<WarningResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let target = find_user_id(&state.pool, &username).await?;
+    let users = PgUserRepository::new(state.pool.clone());
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let warning = warn_user(
+        &users,
+        &enforcement,
+        &current,
+        domain::WarningId::new(uuid::Uuid::new_v4()),
+        target,
+        reason,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(enforcement_error)?;
+    Ok(Json(WarningResponse {
+        id: warning.id().as_uuid().to_string(),
+        reason: warning.reason().as_str().to_owned(),
+        created_at: warning
+            .created_at()
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| String::new()),
+        acknowledged: warning.is_acknowledged(),
+    }))
+}
+
+pub async fn my_warnings_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Json<Vec<WarningResponse>> {
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    Json(
+        list_warnings(&enforcement, current.id())
+            .await
+            .into_iter()
+            .map(|w| WarningResponse {
+                id: w.id().as_uuid().to_string(),
+                reason: w.reason().as_str().to_owned(),
+                created_at: w.created_at().format(&Rfc3339).unwrap_or_else(|_| String::new()),
+                acknowledged: w.is_acknowledged(),
+            })
+            .collect(),
+    )
+}
+
+pub async fn acknowledge_warnings_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> StatusCode {
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    acknowledge_warnings(&enforcement, current.id()).await;
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Serialize)]
+pub struct IgnoreStateResponse {
+    pub ignored: bool,
+}
+
+pub async fn ignore_user_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = find_user_id(&state.pool, &username).await?;
+    let users = PgUserRepository::new(state.pool.clone());
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    ignore_user(&users, &enforcement, &current, target)
+        .await
+        .map_err(enforcement_error)?;
+    Ok(Json(IgnoreStateResponse { ignored: true }))
+}
+
+pub async fn stop_ignoring_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = find_user_id(&state.pool, &username).await?;
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    stop_ignoring(&enforcement, &current, target).await;
+    Ok(Json(IgnoreStateResponse { ignored: false }))
+}
+
+pub async fn ignore_state_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let target = find_user_id(&state.pool, &username).await?;
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    Ok(Json(IgnoreStateResponse {
+        ignored: ignored_by(&enforcement, current.id()).await.contains(&target),
+    }))
 }
 
 #[derive(Deserialize)]

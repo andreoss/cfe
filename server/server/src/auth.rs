@@ -2,7 +2,8 @@ use crate::handlers::{AppState, ErrorResponse};
 use axum::Json;
 use crate::repository::PgUserRepository;
 use crate::session_repository::PgSessionRepository;
-use app::current_user as resolve_current_user;
+use app::{active_ban, current_user as resolve_current_user};
+use crate::enforcement_repository::PgEnforcementRepository;
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
 use axum::http::request::Parts;
@@ -31,7 +32,13 @@ async fn resolve(parts: &Parts, state: &AppState) -> Option<User> {
     let token = SessionToken::parse(&token_str).ok()?;
     let sessions = PgSessionRepository::new(state.pool.clone());
     let users = PgUserRepository::new(state.pool.clone());
-    resolve_current_user(&sessions, &users, &token, OffsetDateTime::now_utc()).await
+    let now = OffsetDateTime::now_utc();
+    let user = resolve_current_user(&sessions, &users, &token, now).await?;
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    match active_ban(&enforcement, user.id(), now).await {
+        Some(_) => None,
+        None => Some(user),
+    }
 }
 
 impl FromRequestParts<AppState> for CurrentUser {

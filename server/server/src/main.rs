@@ -1,6 +1,7 @@
 mod auth;
 mod comment_repository;
 mod handlers;
+mod enforcement_repository;
 mod feed;
 mod hasher;
 mod avatar_repository;
@@ -81,6 +82,22 @@ async fn main() {
         )
         .route("/api/tags/{tag}/feed", get(handlers::tag_feed_handler))
         .route("/api/me/password", post(handlers::change_password_handler))
+        .route("/api/me/warnings", get(handlers::my_warnings_handler))
+        .route(
+            "/api/me/warnings/acknowledge",
+            post(handlers::acknowledge_warnings_handler),
+        )
+        .route(
+            "/api/users/{username}/ban",
+            post(handlers::ban_user_handler).delete(handlers::lift_ban_handler),
+        )
+        .route("/api/users/{username}/warn", post(handlers::warn_user_handler))
+        .route(
+            "/api/users/{username}/ignore",
+            get(handlers::ignore_state_handler)
+                .post(handlers::ignore_user_handler)
+                .delete(handlers::stop_ignoring_handler),
+        )
         .route("/api/me/deregister", post(handlers::deregister_handler))
         .route(
             "/api/me/avatar",
