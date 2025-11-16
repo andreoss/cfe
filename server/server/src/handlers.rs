@@ -14,8 +14,9 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    AvatarLookupError, BookmarkError, CommentRepository, CreatePollError, CreateTopicError,
-    DeleteError, EditError, clear_avatar, get_avatar, set_avatar,
+    AvatarLookupError, BookmarkError, ChangePasswordError, CommentRepository, CreatePollError,
+    CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
+    get_avatar, set_avatar,
     ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
     PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
     TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
@@ -31,8 +32,8 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Avatar, AvatarError, Bio, Body, CommentId, Email, PollId, PollOption, PollOptionId, Question,
-    Reason,
+    Avatar, AvatarError, Bio, Body, CommentId, Email, Password, PollId, PollOption, PollOptionId,
+    Question, Reason,
     ReactionTarget, SearchHit, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
     UserId, Username,
 };
@@ -242,6 +243,8 @@ pub async fn register_handler(
     let repo = PgUserRepository::new(state.pool.clone());
     let hasher = Argon2Hasher;
     let id = UserId::new(uuid::Uuid::new_v4());
+    Password::parse(&body.password)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "password too short"))?;
     let user = register(&repo, &hasher, id, username, email, &body.password)
         .await
         .map_err(|e| match e {
@@ -1050,6 +1053,53 @@ pub async fn vote_handler(
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+pub async fn change_password_handler(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<(CookieJar, Json<UserResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let new_password = Password::parse(&body.new_password)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid new password"))?;
+    let users = PgUserRepository::new(state.pool.clone());
+    let sessions = PgSessionRepository::new(state.pool.clone());
+    let updated = change_password(
+        &users,
+        &sessions,
+        &Argon2Hasher,
+        &current,
+        &body.current_password,
+        new_password,
+    )
+    .await
+    .map_err(|e| match e {
+        ChangePasswordError::WrongPassword => {
+            error(StatusCode::UNAUTHORIZED, "wrong current password")
+        }
+    })?;
+    let token = start_session(&state.pool, updated.id()).await;
+    Ok((jar.add(session_cookie(&token)), to_response(&updated)))
+}
+
+pub async fn deregister_handler(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    CurrentUser(current): CurrentUser,
+) -> (CookieJar, Json<UserResponse>) {
+    let users = PgUserRepository::new(state.pool.clone());
+    let sessions = PgSessionRepository::new(state.pool.clone());
+    let avatars = PgAvatarRepository::new(state.pool.clone());
+    clear_avatar(&avatars, current.id()).await;
+    let gone = deregister(&users, &sessions, &current, OffsetDateTime::now_utc()).await;
+    (jar.remove(Cookie::from(SESSION_COOKIE)), to_response(&gone))
 }
 
 #[derive(Deserialize)]

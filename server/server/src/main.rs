@@ -80,6 +80,8 @@ async fn main() {
             get(handlers::section_feed_handler),
         )
         .route("/api/tags/{tag}/feed", get(handlers::tag_feed_handler))
+        .route("/api/me/password", post(handlers::change_password_handler))
+        .route("/api/me/deregister", post(handlers::deregister_handler))
         .route(
             "/api/me/avatar",
             post(handlers::upload_avatar_handler).delete(handlers::delete_avatar_handler),

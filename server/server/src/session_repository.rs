@@ -72,4 +72,12 @@ impl SessionRepository for PgSessionRepository {
             .await
             .expect("delete session");
     }
+
+    async fn delete_for_user(&self, user_id: domain::UserId) {
+        sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+            .bind(user_id.as_uuid())
+            .execute(&self.pool)
+            .await
+            .expect("delete sessions for user");
+    }
 }

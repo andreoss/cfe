@@ -1,6 +1,7 @@
 use app::UserRepository;
 use domain::{Bio, Email, Role, User, UserId, Username};
 use sqlx::{FromRow, PgPool};
+use time::OffsetDateTime;
 
 pub struct PgUserRepository {
     pool: PgPool,
@@ -20,6 +21,7 @@ struct Row {
     password_hash: String,
     bio: Option<String>,
     role: String,
+    deregistered_at: Option<OffsetDateTime>,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -48,6 +50,7 @@ fn to_user(row: Row) -> User {
         row.password_hash,
         bio,
         role_from_str(&row.role),
+        row.deregistered_at,
     )
 }
 
@@ -55,7 +58,7 @@ fn to_user(row: Row) -> User {
 impl UserRepository for PgUserRepository {
     async fn find_by_username(&self, username: &Username) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role FROM users WHERE username = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at FROM users WHERE username = $1",
         )
         .bind(username.as_str())
         .fetch_optional(&self.pool)
@@ -66,7 +69,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_email(&self, email: &Email) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role FROM users WHERE email = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at FROM users WHERE email = $1",
         )
         .bind(email.as_str())
         .fetch_optional(&self.pool)
@@ -77,7 +80,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_id(&self, id: UserId) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role FROM users WHERE id = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at FROM users WHERE id = $1",
         )
         .bind(id.as_uuid())
         .fetch_optional(&self.pool)
@@ -104,7 +107,7 @@ impl UserRepository for PgUserRepository {
     async fn update(&self, user: &User) {
         sqlx::query(
             "UPDATE users SET username = $2, email = $3, password_hash = $4, bio = $5, \
-             role = $6 WHERE id = $1",
+             role = $6, deregistered_at = $7 WHERE id = $1",
         )
         .bind(user.id().as_uuid())
         .bind(user.username().as_str())
@@ -112,6 +115,7 @@ impl UserRepository for PgUserRepository {
         .bind(user.password_hash())
         .bind(user.bio().map(Bio::as_str))
         .bind(role_to_str(user.role()))
+        .bind(user.deregistered_at())
         .execute(&self.pool)
         .await
         .expect("update user");
