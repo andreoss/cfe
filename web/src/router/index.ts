@@ -58,6 +58,11 @@ const router = createRouter({
       name: 'bookmarks',
       component: () => import('../views/BookmarksView.vue'),
     },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('../views/SettingsView.vue'),
+    },
   ],
 })
 

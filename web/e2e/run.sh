@@ -53,3 +53,4 @@ node e2e/reactions.mjs
 node e2e/polls.mjs
 node e2e/feeds.mjs
 node e2e/avatars.mjs
+node e2e/account.mjs

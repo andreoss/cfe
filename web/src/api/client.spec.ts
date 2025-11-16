@@ -40,6 +40,8 @@ import {
   avatarUrl,
   uploadAvatar,
   deleteAvatar,
+  changePassword,
+  deregister,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -1129,6 +1131,103 @@ describe('deleteAvatar', () => {
   it('returns an error when not authenticated', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await deleteAvatar()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('changePassword', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the user on success', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    const result = await changePassword('correcthorse', 'batterystaple')
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', role: 'member' },
+    })
+  })
+
+  it('uses POST method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    await changePassword('correcthorse', 'batterystaple')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/password'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('sends the passwords under snake_case keys', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    await changePassword('correcthorse', 'batterystaple')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({
+          current_password: 'correcthorse',
+          new_password: 'batterystaple',
+        }),
+      }),
+    )
+  })
+
+  it('returns the server error for a wrong current password', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'wrong current password' }),
+    )
+    const result = await changePassword('nope', 'batterystaple')
+    expect(result).toEqual({ ok: false, error: 'wrong current password' })
+  })
+
+  it('returns the server error for an invalid new password', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'invalid new password' }),
+    )
+    const result = await changePassword('correcthorse', 'short')
+    expect(result).toEqual({ ok: false, error: 'invalid new password' })
+  })
+})
+
+describe('deregister', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the user on success', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    const result = await deregister()
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', role: 'member' },
+    })
+  })
+
+  it('uses POST method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    await deregister()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/deregister'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await deregister()
     expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

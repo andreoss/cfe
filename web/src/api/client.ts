@@ -87,6 +87,21 @@ export function signOut(): Promise<ApiResult<void>> {
   return request<void>('/api/sign-out', { method: 'POST' })
 }
 
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<ApiResult<User>> {
+  return request<User>('/api/me/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+}
+
+export async function deregister(): Promise<ApiResult<User>> {
+  return request<User>('/api/me/deregister', { method: 'POST' })
+}
+
 export function getProfile(username: string): Promise<ApiResult<Profile>> {
   return request<Profile>(`/api/users/${encodeURIComponent(username)}`, { method: 'GET' })
 }

@@ -40,6 +40,7 @@ onMounted(() => {
         <RouterLink :to="`/u/${auth.currentUser.username}`">{{
           auth.currentUser.username
         }}</RouterLink>
+        <RouterLink to="/settings">Settings</RouterLink>
         <button type="button" @click="auth.doSignOut()">Sign out</button>
       </template>
       <template v-else>
