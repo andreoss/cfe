@@ -3,6 +3,7 @@ mod avatars;
 mod bookmarks;
 mod comments;
 mod editing;
+mod enforcement;
 mod moderation;
 mod notifications;
 mod polls;
@@ -23,14 +24,18 @@ pub use bookmarks::{
 };
 pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
+pub use enforcement::{
+    EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
+    lift_ban, list_warnings, stop_ignoring, warn_user,
+};
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
 pub use polls::{
     CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,
 };
 pub use ports::{
-    AvatarRepository, BookmarkRepository, CommentRepository, NotificationRepository,
-    PasswordHasher, PollRepository,
+    AvatarRepository, BookmarkRepository, CommentRepository, EnforcementRepository,
+    NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };

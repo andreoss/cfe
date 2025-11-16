@@ -1,14 +1,14 @@
 #![cfg(test)]
 
 use crate::ports::{
-    AvatarRepository, BookmarkRepository, CommentRepository, NotificationRepository,
-    PasswordHasher, PollRepository,
+    AvatarRepository, BookmarkRepository, CommentRepository, EnforcementRepository,
+    NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
 };
 use domain::{
-    Avatar, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query,
-    Reaction,
+    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query,
+    Reaction, Warning,
     ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
 };
@@ -590,5 +590,83 @@ impl AvatarRepository for FakeAvatarRepo {
 
     async fn delete(&self, user_id: UserId) {
         self.avatars.lock().unwrap().retain(|(id, _)| *id != user_id);
+    }
+}
+
+pub struct FakeEnforcementRepo {
+    bans: Mutex<Vec<(UserId, Ban)>>,
+    warnings: Mutex<Vec<Warning>>,
+    ignores: Mutex<Vec<(UserId, UserId)>>,
+}
+
+impl FakeEnforcementRepo {
+    pub fn new() -> Self {
+        Self {
+            bans: Mutex::new(Vec::new()),
+            warnings: Mutex::new(Vec::new()),
+            ignores: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EnforcementRepository for FakeEnforcementRepo {
+    async fn save_ban(&self, user_id: UserId, ban: &Ban) {
+        let mut bans = self.bans.lock().unwrap();
+        bans.retain(|(id, _)| *id != user_id);
+        bans.push((user_id, ban.clone()));
+    }
+
+    async fn find_ban(&self, user_id: UserId) -> Option<Ban> {
+        self.bans
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| *id == user_id)
+            .map(|(_, b)| b.clone())
+    }
+
+    async fn delete_ban(&self, user_id: UserId) {
+        self.bans.lock().unwrap().retain(|(id, _)| *id != user_id);
+    }
+
+    async fn save_warning(&self, warning: &Warning) {
+        let mut warnings = self.warnings.lock().unwrap();
+        warnings.retain(|w| w.id() != warning.id());
+        warnings.push(warning.clone());
+    }
+
+    async fn list_warnings(&self, user_id: UserId) -> Vec<Warning> {
+        self.warnings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.user_id() == user_id)
+            .cloned()
+            .collect()
+    }
+
+    async fn save_ignore(&self, user_id: UserId, ignored_id: UserId) {
+        let mut ignores = self.ignores.lock().unwrap();
+        if !ignores.iter().any(|(a, b)| *a == user_id && *b == ignored_id) {
+            ignores.push((user_id, ignored_id));
+        }
+    }
+
+    async fn delete_ignore(&self, user_id: UserId, ignored_id: UserId) {
+        self.ignores
+            .lock()
+            .unwrap()
+            .retain(|(a, b)| !(*a == user_id && *b == ignored_id));
+    }
+
+    async fn list_ignored(&self, user_id: UserId) -> Vec<UserId> {
+        self.ignores
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(a, _)| *a == user_id)
+            .map(|(_, b)| *b)
+            .collect()
     }
 }

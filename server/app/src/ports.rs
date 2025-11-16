@@ -1,9 +1,9 @@
 use domain::{
-    Avatar, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId,
+    Avatar, Ban, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId,
     PollOptionId,
     Query, Reaction,
     ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
-    Slug, Topic, TopicId, User, UserId, Username, Vote,
+    Slug, Topic, TopicId, User, UserId, Username, Vote, Warning,
 };
 use time::OffsetDateTime;
 
@@ -45,6 +45,18 @@ pub trait TopicRepository {
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
     async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
+}
+
+#[async_trait::async_trait]
+pub trait EnforcementRepository {
+    async fn save_ban(&self, user_id: UserId, ban: &Ban);
+    async fn find_ban(&self, user_id: UserId) -> Option<Ban>;
+    async fn delete_ban(&self, user_id: UserId);
+    async fn save_warning(&self, warning: &Warning);
+    async fn list_warnings(&self, user_id: UserId) -> Vec<Warning>;
+    async fn save_ignore(&self, user_id: UserId, ignored_id: UserId);
+    async fn delete_ignore(&self, user_id: UserId, ignored_id: UserId);
+    async fn list_ignored(&self, user_id: UserId) -> Vec<UserId>;
 }
 
 #[async_trait::async_trait]
