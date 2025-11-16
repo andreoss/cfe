@@ -17,10 +17,21 @@ impl DuckSearchRepository {
 
 const LIMIT: i64 = 50;
 
+pub fn like_pattern(raw: &str) -> String {
+    let mut escaped = String::with_capacity(raw.len());
+    for ch in raw.to_lowercase().chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    format!("%{escaped}%")
+}
+
 #[async_trait::async_trait]
 impl SearchRepository for DuckSearchRepository {
     async fn search(&self, query: &Query) -> Vec<ContentItem> {
-        let pattern = format!("%{}%", query.as_str().to_lowercase());
+        let pattern = like_pattern(query.as_str());
         let topic_params = vec![
             Value::Text(pattern.clone()),
             Value::Text(pattern.clone()),
@@ -32,7 +43,8 @@ impl SearchRepository for DuckSearchRepository {
                 let mut stmt = conn
                     .prepare(&format!(
                         "SELECT {TOPIC_COLUMNS} FROM topics WHERE deleted_at IS NULL \
-                         AND (lower(title) LIKE ? OR lower(body) LIKE ?) \
+                         AND (lower(title) LIKE ? ESCAPE '\\' \
+                         OR lower(body) LIKE ? ESCAPE '\\') \
                          ORDER BY created_at DESC LIMIT ?"
                     ))
                     .expect("prepare search topics");
@@ -52,7 +64,7 @@ impl SearchRepository for DuckSearchRepository {
                 let mut stmt = conn
                     .prepare(&format!(
                         "SELECT {COMMENT_COLUMNS} FROM comments WHERE deleted_at IS NULL \
-                         AND lower(body) LIKE ? ORDER BY created_at DESC LIMIT ?"
+                         AND lower(body) LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
                     ))
                     .expect("prepare search comments");
                 let mapped = stmt
@@ -72,6 +84,29 @@ impl SearchRepository for DuckSearchRepository {
         for row in comment_rows {
             found.push(ContentItem::Comment(to_comment(row)));
         }
+        found.truncate(LIMIT as usize);
         found
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wraps_a_plain_term_in_wildcards_and_lowercases_it() {
+        assert_eq!(like_pattern("Adapters"), "%adapters%");
+    }
+
+    #[test]
+    fn escapes_wildcards_so_a_user_cannot_match_everything() {
+        assert_eq!(like_pattern("%"), "%\\%%");
+        assert_eq!(like_pattern("_"), "%\\_%");
+        assert_eq!(like_pattern("a%b_c"), "%a\\%b\\_c%");
+    }
+
+    #[test]
+    fn escapes_the_escape_character_itself() {
+        assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
     }
 }

@@ -30,6 +30,7 @@ const avatarVersion = ref(0)
 const avatarFile = ref<File | null>(null)
 
 const ignoring = ref(false)
+const ignoreReady = ref(false)
 const warnOpen = ref(false)
 const warnReason = ref('')
 const banOpen = ref(false)
@@ -46,6 +47,7 @@ async function load() {
   notFound.value = false
   profile.value = null
   ignoring.value = false
+  ignoreReady.value = false
   warnOpen.value = false
   warnReason.value = ''
   banOpen.value = false
@@ -61,15 +63,24 @@ async function load() {
     notFound.value = true
     return
   }
-  if (isOtherProfile.value) {
-    const state = await getIgnoreState(props.username)
-    if (state.ok) {
-      ignoring.value = state.value
-    }
+}
+
+async function loadIgnoreState() {
+  if (!isOtherProfile.value) {
+    ignoreReady.value = false
+    return
   }
+  const asked = props.username
+  const state = await getIgnoreState(asked)
+  if (asked !== props.username) return
+  if (state.ok) {
+    ignoring.value = state.value
+  }
+  ignoreReady.value = true
 }
 
 watch(() => props.username, load, { immediate: true })
+watch([() => props.username, () => auth.currentUser], loadIgnoreState, { immediate: true })
 
 async function onSave() {
   formError.value = ''
@@ -198,7 +209,7 @@ async function onPromote() {
         <p v-if="avatarError" role="alert">{{ avatarError }}</p>
       </template>
       <template v-if="isOtherProfile">
-        <button type="button" @click="onToggleIgnore">
+        <button v-if="ignoreReady" type="button" @click="onToggleIgnore">
           {{ ignoring ? 'Stop ignoring' : 'Ignore user' }}
         </button>
         <template v-if="isModerator">

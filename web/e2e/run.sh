@@ -3,10 +3,12 @@ set -e
 cd "$(dirname "$0")/.."
 ROOT="$(cd .. && pwd)"
 
+VENDOR="${VENDOR:-postgres}"
 DB_PORT="${DB_PORT:-55432}"
 API_PORT="${API_PORT:-58080}"
 WEB_PORT="${WEB_PORT:-58081}"
-CONTAINER="tcbs-e2e-pg"
+CONTAINER="tcbs-e2e-$VENDOR"
+DB_FILE="${DB_FILE:-/tmp/tcbs-e2e-duck.db}"
 
 cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
@@ -16,16 +18,41 @@ cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
-docker run -d --name "$CONTAINER" \
-  -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=tcbs \
-  -p "$DB_PORT:5432" postgres:16-alpine >/dev/null
-until docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+case "$VENDOR" in
+  postgres)
+    docker run -d --name "$CONTAINER" \
+      -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=tcbs \
+      -p "$DB_PORT:5432" postgres:16-alpine >/dev/null
+    until docker exec "$CONTAINER" psql -U postgres -d tcbs -c 'select 1' >/dev/null 2>&1; do
+      sleep 1
+    done
+    DATABASE_URL="postgres://postgres:dev@127.0.0.1:$DB_PORT/tcbs"
+    ;;
+  mysql)
+    docker run -d --name "$CONTAINER" \
+      -e MYSQL_ROOT_PASSWORD=dev -e MYSQL_DATABASE=tcbs \
+      -p "$DB_PORT:3306" mysql:8.0-debian >/dev/null
+    until docker exec "$CONTAINER" mysql -uroot -pdev -e 'select 1' tcbs >/dev/null 2>&1; do
+      sleep 2
+    done
+    DATABASE_URL="mysql://root:dev@127.0.0.1:$DB_PORT/tcbs"
+    ;;
+  duckdb)
+    rm -f "$DB_FILE"
+    DATABASE_URL="duckdb://$DB_FILE"
+    ;;
+  *)
+    echo "unsupported vendor: $VENDOR" >&2
+    exit 1
+    ;;
+esac
 
 VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
 
 (cd "$ROOT/server" && \
-  DATABASE_URL="postgres://postgres:dev@127.0.0.1:$DB_PORT/tcbs" \
+  DATABASE_URL="$DATABASE_URL" \
   BIND_ADDR="127.0.0.1:$API_PORT" \
   cargo run -p server) &
 SERVER_PID=$!
@@ -42,6 +69,11 @@ export E2E_ROOT_USER="e2e_root"
 export E2E_ROOT_PASS="correcthorse"
 curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: application/json' \
   -d "{\"username\":\"$E2E_ROOT_USER\",\"email\":\"root@example.com\",\"password\":\"$E2E_ROOT_PASS\"}"
+if [ -n "$SPEC" ]; then
+  node "e2e/$SPEC.mjs"
+  exit 0
+fi
+
 node e2e/moderation.mjs
 node e2e/register-sign-in.mjs
 node e2e/profile.mjs

@@ -36,7 +36,10 @@ async function signIn(driver, username) {
   await driver.findElement(By.name('username')).sendKeys(username)
   await driver.findElement(By.name('password')).sendKeys('correcthorse')
   await driver.findElement(By.css('button[type="submit"]')).click()
-  await driver.sleep(1000)
+  await driver.wait(async () => {
+    if ((await driver.getCurrentUrl()) === `${baseUrl}/`) return true
+    return (await driver.findElements(By.css('[role="alert"]'))).length > 0
+  }, 15000, 'sign-in should either succeed or report an error')
 }
 
 function button(text) {
@@ -144,7 +147,11 @@ async function run() {
     assert(text.includes('User banned.'), `the ban should be confirmed, saw: ${text}`)
 
     await loud.get(`${baseUrl}/`)
-    await loud.sleep(1200)
+    await loud.wait(
+      async () => (await loud.findElement(By.css('nav')).getText()).includes('Sign in'),
+      15000,
+      'a banned session should stop working',
+    )
     let nav = await loud.findElement(By.css('nav')).getText()
     assert(nav.includes('Sign in'), `a banned user's session should stop working, nav: ${nav}`)
 
@@ -158,7 +165,7 @@ async function run() {
     await mod.get(`${baseUrl}/u/${loudName}`)
     await mod.wait(until.elementLocated(button('Lift ban')), 5000)
     await mod.findElement(button('Lift ban')).click()
-    await mod.sleep(1000)
+    await mod.sleep(1500)
 
     await signIn(loud, loudName)
     nav = await loud.findElement(By.css('nav')).getText()
