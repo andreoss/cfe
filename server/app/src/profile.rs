@@ -7,7 +7,7 @@ pub enum UpdateBioError {
 }
 
 pub async fn update_bio(
-    repo: &impl UserRepository,
+    repo: &(impl UserRepository + ?Sized),
     user_id: UserId,
     bio: Option<Bio>,
 ) -> Result<User, UpdateBioError> {

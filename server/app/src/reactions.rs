@@ -8,7 +8,7 @@ pub struct ReactionSummary {
 }
 
 pub async fn react(
-    reactions: &impl ReactionRepository,
+    reactions: &(impl ReactionRepository + ?Sized),
     user_id: UserId,
     target: ReactionTarget,
     kind: ReactionKind,
@@ -20,7 +20,7 @@ pub async fn react(
 }
 
 pub async fn clear_reaction(
-    reactions: &impl ReactionRepository,
+    reactions: &(impl ReactionRepository + ?Sized),
     user_id: UserId,
     target: ReactionTarget,
 ) {
@@ -28,7 +28,7 @@ pub async fn clear_reaction(
 }
 
 pub async fn summarize_reactions(
-    reactions: &impl ReactionRepository,
+    reactions: &(impl ReactionRepository + ?Sized),
     viewer_id: Option<UserId>,
     target: ReactionTarget,
 ) -> ReactionSummary {

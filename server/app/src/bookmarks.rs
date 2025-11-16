@@ -8,8 +8,8 @@ pub enum BookmarkError {
 }
 
 pub async fn add_bookmark(
-    topics: &impl TopicRepository,
-    bookmarks: &impl BookmarkRepository,
+    topics: &(impl TopicRepository + ?Sized),
+    bookmarks: &(impl BookmarkRepository + ?Sized),
     user_id: UserId,
     topic_id: TopicId,
     now: OffsetDateTime,
@@ -25,7 +25,7 @@ pub async fn add_bookmark(
 }
 
 pub async fn remove_bookmark(
-    bookmarks: &impl BookmarkRepository,
+    bookmarks: &(impl BookmarkRepository + ?Sized),
     user_id: UserId,
     topic_id: TopicId,
 ) {
@@ -33,14 +33,14 @@ pub async fn remove_bookmark(
 }
 
 pub async fn list_bookmarked_topics(
-    bookmarks: &impl BookmarkRepository,
+    bookmarks: &(impl BookmarkRepository + ?Sized),
     user_id: UserId,
 ) -> Vec<Topic> {
     bookmarks.list_topics(user_id).await
 }
 
 pub async fn is_bookmarked(
-    bookmarks: &impl BookmarkRepository,
+    bookmarks: &(impl BookmarkRepository + ?Sized),
     user_id: UserId,
     topic_id: TopicId,
 ) -> bool {

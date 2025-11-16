@@ -1,30 +1,18 @@
 use crate::auth::{CurrentUser, OptionalUser, SESSION_COOKIE};
-use crate::activity_repository::PgActivityRepository;
-use crate::avatar_repository::PgAvatarRepository;
+use crate::backend::Backend;
+use std::sync::Arc;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use crate::bookmark_repository::PgBookmarkRepository;
-use crate::comment_repository::PgCommentRepository;
-use crate::enforcement_repository::PgEnforcementRepository;
 use crate::hasher::Argon2Hasher;
-use crate::reaction_repository::PgReactionRepository;
-use crate::repository::PgUserRepository;
-use crate::notification_repository::PgNotificationRepository;
-use crate::poll_repository::PgPollRepository;
-use crate::search_repository::PgSearchRepository;
-use crate::section_repository::PgSectionRepository;
-use crate::session_repository::PgSessionRepository;
-use crate::topic_repository::PgTopicRepository;
 use app::{
-    AvatarLookupError, BookmarkError, ChangePasswordError, CommentRepository, CreatePollError,
+    AvatarLookupError, BookmarkError, ChangePasswordError, CreatePollError,
     EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
     recent_activity,
     lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
     CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
     get_avatar, set_avatar,
     ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
-    PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
-    TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
+    PostCommentError, RegisterError, SignInError, UpdateBioError, add_bookmark, count_unread, create_session,
     create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
     ReactionSummary, clear_reaction, is_bookmarked, list_bookmarked_topics, list_comments,
     list_notifications, list_sections, list_topics, list_topics_by_tag, mark_read, post_comment,
@@ -43,13 +31,12 @@ use domain::{
     UserId, Username,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
+    pub backend: Arc<dyn Backend>,
 }
 
 #[derive(Deserialize)]
@@ -224,8 +211,8 @@ fn session_cookie(token: &SessionToken) -> Cookie<'static> {
         .build()
 }
 
-async fn start_session(pool: &PgPool, user_id: UserId) -> SessionToken {
-    let sessions = PgSessionRepository::new(pool.clone());
+async fn start_session(state: &AppState, user_id: UserId) -> SessionToken {
+    let sessions = state.backend.sessions();
     let token = generate_token();
     let session = Session::new(
         SessionId::new(uuid::Uuid::new_v4()),
@@ -233,7 +220,7 @@ async fn start_session(pool: &PgPool, user_id: UserId) -> SessionToken {
         token.clone(),
         OffsetDateTime::now_utc() + Duration::days(30),
     );
-    create_session(&sessions, session).await;
+    create_session(&*sessions, session).await;
     token
 }
 
@@ -246,18 +233,18 @@ pub async fn register_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
     let email = Email::parse(&body.email)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid email"))?;
-    let repo = PgUserRepository::new(state.pool.clone());
+    let repo = state.backend.users();
     let hasher = Argon2Hasher;
     let id = UserId::new(uuid::Uuid::new_v4());
     Password::parse(&body.password)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "password too short"))?;
-    let user = register(&repo, &hasher, id, username, email, &body.password)
+    let user = register(&*repo, &hasher, id, username, email, &body.password)
         .await
         .map_err(|e| match e {
             RegisterError::UsernameTaken => error(StatusCode::CONFLICT, "username taken"),
             RegisterError::EmailTaken => error(StatusCode::CONFLICT, "email taken"),
         })?;
-    let token = start_session(&state.pool, user.id()).await;
+    let token = start_session(&state, user.id()).await;
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
 
@@ -268,22 +255,22 @@ pub async fn sign_in_handler(
 ) -> Result<(CookieJar, Json<UserResponse>), (StatusCode, Json<ErrorResponse>)> {
     let username = Username::parse(&body.username)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
-    let repo = PgUserRepository::new(state.pool.clone());
+    let repo = state.backend.users();
     let hasher = Argon2Hasher;
-    let user = sign_in(&repo, &hasher, &username, &body.password)
+    let user = sign_in(&*repo, &hasher, &username, &body.password)
         .await
         .map_err(|e| match e {
             SignInError::NotFound => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
             SignInError::WrongPassword => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
         })?;
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    if let Some(ban) = active_ban(&enforcement, user.id(), OffsetDateTime::now_utc()).await {
+    let enforcement = state.backend.enforcement();
+    if let Some(ban) = active_ban(&*enforcement, user.id(), OffsetDateTime::now_utc()).await {
         return Err(error(
             StatusCode::FORBIDDEN,
             &format!("account suspended: {}", ban.reason().as_str()),
         ));
     }
-    let token = start_session(&state.pool, user.id()).await;
+    let token = start_session(&state, user.id()).await;
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
 
@@ -294,9 +281,9 @@ pub async fn me_handler(CurrentUser(user): CurrentUser) -> Json<UserResponse> {
 pub async fn sign_out_handler(State(state): State<AppState>, jar: CookieJar) -> CookieJar {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         if let Ok(token) = SessionToken::parse(cookie.value()) {
-            let sessions = PgSessionRepository::new(state.pool.clone());
+            let sessions = state.backend.sessions();
             if let Some(session) = sessions.find_by_token(&token).await {
-                end_session(&sessions, session.id()).await;
+                end_session(&*sessions, session.id()).await;
             }
         }
     }
@@ -310,7 +297,7 @@ pub async fn get_profile_handler(
 ) -> Result<Json<ProfileResponse>, (StatusCode, Json<ErrorResponse>)> {
     let username = Username::parse(&username)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
-    let repo = PgUserRepository::new(state.pool);
+    let repo = state.backend.users();
     let user = repo
         .find_by_username(&username)
         .await
@@ -325,8 +312,8 @@ pub async fn update_bio_handler(
 ) -> Result<Json<ProfileResponse>, (StatusCode, Json<ErrorResponse>)> {
     let bio = Bio::parse(body.bio.as_deref().unwrap_or(""))
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "bio too long"))?;
-    let repo = PgUserRepository::new(state.pool);
-    let updated = update_bio(&repo, current.id(), bio)
+    let repo = state.backend.users();
+    let updated = update_bio(&*repo, current.id(), bio)
         .await
         .map_err(|e| match e {
             UpdateBioError::NotFound => error(StatusCode::NOT_FOUND, "user not found"),
@@ -335,11 +322,11 @@ pub async fn update_bio_handler(
 }
 
 async fn topic_response(
-    pool: &PgPool,
+    state: &AppState,
     topic: &domain::Topic,
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let sections = PgSectionRepository::new(pool.clone());
-    let users = PgUserRepository::new(pool.clone());
+    let sections = state.backend.sections();
+    let users = state.backend.users();
     let section = sections
         .find_by_id(topic.section_id())
         .await
@@ -372,8 +359,8 @@ async fn topic_response(
 }
 
 pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<SectionResponse>> {
-    let repo = PgSectionRepository::new(state.pool);
-    let sections = list_sections(&repo).await;
+    let repo = state.backend.sections();
+    let sections = list_sections(&*repo).await;
     Json(
         sections
             .into_iter()
@@ -391,16 +378,16 @@ pub async fn list_topics_handler(
 ) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let slug = Slug::parse(&slug)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
-    let sections = PgSectionRepository::new(state.pool.clone());
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let list = list_topics(&sections, &topics, &slug)
+    let sections = state.backend.sections();
+    let topics = state.backend.topics();
+    let list = list_topics(&*sections, &*topics, &slug)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         })?;
     let mut responses = Vec::with_capacity(list.len());
     for topic in &list {
-        responses.push(topic_response(&state.pool, topic).await?.0);
+        responses.push(topic_response(&state, topic).await?.0);
     }
     Ok(Json(responses))
 }
@@ -419,11 +406,11 @@ pub async fn create_topic_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
     let tags = TagSet::parse(&body.tags)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
-    let sections = PgSectionRepository::new(state.pool.clone());
-    let topics = PgTopicRepository::new(state.pool.clone());
+    let sections = state.backend.sections();
+    let topics = state.backend.topics();
     let topic = create_topic(
-        &sections,
-        &topics,
+        &*sections,
+        &*topics,
         domain::TopicId::new(uuid::Uuid::new_v4()),
         &slug,
         current.id(),
@@ -436,18 +423,18 @@ pub async fn create_topic_handler(
     .map_err(|e| match e {
         CreateTopicError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
     })?;
-    topic_response(&state.pool, &topic).await
+    topic_response(&state, &topic).await
 }
 
 pub async fn get_topic_handler(
     State(state): State<AppState>,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let topic = get_topic(&topics, domain::TopicId::new(id))
+    let topics = state.backend.topics();
+    let topic = get_topic(&*topics, domain::TopicId::new(id))
         .await
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
-    topic_response(&state.pool, &topic).await
+    topic_response(&state, &topic).await
 }
 
 pub async fn list_topics_by_tag_handler(
@@ -456,20 +443,20 @@ pub async fn list_topics_by_tag_handler(
 ) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let list = list_topics_by_tag(&topics, &tag).await;
+    let topics = state.backend.topics();
+    let list = list_topics_by_tag(&*topics, &tag).await;
     let mut responses = Vec::with_capacity(list.len());
     for topic in &list {
-        responses.push(topic_response(&state.pool, topic).await?.0);
+        responses.push(topic_response(&state, topic).await?.0);
     }
     Ok(Json(responses))
 }
 
 async fn comment_response(
-    pool: &PgPool,
+    state: &AppState,
     comment: &domain::Comment,
 ) -> Result<CommentResponse, (StatusCode, Json<ErrorResponse>)> {
-    let users = PgUserRepository::new(pool.clone());
+    let users = state.backend.users();
     let author = users
         .find_by_id(comment.author_id())
         .await
@@ -497,18 +484,18 @@ pub async fn list_comments_handler(
     Path(topic_id): Path<uuid::Uuid>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<Vec<CommentResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let comments = PgCommentRepository::new(state.pool.clone());
-    let list = list_comments(&comments, TopicId::new(topic_id)).await;
+    let comments = state.backend.comments();
+    let list = list_comments(&*comments, TopicId::new(topic_id)).await;
     let ignored = match &viewer {
         Some(user) => {
-            let enforcement = PgEnforcementRepository::new(state.pool.clone());
-            ignored_by(&enforcement, user.id()).await
+            let enforcement = state.backend.enforcement();
+            ignored_by(&*enforcement, user.id()).await
         }
         None => Vec::new(),
     };
     let mut responses = Vec::with_capacity(list.len());
     for comment in &list {
-        let mut response = comment_response(&state.pool, comment).await?;
+        let mut response = comment_response(&state, comment).await?;
         if ignored.contains(&comment.author_id()) {
             response.body = String::new();
             response.ignored = true;
@@ -534,13 +521,13 @@ pub async fn post_comment_handler(
                 .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid parent_id"))
         })
         .transpose()?;
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let comments = PgCommentRepository::new(state.pool.clone());
-    let notifications = PgNotificationRepository::new(state.pool.clone());
+    let topics = state.backend.topics();
+    let comments = state.backend.comments();
+    let notifications = state.backend.notifications();
     let comment = post_comment(
-        &topics,
-        &comments,
-        &notifications,
+        &*topics,
+        &*comments,
+        &*notifications,
         CommentId::new(uuid::Uuid::new_v4()),
         domain::NotificationId::new(uuid::Uuid::new_v4()),
         TopicId::new(topic_id),
@@ -558,7 +545,7 @@ pub async fn post_comment_handler(
             "parent in different topic",
         ),
     })?;
-    Ok(Json(comment_response(&state.pool, &comment).await?))
+    Ok(Json(comment_response(&state, &comment).await?))
 }
 
 pub async fn delete_topic_handler(
@@ -569,9 +556,9 @@ pub async fn delete_topic_handler(
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
-    let topics = PgTopicRepository::new(state.pool.clone());
+    let topics = state.backend.topics();
     let topic = delete_topic(
-        &topics,
+        &*topics,
         &current,
         TopicId::new(id),
         reason,
@@ -582,7 +569,7 @@ pub async fn delete_topic_handler(
         DeleteError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
         DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
-    topic_response(&state.pool, &topic).await
+    topic_response(&state, &topic).await
 }
 
 pub async fn delete_comment_handler(
@@ -593,9 +580,9 @@ pub async fn delete_comment_handler(
 ) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
-    let comments = PgCommentRepository::new(state.pool.clone());
+    let comments = state.backend.comments();
     let comment = delete_comment(
-        &comments,
+        &*comments,
         &current,
         CommentId::new(id),
         reason,
@@ -606,7 +593,7 @@ pub async fn delete_comment_handler(
         DeleteError::NotFound => error(StatusCode::NOT_FOUND, "comment not found"),
         DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
-    Ok(Json(comment_response(&state.pool, &comment).await?))
+    Ok(Json(comment_response(&state, &comment).await?))
 }
 
 pub async fn edit_topic_handler(
@@ -621,9 +608,9 @@ pub async fn edit_topic_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
     let tags = TagSet::parse(&body.tags)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
-    let topics = PgTopicRepository::new(state.pool.clone());
+    let topics = state.backend.topics();
     let topic = edit_topic(
-        &topics,
+        &*topics,
         &current,
         TopicId::new(id),
         title,
@@ -633,7 +620,7 @@ pub async fn edit_topic_handler(
     )
     .await
     .map_err(edit_error)?;
-    topic_response(&state.pool, &topic).await
+    topic_response(&state, &topic).await
 }
 
 pub async fn edit_comment_handler(
@@ -644,9 +631,9 @@ pub async fn edit_comment_handler(
 ) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
     let comment_body = Body::parse(&body.body)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
-    let comments = PgCommentRepository::new(state.pool.clone());
+    let comments = state.backend.comments();
     let comment = edit_comment(
-        &comments,
+        &*comments,
         &current,
         CommentId::new(id),
         comment_body,
@@ -654,7 +641,7 @@ pub async fn edit_comment_handler(
     )
     .await
     .map_err(edit_error)?;
-    Ok(Json(comment_response(&state.pool, &comment).await?))
+    Ok(Json(comment_response(&state, &comment).await?))
 }
 
 #[derive(Serialize)]
@@ -674,11 +661,11 @@ pub struct UnreadCountResponse {
 }
 
 async fn notification_response(
-    pool: &PgPool,
+    state: &AppState,
     notification: &domain::Notification,
 ) -> Result<NotificationResponse, (StatusCode, Json<ErrorResponse>)> {
-    let users = PgUserRepository::new(pool.clone());
-    let topics = PgTopicRepository::new(pool.clone());
+    let users = state.backend.users();
+    let topics = state.backend.topics();
     let actor = users
         .find_by_id(notification.actor_id())
         .await
@@ -706,11 +693,11 @@ pub async fn list_notifications_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<Vec<NotificationResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let repo = PgNotificationRepository::new(state.pool.clone());
-    let list = list_notifications(&repo, current.id()).await;
+    let repo = state.backend.notifications();
+    let list = list_notifications(&*repo, current.id()).await;
     let mut responses = Vec::with_capacity(list.len());
     for notification in &list {
-        responses.push(notification_response(&state.pool, notification).await?);
+        responses.push(notification_response(&state, notification).await?);
     }
     Ok(Json(responses))
 }
@@ -719,9 +706,9 @@ pub async fn unread_count_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> Json<UnreadCountResponse> {
-    let repo = PgNotificationRepository::new(state.pool.clone());
+    let repo = state.backend.notifications();
     Json(UnreadCountResponse {
-        unread: count_unread(&repo, current.id()).await,
+        unread: count_unread(&*repo, current.id()).await,
     })
 }
 
@@ -730,9 +717,9 @@ pub async fn mark_notification_read_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<NotificationResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let repo = PgNotificationRepository::new(state.pool.clone());
+    let repo = state.backend.notifications();
     let notification = mark_read(
-        &repo,
+        &*repo,
         current.id(),
         domain::NotificationId::new(id),
         OffsetDateTime::now_utc(),
@@ -741,7 +728,7 @@ pub async fn mark_notification_read_handler(
     .map_err(|e| match e {
         MarkReadError::NotFound => error(StatusCode::NOT_FOUND, "notification not found"),
     })?;
-    Ok(Json(notification_response(&state.pool, &notification).await?))
+    Ok(Json(notification_response(&state, &notification).await?))
 }
 
 #[derive(Serialize)]
@@ -754,11 +741,11 @@ pub async fn add_bookmark_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<BookmarkStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    let topics = state.backend.topics();
+    let bookmarks = state.backend.bookmarks();
     add_bookmark(
-        &topics,
-        &bookmarks,
+        &*topics,
+        &*bookmarks,
         current.id(),
         TopicId::new(id),
         OffsetDateTime::now_utc(),
@@ -775,8 +762,8 @@ pub async fn remove_bookmark_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Json<BookmarkStateResponse> {
-    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
-    remove_bookmark(&bookmarks, current.id(), TopicId::new(id)).await;
+    let bookmarks = state.backend.bookmarks();
+    remove_bookmark(&*bookmarks, current.id(), TopicId::new(id)).await;
     Json(BookmarkStateResponse { bookmarked: false })
 }
 
@@ -785,9 +772,9 @@ pub async fn bookmark_state_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Json<BookmarkStateResponse> {
-    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
+    let bookmarks = state.backend.bookmarks();
     Json(BookmarkStateResponse {
-        bookmarked: is_bookmarked(&bookmarks, current.id(), TopicId::new(id)).await,
+        bookmarked: is_bookmarked(&*bookmarks, current.id(), TopicId::new(id)).await,
     })
 }
 
@@ -795,11 +782,11 @@ pub async fn list_bookmarks_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<Vec<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let bookmarks = PgBookmarkRepository::new(state.pool.clone());
-    let list = list_bookmarked_topics(&bookmarks, current.id()).await;
+    let bookmarks = state.backend.bookmarks();
+    let list = list_bookmarked_topics(&*bookmarks, current.id()).await;
     let mut responses = Vec::with_capacity(list.len());
     for topic in &list {
-        responses.push(topic_response(&state.pool, topic).await?.0);
+        responses.push(topic_response(&state, topic).await?.0);
     }
     Ok(Json(responses))
 }
@@ -836,13 +823,13 @@ fn to_reactions_response(summary: ReactionSummary) -> ReactionsResponse {
 }
 
 async fn reaction_target(
-    pool: &PgPool,
+    state: &AppState,
     topic_id: uuid::Uuid,
     comment_id: Option<uuid::Uuid>,
 ) -> Result<ReactionTarget, (StatusCode, Json<ErrorResponse>)> {
     match comment_id {
         Some(id) => {
-            let comments = PgCommentRepository::new(pool.clone());
+            let comments = state.backend.comments();
             let comment = comments
                 .find_by_id(CommentId::new(id))
                 .await
@@ -856,7 +843,7 @@ async fn reaction_target(
             Ok(ReactionTarget::Comment(comment.id()))
         }
         None => {
-            let topics = PgTopicRepository::new(pool.clone());
+            let topics = state.backend.topics();
             let topic = topics
                 .find_by_id(TopicId::new(topic_id))
                 .await
@@ -867,12 +854,12 @@ async fn reaction_target(
 }
 
 async fn reactions_for(
-    pool: &PgPool,
+    state: &AppState,
     viewer: Option<&domain::User>,
     target: ReactionTarget,
 ) -> Json<ReactionsResponse> {
-    let repo = PgReactionRepository::new(pool.clone());
-    let summary = summarize_reactions(&repo, viewer.map(|u| u.id()), target).await;
+    let repo = state.backend.reactions();
+    let summary = summarize_reactions(&*repo, viewer.map(|u| u.id()), target).await;
     Json(to_reactions_response(summary))
 }
 
@@ -881,8 +868,8 @@ pub async fn topic_reactions_handler(
     Path(id): Path<uuid::Uuid>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state.pool, id, None).await?;
-    Ok(reactions_for(&state.pool, viewer.as_ref(), target).await)
+    let target = reaction_target(&state, id, None).await?;
+    Ok(reactions_for(&state, viewer.as_ref(), target).await)
 }
 
 pub async fn react_to_topic_handler(
@@ -893,10 +880,10 @@ pub async fn react_to_topic_handler(
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let kind = domain::ReactionKind::parse(&body.kind)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
-    let target = reaction_target(&state.pool, id, None).await?;
-    let repo = PgReactionRepository::new(state.pool.clone());
-    react(&repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
-    Ok(reactions_for(&state.pool, Some(&current), target).await)
+    let target = reaction_target(&state, id, None).await?;
+    let repo = state.backend.reactions();
+    react(&*repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    Ok(reactions_for(&state, Some(&current), target).await)
 }
 
 pub async fn clear_topic_reaction_handler(
@@ -904,10 +891,10 @@ pub async fn clear_topic_reaction_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state.pool, id, None).await?;
-    let repo = PgReactionRepository::new(state.pool.clone());
-    clear_reaction(&repo, current.id(), target).await;
-    Ok(reactions_for(&state.pool, Some(&current), target).await)
+    let target = reaction_target(&state, id, None).await?;
+    let repo = state.backend.reactions();
+    clear_reaction(&*repo, current.id(), target).await;
+    Ok(reactions_for(&state, Some(&current), target).await)
 }
 
 pub async fn comment_reactions_handler(
@@ -915,8 +902,8 @@ pub async fn comment_reactions_handler(
     Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
-    Ok(reactions_for(&state.pool, viewer.as_ref(), target).await)
+    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    Ok(reactions_for(&state, viewer.as_ref(), target).await)
 }
 
 pub async fn react_to_comment_handler(
@@ -927,10 +914,10 @@ pub async fn react_to_comment_handler(
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let kind = domain::ReactionKind::parse(&body.kind)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
-    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
-    let repo = PgReactionRepository::new(state.pool.clone());
-    react(&repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
-    Ok(reactions_for(&state.pool, Some(&current), target).await)
+    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    let repo = state.backend.reactions();
+    react(&*repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    Ok(reactions_for(&state, Some(&current), target).await)
 }
 
 pub async fn clear_comment_reaction_handler(
@@ -938,10 +925,10 @@ pub async fn clear_comment_reaction_handler(
     Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state.pool, topic_id, Some(id)).await?;
-    let repo = PgReactionRepository::new(state.pool.clone());
-    clear_reaction(&repo, current.id(), target).await;
-    Ok(reactions_for(&state.pool, Some(&current), target).await)
+    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    let repo = state.backend.reactions();
+    clear_reaction(&*repo, current.id(), target).await;
+    Ok(reactions_for(&state, Some(&current), target).await)
 }
 
 #[derive(Deserialize)]
@@ -1003,8 +990,8 @@ pub async fn get_poll_handler(
     Path(id): Path<uuid::Uuid>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<PollResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let polls = PgPollRepository::new(state.pool.clone());
-    let results = poll_results(&polls, viewer.map(|u| u.id()), TopicId::new(id))
+    let polls = state.backend.polls();
+    let results = poll_results(&*polls, viewer.map(|u| u.id()), TopicId::new(id))
         .await
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "poll not found"))?;
     Ok(Json(to_poll_response(results)))
@@ -1027,11 +1014,11 @@ pub async fn create_poll_handler(
             parsed,
         ));
     }
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let polls = PgPollRepository::new(state.pool.clone());
+    let topics = state.backend.topics();
+    let polls = state.backend.polls();
     create_poll(
-        &topics,
-        &polls,
+        &*topics,
+        &*polls,
         &current,
         PollId::new(uuid::Uuid::new_v4()),
         TopicId::new(id),
@@ -1048,7 +1035,7 @@ pub async fn create_poll_handler(
             error(StatusCode::UNPROCESSABLE_ENTITY, "invalid option count")
         }
     })?;
-    let results = poll_results(&polls, Some(current.id()), TopicId::new(id))
+    let results = poll_results(&*polls, Some(current.id()), TopicId::new(id))
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
@@ -1063,9 +1050,9 @@ pub async fn vote_handler(
     let option_id = uuid::Uuid::parse_str(&body.option_id)
         .map(PollOptionId::new)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid option id"))?;
-    let polls = PgPollRepository::new(state.pool.clone());
+    let polls = state.backend.polls();
     cast_vote(
-        &polls,
+        &*polls,
         &current,
         TopicId::new(id),
         option_id,
@@ -1076,7 +1063,7 @@ pub async fn vote_handler(
         VoteError::PollNotFound => error(StatusCode::NOT_FOUND, "poll not found"),
         VoteError::UnknownOption => error(StatusCode::UNPROCESSABLE_ENTITY, "unknown option"),
     })?;
-    let results = poll_results(&polls, Some(current.id()), TopicId::new(id))
+    let results = poll_results(&*polls, Some(current.id()), TopicId::new(id))
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
@@ -1120,12 +1107,12 @@ fn enforcement_error(e: EnforcementError) -> (StatusCode, Json<ErrorResponse>) {
 }
 
 async fn find_user_id(
-    pool: &PgPool,
+    state: &AppState,
     username: &str,
 ) -> Result<UserId, (StatusCode, Json<ErrorResponse>)> {
     let parsed = Username::parse(username)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
-    let users = PgUserRepository::new(pool.clone());
+    let users = state.backend.users();
     users
         .find_by_username(&parsed)
         .await
@@ -1141,16 +1128,16 @@ pub async fn ban_user_handler(
 ) -> Result<Json<BanResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
-    let target = find_user_id(&state.pool, &username).await?;
+    let target = find_user_id(&state, &username).await?;
     let now = OffsetDateTime::now_utc();
     let until = body.days.map(|d| now + Duration::days(d));
-    let users = PgUserRepository::new(state.pool.clone());
-    let sessions = PgSessionRepository::new(state.pool.clone());
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let users = state.backend.users();
+    let sessions = state.backend.sessions();
+    let enforcement = state.backend.enforcement();
     let ban = ban_user(
-        &users,
-        &sessions,
-        &enforcement,
+        &*users,
+        &*sessions,
+        &*enforcement,
         &current,
         target,
         reason,
@@ -1170,9 +1157,9 @@ pub async fn lift_ban_handler(
     Path(username): Path<String>,
     CurrentUser(current): CurrentUser,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let target = find_user_id(&state.pool, &username).await?;
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    lift_ban(&enforcement, &current, target)
+    let target = find_user_id(&state, &username).await?;
+    let enforcement = state.backend.enforcement();
+    lift_ban(&*enforcement, &current, target)
         .await
         .map_err(enforcement_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -1183,9 +1170,9 @@ pub async fn promote_handler(
     Path(username): Path<String>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<UserResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = find_user_id(&state.pool, &username).await?;
-    let users = PgUserRepository::new(state.pool.clone());
-    let promoted = promote_to_moderator(&users, &current, target)
+    let target = find_user_id(&state, &username).await?;
+    let users = state.backend.users();
+    let promoted = promote_to_moderator(&*users, &current, target)
         .await
         .map_err(enforcement_error)?;
     Ok(to_response(&promoted))
@@ -1199,12 +1186,12 @@ pub async fn warn_user_handler(
 ) -> Result<Json<WarningResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
-    let target = find_user_id(&state.pool, &username).await?;
-    let users = PgUserRepository::new(state.pool.clone());
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let target = find_user_id(&state, &username).await?;
+    let users = state.backend.users();
+    let enforcement = state.backend.enforcement();
     let warning = warn_user(
-        &users,
-        &enforcement,
+        &*users,
+        &*enforcement,
         &current,
         domain::WarningId::new(uuid::Uuid::new_v4()),
         target,
@@ -1228,9 +1215,9 @@ pub async fn my_warnings_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> Json<Vec<WarningResponse>> {
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let enforcement = state.backend.enforcement();
     Json(
-        list_warnings(&enforcement, current.id())
+        list_warnings(&*enforcement, current.id())
             .await
             .into_iter()
             .map(|w| WarningResponse {
@@ -1247,8 +1234,8 @@ pub async fn acknowledge_warnings_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> StatusCode {
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    acknowledge_warnings(&enforcement, current.id()).await;
+    let enforcement = state.backend.enforcement();
+    acknowledge_warnings(&*enforcement, current.id()).await;
     StatusCode::NO_CONTENT
 }
 
@@ -1262,10 +1249,10 @@ pub async fn ignore_user_handler(
     Path(username): Path<String>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = find_user_id(&state.pool, &username).await?;
-    let users = PgUserRepository::new(state.pool.clone());
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    ignore_user(&users, &enforcement, &current, target)
+    let target = find_user_id(&state, &username).await?;
+    let users = state.backend.users();
+    let enforcement = state.backend.enforcement();
+    ignore_user(&*users, &*enforcement, &current, target)
         .await
         .map_err(enforcement_error)?;
     Ok(Json(IgnoreStateResponse { ignored: true }))
@@ -1276,9 +1263,9 @@ pub async fn stop_ignoring_handler(
     Path(username): Path<String>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = find_user_id(&state.pool, &username).await?;
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    stop_ignoring(&enforcement, &current, target).await;
+    let target = find_user_id(&state, &username).await?;
+    let enforcement = state.backend.enforcement();
+    stop_ignoring(&*enforcement, &current, target).await;
     Ok(Json(IgnoreStateResponse { ignored: false }))
 }
 
@@ -1287,10 +1274,10 @@ pub async fn ignore_state_handler(
     Path(username): Path<String>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<IgnoreStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = find_user_id(&state.pool, &username).await?;
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let target = find_user_id(&state, &username).await?;
+    let enforcement = state.backend.enforcement();
     Ok(Json(IgnoreStateResponse {
-        ignored: ignored_by(&enforcement, current.id()).await.contains(&target),
+        ignored: ignored_by(&*enforcement, current.id()).await.contains(&target),
     }))
 }
 
@@ -1308,11 +1295,11 @@ pub async fn change_password_handler(
 ) -> Result<(CookieJar, Json<UserResponse>), (StatusCode, Json<ErrorResponse>)> {
     let new_password = Password::parse(&body.new_password)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid new password"))?;
-    let users = PgUserRepository::new(state.pool.clone());
-    let sessions = PgSessionRepository::new(state.pool.clone());
+    let users = state.backend.users();
+    let sessions = state.backend.sessions();
     let updated = change_password(
-        &users,
-        &sessions,
+        &*users,
+        &*sessions,
         &Argon2Hasher,
         &current,
         &body.current_password,
@@ -1324,7 +1311,7 @@ pub async fn change_password_handler(
             error(StatusCode::UNAUTHORIZED, "wrong current password")
         }
     })?;
-    let token = start_session(&state.pool, updated.id()).await;
+    let token = start_session(&state, updated.id()).await;
     Ok((jar.add(session_cookie(&token)), to_response(&updated)))
 }
 
@@ -1333,11 +1320,11 @@ pub async fn deregister_handler(
     jar: CookieJar,
     CurrentUser(current): CurrentUser,
 ) -> (CookieJar, Json<UserResponse>) {
-    let users = PgUserRepository::new(state.pool.clone());
-    let sessions = PgSessionRepository::new(state.pool.clone());
-    let avatars = PgAvatarRepository::new(state.pool.clone());
-    clear_avatar(&avatars, current.id()).await;
-    let gone = deregister(&users, &sessions, &current, OffsetDateTime::now_utc()).await;
+    let users = state.backend.users();
+    let sessions = state.backend.sessions();
+    let avatars = state.backend.avatars();
+    clear_avatar(&*avatars, current.id()).await;
+    let gone = deregister(&*users, &*sessions, &current, OffsetDateTime::now_utc()).await;
     (jar.remove(Cookie::from(SESSION_COOKIE)), to_response(&gone))
 }
 
@@ -1366,8 +1353,8 @@ pub async fn upload_avatar_handler(
             error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported image")
         }
     })?;
-    let avatars = PgAvatarRepository::new(state.pool.clone());
-    set_avatar(&avatars, current.id(), avatar).await;
+    let avatars = state.backend.avatars();
+    set_avatar(&*avatars, current.id(), avatar).await;
     Ok(Json(AvatarStateResponse { has_avatar: true }))
 }
 
@@ -1375,8 +1362,8 @@ pub async fn delete_avatar_handler(
     State(state): State<AppState>,
     CurrentUser(current): CurrentUser,
 ) -> Json<AvatarStateResponse> {
-    let avatars = PgAvatarRepository::new(state.pool.clone());
-    clear_avatar(&avatars, current.id()).await;
+    let avatars = state.backend.avatars();
+    clear_avatar(&*avatars, current.id()).await;
     Json(AvatarStateResponse { has_avatar: false })
 }
 
@@ -1386,9 +1373,9 @@ pub async fn get_avatar_handler(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let username = Username::parse(&username)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
-    let users = PgUserRepository::new(state.pool.clone());
-    let avatars = PgAvatarRepository::new(state.pool.clone());
-    let avatar = get_avatar(&users, &avatars, &username)
+    let users = state.backend.users();
+    let avatars = state.backend.avatars();
+    let avatar = get_avatar(&*users, &*avatars, &username)
         .await
         .map_err(|e| match e {
             AvatarLookupError::UserNotFound => error(StatusCode::NOT_FOUND, "user not found"),
@@ -1406,8 +1393,8 @@ pub async fn get_avatar_handler(
 
 const ATOM_CONTENT_TYPE: &str = "application/atom+xml; charset=utf-8";
 
-async fn feed_entries(pool: &PgPool, topics: &[domain::Topic]) -> Vec<crate::feed::FeedEntry> {
-    let users = PgUserRepository::new(pool.clone());
+async fn feed_entries(state: &AppState, topics: &[domain::Topic]) -> Vec<crate::feed::FeedEntry> {
+    let users = state.backend.users();
     let mut entries = Vec::with_capacity(topics.len());
     for topic in topics {
         let author = match users.find_by_id(topic.author_id()).await {
@@ -1438,14 +1425,14 @@ pub async fn section_feed_handler(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let slug = Slug::parse(&slug)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
-    let sections = PgSectionRepository::new(state.pool.clone());
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let list = list_topics(&sections, &topics, &slug)
+    let sections = state.backend.sections();
+    let topics = state.backend.topics();
+    let list = list_topics(&*sections, &*topics, &slug)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         })?;
-    let entries = feed_entries(&state.pool, &list).await;
+    let entries = feed_entries(&state, &list).await;
     Ok(feed_response(
         slug.as_str(),
         &format!("/api/sections/{}/feed", slug.as_str()),
@@ -1459,9 +1446,9 @@ pub async fn tag_feed_handler(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
-    let topics = PgTopicRepository::new(state.pool.clone());
-    let list = list_topics_by_tag(&topics, &tag).await;
-    let entries = feed_entries(&state.pool, &list).await;
+    let topics = state.backend.topics();
+    let list = list_topics_by_tag(&*topics, &tag).await;
+    let entries = feed_entries(&state, &list).await;
     Ok(feed_response(
         tag.as_str(),
         &format!("/api/tags/{}/feed", tag.as_str()),
@@ -1473,17 +1460,17 @@ pub async fn activity_handler(
     State(state): State<AppState>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let activity = PgActivityRepository::new(state.pool.clone());
-    let enforcement = PgEnforcementRepository::new(state.pool.clone());
-    let items = recent_activity(&activity, &enforcement, viewer.map(|u| u.id()), 30).await;
+    let activity = state.backend.activity();
+    let enforcement = state.backend.enforcement();
+    let items = recent_activity(&*activity, &*enforcement, viewer.map(|u| u.id()), 30).await;
     let mut responses = Vec::with_capacity(items.len());
     for item in &items {
         match item {
             ContentItem::Topic(topic) => responses.push(ContentItemResponse::Topic(
-                topic_response(&state.pool, topic).await?.0,
+                topic_response(&state, topic).await?.0,
             )),
             ContentItem::Comment(comment) => responses.push(ContentItemResponse::Comment(
-                comment_response(&state.pool, comment).await?,
+                comment_response(&state, comment).await?,
             )),
         }
     }
@@ -1496,16 +1483,16 @@ pub async fn search_handler(
 ) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let query = domain::Query::parse(&params.q)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid query"))?;
-    let repo = PgSearchRepository::new(state.pool.clone());
-    let hits = search(&repo, &query).await;
+    let repo = state.backend.search();
+    let hits = search(&*repo, &query).await;
     let mut responses = Vec::with_capacity(hits.len());
     for hit in &hits {
         match hit {
             ContentItem::Topic(topic) => responses.push(ContentItemResponse::Topic(
-                topic_response(&state.pool, topic).await?.0,
+                topic_response(&state, topic).await?.0,
             )),
             ContentItem::Comment(comment) => responses.push(ContentItemResponse::Comment(
-                comment_response(&state.pool, comment).await?,
+                comment_response(&state, comment).await?,
             )),
         }
     }

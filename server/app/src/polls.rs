@@ -25,8 +25,8 @@ pub struct PollResults {
 }
 
 pub async fn create_poll(
-    topics: &impl TopicRepository,
-    polls: &impl PollRepository,
+    topics: &(impl TopicRepository + ?Sized),
+    polls: &(impl PollRepository + ?Sized),
     author: &User,
     id: PollId,
     topic_id: TopicId,
@@ -50,7 +50,7 @@ pub async fn create_poll(
 }
 
 pub async fn cast_vote(
-    polls: &impl PollRepository,
+    polls: &(impl PollRepository + ?Sized),
     voter: &User,
     topic_id: TopicId,
     option_id: PollOptionId,
@@ -70,7 +70,7 @@ pub async fn cast_vote(
 }
 
 pub async fn poll_results(
-    polls: &impl PollRepository,
+    polls: &(impl PollRepository + ?Sized),
     viewer_id: Option<domain::UserId>,
     topic_id: TopicId,
 ) -> Option<PollResults> {

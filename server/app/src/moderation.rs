@@ -9,7 +9,7 @@ pub enum DeleteError {
 }
 
 pub async fn delete_topic(
-    topics: &impl TopicRepository,
+    topics: &(impl TopicRepository + ?Sized),
     moderator: &User,
     topic_id: TopicId,
     reason: Reason,
@@ -29,7 +29,7 @@ pub async fn delete_topic(
 }
 
 pub async fn delete_comment(
-    comments: &impl CommentRepository,
+    comments: &(impl CommentRepository + ?Sized),
     moderator: &User,
     comment_id: CommentId,
     reason: Reason,

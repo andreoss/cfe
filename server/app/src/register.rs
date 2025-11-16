@@ -8,8 +8,8 @@ pub enum RegisterError {
 }
 
 pub async fn register(
-    repo: &impl UserRepository,
-    hasher: &impl PasswordHasher,
+    repo: &(impl UserRepository + ?Sized),
+    hasher: &(impl PasswordHasher + ?Sized),
     new_id: UserId,
     username: Username,
     email: Email,

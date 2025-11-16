@@ -5,6 +5,8 @@ mod enforcement_repository;
 mod feed;
 mod hasher;
 mod activity_repository;
+mod backend;
+mod postgres;
 mod avatar_repository;
 mod bookmark_repository;
 mod notification_repository;
@@ -25,22 +27,24 @@ use handlers::{
     list_topics_by_tag_handler, list_topics_handler, post_comment_handler, register_handler,
     sign_in_handler, sign_out_handler, update_bio_handler,
 };
-use sqlx::postgres::PgPoolOptions;
+use backend::{Backend, Vendor};
+use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+
+async fn connect(url: &str) -> Arc<dyn Backend> {
+    match Vendor::from_url(url) {
+        Ok(Vendor::Postgres) => Arc::new(postgres::PostgresBackend::connect(url).await),
+        Ok(vendor) => panic!("{} backend is not built into this binary", vendor.as_str()),
+        Err(_) => panic!("DATABASE_URL must name a supported vendor"),
+    }
+}
 
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await
-        .expect("connect to database");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("run migrations");
-    let state = AppState { pool };
+    let state = AppState {
+        backend: connect(&database_url).await,
+    };
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])

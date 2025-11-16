@@ -2,8 +2,8 @@ use crate::ports::{ActivityRepository, EnforcementRepository};
 use domain::{ContentItem, UserId};
 
 pub async fn recent_activity(
-    activity: &impl ActivityRepository,
-    enforcement: &impl EnforcementRepository,
+    activity: &(impl ActivityRepository + ?Sized),
+    enforcement: &(impl EnforcementRepository + ?Sized),
     viewer_id: Option<UserId>,
     limit: u32,
 ) -> Vec<ContentItem> {

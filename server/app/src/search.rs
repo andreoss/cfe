@@ -1,7 +1,7 @@
 use crate::ports::SearchRepository;
 use domain::{Query, ContentItem};
 
-pub async fn search(repo: &impl SearchRepository, query: &Query) -> Vec<ContentItem> {
+pub async fn search(repo: &(impl SearchRepository + ?Sized), query: &Query) -> Vec<ContentItem> {
     repo.search(query).await
 }
 

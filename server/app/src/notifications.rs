@@ -8,18 +8,18 @@ pub enum MarkReadError {
 }
 
 pub async fn list_notifications(
-    repo: &impl NotificationRepository,
+    repo: &(impl NotificationRepository + ?Sized),
     recipient_id: UserId,
 ) -> Vec<Notification> {
     repo.list_by_recipient(recipient_id).await
 }
 
-pub async fn count_unread(repo: &impl NotificationRepository, recipient_id: UserId) -> u64 {
+pub async fn count_unread(repo: &(impl NotificationRepository + ?Sized), recipient_id: UserId) -> u64 {
     repo.count_unread(recipient_id).await
 }
 
 pub async fn mark_read(
-    repo: &impl NotificationRepository,
+    repo: &(impl NotificationRepository + ?Sized),
     recipient_id: UserId,
     id: NotificationId,
     now: OffsetDateTime,

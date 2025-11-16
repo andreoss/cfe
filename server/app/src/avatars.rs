@@ -7,17 +7,17 @@ pub enum AvatarLookupError {
     NoAvatar,
 }
 
-pub async fn set_avatar(avatars: &impl AvatarRepository, user_id: domain::UserId, avatar: Avatar) {
+pub async fn set_avatar(avatars: &(impl AvatarRepository + ?Sized), user_id: domain::UserId, avatar: Avatar) {
     avatars.save(user_id, &avatar).await;
 }
 
-pub async fn clear_avatar(avatars: &impl AvatarRepository, user_id: domain::UserId) {
+pub async fn clear_avatar(avatars: &(impl AvatarRepository + ?Sized), user_id: domain::UserId) {
     avatars.delete(user_id).await;
 }
 
 pub async fn get_avatar(
-    users: &impl UserRepository,
-    avatars: &impl AvatarRepository,
+    users: &(impl UserRepository + ?Sized),
+    avatars: &(impl AvatarRepository + ?Sized),
     username: &Username,
 ) -> Result<Avatar, AvatarLookupError> {
     let user = users
@@ -30,7 +30,7 @@ pub async fn get_avatar(
         .ok_or(AvatarLookupError::NoAvatar)
 }
 
-pub async fn has_avatar(avatars: &impl AvatarRepository, user_id: domain::UserId) -> bool {
+pub async fn has_avatar(avatars: &(impl AvatarRepository + ?Sized), user_id: domain::UserId) -> bool {
     avatars.find_by_user(user_id).await.is_some()
 }
 

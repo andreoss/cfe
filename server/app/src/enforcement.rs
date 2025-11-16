@@ -18,9 +18,9 @@ fn require_moderator(actor: &User) -> Result<(), EnforcementError> {
 }
 
 pub async fn ban_user(
-    users: &impl UserRepository,
-    sessions: &impl SessionRepository,
-    enforcement: &impl EnforcementRepository,
+    users: &(impl UserRepository + ?Sized),
+    sessions: &(impl SessionRepository + ?Sized),
+    enforcement: &(impl EnforcementRepository + ?Sized),
     moderator: &User,
     target_id: UserId,
     reason: Reason,
@@ -42,7 +42,7 @@ pub async fn ban_user(
 }
 
 pub async fn lift_ban(
-    enforcement: &impl EnforcementRepository,
+    enforcement: &(impl EnforcementRepository + ?Sized),
     moderator: &User,
     target_id: UserId,
 ) -> Result<(), EnforcementError> {
@@ -52,7 +52,7 @@ pub async fn lift_ban(
 }
 
 pub async fn active_ban(
-    enforcement: &impl EnforcementRepository,
+    enforcement: &(impl EnforcementRepository + ?Sized),
     user_id: UserId,
     now: OffsetDateTime,
 ) -> Option<Ban> {
@@ -63,7 +63,7 @@ pub async fn active_ban(
 }
 
 pub async fn promote_to_moderator(
-    users: &impl UserRepository,
+    users: &(impl UserRepository + ?Sized),
     moderator: &User,
     target_id: UserId,
 ) -> Result<User, EnforcementError> {
@@ -78,8 +78,8 @@ pub async fn promote_to_moderator(
 }
 
 pub async fn warn_user(
-    users: &impl UserRepository,
-    enforcement: &impl EnforcementRepository,
+    users: &(impl UserRepository + ?Sized),
+    enforcement: &(impl EnforcementRepository + ?Sized),
     moderator: &User,
     id: WarningId,
     target_id: UserId,
@@ -100,13 +100,13 @@ pub async fn warn_user(
 }
 
 pub async fn list_warnings(
-    enforcement: &impl EnforcementRepository,
+    enforcement: &(impl EnforcementRepository + ?Sized),
     user_id: UserId,
 ) -> Vec<Warning> {
     enforcement.list_warnings(user_id).await
 }
 
-pub async fn acknowledge_warnings(enforcement: &impl EnforcementRepository, user_id: UserId) {
+pub async fn acknowledge_warnings(enforcement: &(impl EnforcementRepository + ?Sized), user_id: UserId) {
     for warning in enforcement.list_warnings(user_id).await {
         if !warning.is_acknowledged() {
             enforcement.save_warning(&warning.acknowledged()).await;
@@ -115,8 +115,8 @@ pub async fn acknowledge_warnings(enforcement: &impl EnforcementRepository, user
 }
 
 pub async fn ignore_user(
-    users: &impl UserRepository,
-    enforcement: &impl EnforcementRepository,
+    users: &(impl UserRepository + ?Sized),
+    enforcement: &(impl EnforcementRepository + ?Sized),
     actor: &User,
     target_id: UserId,
 ) -> Result<(), EnforcementError> {
@@ -132,7 +132,7 @@ pub async fn ignore_user(
 }
 
 pub async fn stop_ignoring(
-    enforcement: &impl EnforcementRepository,
+    enforcement: &(impl EnforcementRepository + ?Sized),
     actor: &User,
     target_id: UserId,
 ) {
@@ -140,7 +140,7 @@ pub async fn stop_ignoring(
 }
 
 pub async fn ignored_by(
-    enforcement: &impl EnforcementRepository,
+    enforcement: &(impl EnforcementRepository + ?Sized),
     user_id: UserId,
 ) -> Vec<UserId> {
     enforcement.list_ignored(user_id).await

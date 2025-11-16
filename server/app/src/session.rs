@@ -2,14 +2,14 @@ use crate::ports::{SessionRepository, UserRepository};
 use domain::{Session, SessionId, SessionToken, User};
 use time::OffsetDateTime;
 
-pub async fn create_session(repo: &impl SessionRepository, session: Session) -> Session {
+pub async fn create_session(repo: &(impl SessionRepository + ?Sized), session: Session) -> Session {
     repo.save(&session).await;
     session
 }
 
 pub async fn current_user(
-    sessions: &impl SessionRepository,
-    users: &impl UserRepository,
+    sessions: &(impl SessionRepository + ?Sized),
+    users: &(impl UserRepository + ?Sized),
     token: &SessionToken,
     now: OffsetDateTime,
 ) -> Option<User> {
@@ -24,14 +24,14 @@ pub async fn current_user(
 }
 
 pub async fn touch_session(
-    repo: &impl SessionRepository,
+    repo: &(impl SessionRepository + ?Sized),
     id: SessionId,
     new_expiry: OffsetDateTime,
 ) {
     repo.touch(id, new_expiry).await;
 }
 
-pub async fn sign_out(repo: &impl SessionRepository, id: SessionId) {
+pub async fn sign_out(repo: &(impl SessionRepository + ?Sized), id: SessionId) {
     repo.delete(id).await;
 }
 

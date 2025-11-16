@@ -8,8 +8,8 @@ pub enum CreateTopicError {
 }
 
 pub async fn create_topic(
-    sections: &impl SectionRepository,
-    topics: &impl TopicRepository,
+    sections: &(impl SectionRepository + ?Sized),
+    topics: &(impl TopicRepository + ?Sized),
     id: TopicId,
     slug: &Slug,
     author_id: UserId,
@@ -27,7 +27,7 @@ pub async fn create_topic(
     Ok(topic)
 }
 
-pub async fn list_sections(sections: &impl SectionRepository) -> Vec<Section> {
+pub async fn list_sections(sections: &(impl SectionRepository + ?Sized)) -> Vec<Section> {
     sections.list().await
 }
 
@@ -37,8 +37,8 @@ pub enum ListTopicsError {
 }
 
 pub async fn list_topics(
-    sections: &impl SectionRepository,
-    topics: &impl TopicRepository,
+    sections: &(impl SectionRepository + ?Sized),
+    topics: &(impl TopicRepository + ?Sized),
     slug: &Slug,
 ) -> Result<Vec<Topic>, ListTopicsError> {
     let section = sections
@@ -48,11 +48,11 @@ pub async fn list_topics(
     Ok(topics.list_by_section(section.id()).await)
 }
 
-pub async fn list_topics_by_tag(topics: &impl TopicRepository, tag: &Slug) -> Vec<Topic> {
+pub async fn list_topics_by_tag(topics: &(impl TopicRepository + ?Sized), tag: &Slug) -> Vec<Topic> {
     topics.list_by_tag(tag).await
 }
 
-pub async fn get_topic(topics: &impl TopicRepository, id: TopicId) -> Option<Topic> {
+pub async fn get_topic(topics: &(impl TopicRepository + ?Sized), id: TopicId) -> Option<Topic> {
     topics.find_by_id(id).await
 }
 

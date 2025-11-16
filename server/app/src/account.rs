@@ -8,9 +8,9 @@ pub enum ChangePasswordError {
 }
 
 pub async fn change_password(
-    users: &impl UserRepository,
-    sessions: &impl SessionRepository,
-    hasher: &impl PasswordHasher,
+    users: &(impl UserRepository + ?Sized),
+    sessions: &(impl SessionRepository + ?Sized),
+    hasher: &(impl PasswordHasher + ?Sized),
     user: &User,
     current: &str,
     new: Password,
@@ -25,8 +25,8 @@ pub async fn change_password(
 }
 
 pub async fn deregister(
-    users: &impl UserRepository,
-    sessions: &impl SessionRepository,
+    users: &(impl UserRepository + ?Sized),
+    sessions: &(impl SessionRepository + ?Sized),
     user: &User,
     now: OffsetDateTime,
 ) -> User {

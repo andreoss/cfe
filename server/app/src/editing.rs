@@ -14,7 +14,7 @@ fn may_edit(user: &User, author_id: domain::UserId) -> bool {
 }
 
 pub async fn edit_topic(
-    topics: &impl TopicRepository,
+    topics: &(impl TopicRepository + ?Sized),
     user: &User,
     topic_id: TopicId,
     title: Title,
@@ -35,7 +35,7 @@ pub async fn edit_topic(
 }
 
 pub async fn edit_comment(
-    comments: &impl CommentRepository,
+    comments: &(impl CommentRepository + ?Sized),
     user: &User,
     comment_id: CommentId,
     body: Body,

@@ -8,8 +8,8 @@ pub enum SignInError {
 }
 
 pub async fn sign_in(
-    repo: &impl UserRepository,
-    hasher: &impl PasswordHasher,
+    repo: &(impl UserRepository + ?Sized),
+    hasher: &(impl PasswordHasher + ?Sized),
     username: &Username,
     plain_password: &str,
 ) -> Result<User, SignInError> {

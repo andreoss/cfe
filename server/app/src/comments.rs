@@ -10,9 +10,9 @@ pub enum PostCommentError {
 }
 
 pub async fn post_comment(
-    topics: &impl TopicRepository,
-    comments: &impl CommentRepository,
-    notifications: &impl NotificationRepository,
+    topics: &(impl TopicRepository + ?Sized),
+    comments: &(impl CommentRepository + ?Sized),
+    notifications: &(impl NotificationRepository + ?Sized),
     id: CommentId,
     notification_id: NotificationId,
     topic_id: TopicId,
@@ -53,7 +53,7 @@ pub async fn post_comment(
     Ok(comment)
 }
 
-pub async fn list_comments(comments: &impl CommentRepository, topic_id: TopicId) -> Vec<Comment> {
+pub async fn list_comments(comments: &(impl CommentRepository + ?Sized), topic_id: TopicId) -> Vec<Comment> {
     comments.list_by_topic(topic_id).await
 }
 
