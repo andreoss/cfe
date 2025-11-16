@@ -3,6 +3,7 @@ mod comment_repository;
 mod handlers;
 mod feed;
 mod hasher;
+mod avatar_repository;
 mod bookmark_repository;
 mod notification_repository;
 mod reaction_repository;
@@ -79,6 +80,14 @@ async fn main() {
             get(handlers::section_feed_handler),
         )
         .route("/api/tags/{tag}/feed", get(handlers::tag_feed_handler))
+        .route(
+            "/api/me/avatar",
+            post(handlers::upload_avatar_handler).delete(handlers::delete_avatar_handler),
+        )
+        .route(
+            "/api/users/{username}/avatar",
+            get(handlers::get_avatar_handler),
+        )
         .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
         .route(
             "/api/topics/{id}/poll",

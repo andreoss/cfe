@@ -1,4 +1,7 @@
 use crate::auth::{CurrentUser, OptionalUser, SESSION_COOKIE};
+use crate::avatar_repository::PgAvatarRepository;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use crate::bookmark_repository::PgBookmarkRepository;
 use crate::comment_repository::PgCommentRepository;
 use crate::hasher::Argon2Hasher;
@@ -11,7 +14,8 @@ use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
-    BookmarkError, CommentRepository, CreatePollError, CreateTopicError, DeleteError, EditError,
+    AvatarLookupError, BookmarkError, CommentRepository, CreatePollError, CreateTopicError,
+    DeleteError, EditError, clear_avatar, get_avatar, set_avatar,
     ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
     PostCommentError, RegisterError, SectionRepository, SessionRepository, SignInError,
     TopicRepository, UpdateBioError, UserRepository, add_bookmark, count_unread, create_session,
@@ -27,7 +31,8 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
-    Bio, Body, CommentId, Email, PollId, PollOption, PollOptionId, Question, Reason,
+    Avatar, AvatarError, Bio, Body, CommentId, Email, PollId, PollOption, PollOptionId, Question,
+    Reason,
     ReactionTarget, SearchHit, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
     UserId, Username,
 };
@@ -1045,6 +1050,69 @@ pub async fn vote_handler(
         .await
         .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "poll missing"))?;
     Ok(Json(to_poll_response(results)))
+}
+
+#[derive(Deserialize)]
+pub struct UploadAvatarRequest {
+    pub data: String,
+}
+
+#[derive(Serialize)]
+pub struct AvatarStateResponse {
+    pub has_avatar: bool,
+}
+
+pub async fn upload_avatar_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<UploadAvatarRequest>,
+) -> Result<Json<AvatarStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let raw = BASE64
+        .decode(body.data.as_bytes())
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid encoding"))?;
+    let avatar = Avatar::parse(raw).map_err(|e| match e {
+        AvatarError::Empty => error(StatusCode::UNPROCESSABLE_ENTITY, "empty image"),
+        AvatarError::TooLarge => error(StatusCode::PAYLOAD_TOO_LARGE, "image too large"),
+        AvatarError::UnsupportedFormat => {
+            error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported image")
+        }
+    })?;
+    let avatars = PgAvatarRepository::new(state.pool.clone());
+    set_avatar(&avatars, current.id(), avatar).await;
+    Ok(Json(AvatarStateResponse { has_avatar: true }))
+}
+
+pub async fn delete_avatar_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Json<AvatarStateResponse> {
+    let avatars = PgAvatarRepository::new(state.pool.clone());
+    clear_avatar(&avatars, current.id()).await;
+    Json(AvatarStateResponse { has_avatar: false })
+}
+
+pub async fn get_avatar_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let username = Username::parse(&username)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
+    let users = PgUserRepository::new(state.pool.clone());
+    let avatars = PgAvatarRepository::new(state.pool.clone());
+    let avatar = get_avatar(&users, &avatars, &username)
+        .await
+        .map_err(|e| match e {
+            AvatarLookupError::UserNotFound => error(StatusCode::NOT_FOUND, "user not found"),
+            AvatarLookupError::NoAvatar => error(StatusCode::NOT_FOUND, "no avatar"),
+        })?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, avatar.format().content_type()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        avatar.bytes().to_vec(),
+    )
+        .into_response())
 }
 
 const ATOM_CONTENT_TYPE: &str = "application/atom+xml; charset=utf-8";
