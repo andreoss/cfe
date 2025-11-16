@@ -500,3 +500,23 @@ export function sectionFeedUrl(slug: string): string {
 export function tagFeedUrl(tag: string): string {
   return `${BASE_URL}/api/tags/${encodeURIComponent(tag)}/feed`
 }
+
+export function avatarUrl(username: string): string {
+  return `${BASE_URL}/api/users/${encodeURIComponent(username)}/avatar`
+}
+
+export async function uploadAvatar(base64: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ has_avatar: boolean }>('/api/me/avatar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: base64 }),
+  })
+  return result.ok ? { ok: true, value: result.value.has_avatar } : result
+}
+
+export async function deleteAvatar(): Promise<ApiResult<boolean>> {
+  const result = await request<{ has_avatar: boolean }>('/api/me/avatar', {
+    method: 'DELETE',
+  })
+  return result.ok ? { ok: true, value: result.value.has_avatar } : result
+}

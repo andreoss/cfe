@@ -24,6 +24,7 @@ import {
 import CommentThread from '@/components/CommentThread.vue'
 import PollPanel from '@/components/PollPanel.vue'
 import ReactionBar from '@/components/ReactionBar.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
 import { renderMarkdown } from '@/lib/markdown'
 
 const props = defineProps<{ id: string }>()
@@ -235,7 +236,8 @@ async function onUnsave() {
     <template v-else-if="topic">
       <h1>{{ topic.title }}</h1>
       <p>
-        by <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
+        by <UserAvatar :username="topic.authorUsername" />
+        <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
         in <RouterLink :to="`/s/${topic.sectionSlug}`">{{ topic.sectionSlug }}</RouterLink>
       </p>
       <p v-if="topic.tags.length > 0">

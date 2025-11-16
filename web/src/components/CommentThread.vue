@@ -13,6 +13,7 @@ import {
 } from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
 import ReactionBar from '@/components/ReactionBar.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
 
 const props = defineProps<{
   comments: Comment[]
@@ -126,7 +127,10 @@ async function onEdit(commentId: string) {
 <template>
   <ul>
     <li v-for="comment in children(parentId)" :key="comment.id">
-      <p><strong>{{ comment.authorUsername }}</strong></p>
+      <p>
+        <UserAvatar :username="comment.authorUsername" />
+        <strong>{{ comment.authorUsername }}</strong>
+      </p>
       <p v-if="comment.deleted" class="removed">
         Removed by a moderator: {{ comment.deletedReason }}
       </p>

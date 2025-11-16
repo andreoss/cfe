@@ -37,6 +37,7 @@ until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" -X POST -H '
 until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
+export API_URL="http://127.0.0.1:$API_PORT"
 node e2e/moderation.mjs
 node e2e/register-sign-in.mjs
 node e2e/profile.mjs
@@ -51,3 +52,4 @@ node e2e/bookmarks.mjs
 node e2e/reactions.mjs
 node e2e/polls.mjs
 node e2e/feeds.mjs
+node e2e/avatars.mjs

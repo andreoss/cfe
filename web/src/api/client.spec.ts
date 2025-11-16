@@ -37,6 +37,9 @@ import {
   getPoll,
   createPoll,
   votePoll,
+  avatarUrl,
+  uploadAvatar,
+  deleteAvatar,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -1051,5 +1054,81 @@ describe('feed urls', () => {
 
   it('encodes an awkward slug', () => {
     expect(sectionFeedUrl('a b')).toContain('/api/sections/a%20b/feed')
+  })
+})
+
+describe('avatarUrl', () => {
+  it('builds an avatar url', () => {
+    expect(avatarUrl('alice_01')).toContain('/api/users/alice_01/avatar')
+  })
+
+  it('encodes an awkward username', () => {
+    expect(avatarUrl('a b/c')).toContain('/api/users/a%20b%2Fc/avatar')
+  })
+})
+
+describe('uploadAvatar', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the has_avatar envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { has_avatar: true }))
+    const result = await uploadAvatar('QUJD')
+    expect(result).toEqual({ ok: true, value: true })
+  })
+
+  it('uses POST method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { has_avatar: true }))
+    await uploadAvatar('QUJD')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/avatar'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('sends the base64 payload as data', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { has_avatar: true }))
+    await uploadAvatar('QUJD')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: JSON.stringify({ data: 'QUJD' }) }),
+    )
+  })
+
+  it('returns the server error for an unsupported image', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'unsupported image' }))
+    const result = await uploadAvatar('QUJD')
+    expect(result).toEqual({ ok: false, error: 'unsupported image' })
+  })
+})
+
+describe('deleteAvatar', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the has_avatar envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { has_avatar: false }))
+    const result = await deleteAvatar()
+    expect(result).toEqual({ ok: true, value: false })
+  })
+
+  it('uses DELETE method', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { has_avatar: false }))
+    await deleteAvatar()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/avatar'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await deleteAvatar()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })
