@@ -6,6 +6,7 @@ mod feed;
 mod hasher;
 mod activity_repository;
 mod backend;
+mod duckdb;
 mod mysql;
 mod postgres;
 mod avatar_repository;
@@ -33,10 +34,12 @@ use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 async fn connect(url: &str) -> Arc<dyn Backend> {
+    let vendor = Vendor::from_url(url).expect("DATABASE_URL must name a supported vendor");
+    println!("storage: {}", vendor.as_str());
     match Vendor::from_url(url) {
         Ok(Vendor::Postgres) => Arc::new(postgres::PostgresBackend::connect(url).await),
         Ok(Vendor::MySql) => Arc::new(mysql::MySqlBackend::connect(url).await),
-        Ok(vendor) => panic!("{} backend is not built into this binary", vendor.as_str()),
+        Ok(Vendor::DuckDb) => Arc::new(duckdb::DuckDbBackend::connect(url).await),
         Err(_) => panic!("DATABASE_URL must name a supported vendor"),
     }
 }
