@@ -18,6 +18,7 @@ import {
   editTopic,
   editComment,
   search,
+  getActivity,
   sectionFeedUrl,
   tagFeedUrl,
   getNotifications,
@@ -575,6 +576,52 @@ describe('search', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid query' }))
     const result = await search('')
     expect(result).toEqual({ ok: false, error: 'invalid query' })
+  })
+})
+
+describe('getActivity', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps a mixed activity list into topic and comment hits', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { kind: 'topic', ...rawTopic() },
+        { kind: 'comment', ...rawComment() },
+      ]),
+    )
+    const result = await getActivity()
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toHaveLength(2)
+    const [first, second] = result.value
+    expect(first?.kind === 'topic' && first.topic.sectionSlug).toBe('general')
+    expect(first?.kind === 'topic' && first.topic.authorUsername).toBe('alice_01')
+    expect(second?.kind === 'comment' && second.comment.topicId).toBe('t1')
+    expect(second?.kind === 'comment' && second.comment.authorUsername).toBe('alice_01')
+  })
+
+  it('requests the activity path with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getActivity()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/activity'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an empty list when there is no activity', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getActivity()
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('returns an error when the request fails', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'service unavailable' }))
+    const result = await getActivity()
+    expect(result).toEqual({ ok: false, error: 'service unavailable' })
   })
 })
 

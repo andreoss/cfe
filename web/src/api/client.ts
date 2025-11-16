@@ -304,20 +304,24 @@ type RawSearchHit =
   | ({ kind: 'topic' } & RawTopic)
   | ({ kind: 'comment' } & RawComment)
 
+function toSearchHit(raw: RawSearchHit): SearchHit {
+  return raw.kind === 'topic'
+    ? { kind: 'topic', topic: toTopic(raw) }
+    : { kind: 'comment', comment: toComment(raw) }
+}
+
 export async function search(query: string): Promise<ApiResult<SearchHit[]>> {
   const result = await request<RawSearchHit[]>(
     `/api/search?q=${encodeURIComponent(query)}`,
     { method: 'GET' },
   )
   if (!result.ok) return result
-  return {
-    ok: true,
-    value: result.value.map((raw) =>
-      raw.kind === 'topic'
-        ? { kind: 'topic', topic: toTopic(raw) }
-        : { kind: 'comment', comment: toComment(raw) },
-    ),
-  }
+  return { ok: true, value: result.value.map(toSearchHit) }
+}
+
+export async function getActivity(): Promise<ApiResult<SearchHit[]>> {
+  const result = await request<RawSearchHit[]>('/api/activity', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toSearchHit) } : result
 }
 
 type RawNotification = {

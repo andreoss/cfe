@@ -34,7 +34,10 @@ async function signIn(driver, username, password) {
   await driver.findElement(By.name('username')).sendKeys(username)
   await driver.findElement(By.name('password')).sendKeys(password)
   await driver.findElement(By.css('button[type="submit"]')).click()
-  await driver.sleep(800)
+  await driver.wait(async () => {
+    if ((await driver.getCurrentUrl()) === `${baseUrl}/`) return true
+    return (await driver.findElements(By.css('[role="alert"]'))).length > 0
+  }, 10000, 'sign-in should either succeed or report an error')
   return driver.getCurrentUrl()
 }
 
@@ -122,7 +125,11 @@ async function run() {
       5000,
     )
     await confirm.click()
-    await driver.sleep(1200)
+    await driver.wait(
+      async () => (await driver.findElement(By.css('nav')).getText()).includes('Sign in'),
+      10000,
+      'deregistering should sign you out',
+    )
 
     const nav = await driver.findElement(By.css('nav')).getText()
     assert(nav.includes('Sign in'), `deregistering should sign you out, nav was: ${nav}`)

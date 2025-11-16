@@ -43,6 +43,11 @@ const router = createRouter({
       component: () => import('../views/SearchView.vue'),
     },
     {
+      path: '/activity',
+      name: 'activity',
+      component: () => import('../views/ActivityView.vue'),
+    },
+    {
       path: '/tag/:tag',
       name: 'tag',
       component: () => import('../views/TagView.vue'),

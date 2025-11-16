@@ -59,3 +59,4 @@ node e2e/feeds.mjs
 node e2e/avatars.mjs
 node e2e/account.mjs
 node e2e/enforcement.mjs
+node e2e/activity.mjs
