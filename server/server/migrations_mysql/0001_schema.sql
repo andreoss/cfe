@@ -6,6 +6,7 @@ CREATE TABLE users (
     bio TEXT,
     role VARCHAR(16) NOT NULL DEFAULT 'user',
     deregistered_at TIMESTAMP(6) NULL,
+    confirmed_at TIMESTAMP(6) NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 );
 
@@ -178,3 +179,16 @@ INSERT INTO sections (id, slug, title) VALUES
     (UNHEX(REPLACE('00000000-0000-0000-0000-000000000001', '-', '')), 'general', 'General'),
     (UNHEX(REPLACE('00000000-0000-0000-0000-000000000002', '-', '')), 'help', 'Help'),
     (UNHEX(REPLACE('00000000-0000-0000-0000-000000000003', '-', '')), 'feedback', 'Feedback');
+
+CREATE TABLE mail_tokens (
+    id BINARY(16) PRIMARY KEY,
+    user_id BINARY(16) NOT NULL,
+    purpose VARCHAR(32) NOT NULL,
+    digest VARCHAR(128) NOT NULL UNIQUE,
+    payload TEXT,
+    expires_at TIMESTAMP(6) NOT NULL,
+    redeemed_at TIMESTAMP(6) NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE INDEX mail_tokens_user_idx ON mail_tokens (user_id, purpose);

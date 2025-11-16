@@ -17,11 +17,6 @@ pub enum ChangeEmailError {
     AddressTaken,
 }
 
-pub struct IssuedToken {
-    pub secret: String,
-    pub token: MailToken,
-}
-
 async fn issue(
     tokens: &(impl MailTokenRepository + ?Sized),
     digester: &(impl TokenDigest + ?Sized),
@@ -31,7 +26,7 @@ async fn issue(
     secret: String,
     payload: Option<String>,
     now: OffsetDateTime,
-) -> IssuedToken {
+) -> String {
     let token = MailToken::issue(
         id,
         user_id,
@@ -41,7 +36,7 @@ async fn issue(
         now,
     );
     tokens.save(&token).await;
-    IssuedToken { secret, token }
+    secret
 }
 
 pub async fn request_password_reset(
@@ -57,7 +52,7 @@ pub async fn request_password_reset(
     let Some(user) = users.find_by_email(address).await.filter(|u| u.is_active()) else {
         return;
     };
-    let issued = issue(
+    let secret = issue(
         tokens,
         digester,
         id,
@@ -72,7 +67,7 @@ pub async fn request_password_reset(
         .send(&Message {
             to: address.as_str().to_owned(),
             subject: "Reset your password".to_owned(),
-            body: format!("Use this code to choose a new password: {}", issued.secret),
+            body: format!("Use this code to choose a new password: {}", secret),
         })
         .await;
 }
@@ -117,7 +112,7 @@ pub async fn request_email_change(
     if users.find_by_email(new_address).await.is_some() {
         return Err(ChangeEmailError::AddressTaken);
     }
-    let issued = issue(
+    let secret = issue(
         tokens,
         digester,
         id,
@@ -132,7 +127,7 @@ pub async fn request_email_change(
         .send(&Message {
             to: new_address.as_str().to_owned(),
             subject: "Confirm your address".to_owned(),
-            body: format!("Use this code to confirm this address: {}", issued.secret),
+            body: format!("Use this code to confirm this address: {}", secret),
         })
         .await;
     Ok(())
@@ -173,7 +168,7 @@ pub async fn request_activation(
     secret: String,
     now: OffsetDateTime,
 ) {
-    let issued = issue(
+    let secret = issue(
         tokens,
         digester,
         id,
@@ -188,7 +183,7 @@ pub async fn request_activation(
         .send(&Message {
             to: user.email().as_str().to_owned(),
             subject: "Confirm your address".to_owned(),
-            body: format!("Use this code to confirm your address: {}", issued.secret),
+            body: format!("Use this code to confirm your address: {}", secret),
         })
         .await;
 }

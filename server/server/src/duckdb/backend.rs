@@ -5,6 +5,7 @@ use crate::duckdb::bookmark::DuckBookmarkRepository;
 use crate::duckdb::comment::DuckCommentRepository;
 use crate::duckdb::conn::{Db, path_from_url};
 use crate::duckdb::enforcement::DuckEnforcementRepository;
+use crate::duckdb::mail_token::DuckMailTokenRepository;
 use crate::duckdb::notification::DuckNotificationRepository;
 use crate::duckdb::poll::DuckPollRepository;
 use crate::duckdb::reaction::DuckReactionRepository;
@@ -15,8 +16,9 @@ use crate::duckdb::topic::DuckTopicRepository;
 use crate::duckdb::user::DuckUserRepository;
 use app::{
     ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, NotificationRepository, PollRepository, ReactionRepository,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
+    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 use std::sync::Arc;
 
@@ -97,5 +99,9 @@ impl Backend for DuckDbBackend {
 
     fn activity(&self) -> Arc<dyn ActivityRepository + Send + Sync> {
         Arc::new(DuckActivityRepository::new(self.db.clone()))
+    }
+
+    fn mail_tokens(&self) -> Arc<dyn MailTokenRepository + Send + Sync> {
+        Arc::new(DuckMailTokenRepository::new(self.db.clone()))
     }
 }

@@ -44,10 +44,10 @@ pub use polls::{
 pub use paging::Paged;
 pub use ports::{
     ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository,
+    EnforcementRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
-    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TokenDigest,
+    TopicRepository, UserRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};

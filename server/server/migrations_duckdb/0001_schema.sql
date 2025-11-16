@@ -6,6 +6,7 @@ CREATE TABLE users (
     bio VARCHAR,
     role VARCHAR NOT NULL DEFAULT 'user',
     deregistered_at TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -153,3 +154,15 @@ INSERT INTO sections (id, slug, title) VALUES
     ('00000000-0000-0000-0000-000000000001', 'general', 'General'),
     ('00000000-0000-0000-0000-000000000002', 'help', 'Help'),
     ('00000000-0000-0000-0000-000000000003', 'feedback', 'Feedback');
+
+CREATE TABLE mail_tokens (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    purpose VARCHAR NOT NULL,
+    digest VARCHAR NOT NULL UNIQUE,
+    payload VARCHAR,
+    expires_at TIMESTAMPTZ NOT NULL,
+    redeemed_at TIMESTAMPTZ
+);
+
+CREATE INDEX mail_tokens_user_idx ON mail_tokens (user_id, purpose);

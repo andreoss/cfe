@@ -16,7 +16,8 @@ impl DuckUserRepository {
     }
 }
 
-const USER_COLUMNS: &str = "id, username, email, password_hash, bio, role, deregistered_at";
+const USER_COLUMNS: &str =
+    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at";
 
 struct UserRow {
     id: uuid::Uuid,
@@ -26,6 +27,7 @@ struct UserRow {
     bio: Option<String>,
     role: String,
     deregistered_at: Option<OffsetDateTime>,
+    confirmed_at: Option<OffsetDateTime>,
 }
 
 fn user_row(row: &Row) -> UserRow {
@@ -37,6 +39,7 @@ fn user_row(row: &Row) -> UserRow {
         bio: row.get(4).expect("read bio"),
         role: row.get(5).expect("read role"),
         deregistered_at: read_opt_time(row, 6),
+        confirmed_at: read_opt_time(row, 7),
     }
 }
 
@@ -67,6 +70,7 @@ fn to_user(row: UserRow) -> User {
         bio,
         role_from_str(&row.role),
         row.deregistered_at,
+        row.confirmed_at,
     )
 }
 
@@ -143,12 +147,13 @@ impl UserRepository for DuckUserRepository {
             opt_text(user.bio().map(Bio::as_str)),
             Value::Text(role_to_str(user.role()).to_owned()),
             opt_time(user.deregistered_at()),
+            opt_time(user.confirmed_at()),
             uuid_value(user.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE users SET username = ?, email = ?, password_hash = ?, bio = ?, \
-                 role = ?, deregistered_at = ? WHERE id = ?",
+                 role = ?, deregistered_at = ?, confirmed_at = ? WHERE id = ?",
                 params,
             )
             .await;

@@ -11,7 +11,9 @@ use app::{
     lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
     CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
     get_avatar, set_avatar,
-    ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote, create_poll, poll_results,
+    ChangeEmailError, ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote,
+    confirm_activation, confirm_email_change, create_poll, poll_results, request_activation,
+    request_email_change, request_password_reset, reset_password,
     PostCommentError, RegisterError, SignInError, UpdateBioError, add_bookmark, count_unread, create_session,
     create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
     ReactionSummary, clear_reaction, is_bookmarked, list_bookmarked_topics, list_comments,
@@ -37,6 +39,7 @@ use time::{Duration, OffsetDateTime};
 #[derive(Clone)]
 pub struct AppState {
     pub backend: Arc<dyn Backend>,
+    pub mailer: Arc<dyn app::Mailer + Send + Sync>,
 }
 
 #[derive(Deserialize)]
@@ -292,6 +295,17 @@ pub async fn register_handler(
             RegisterError::UsernameTaken => error(StatusCode::CONFLICT, "username taken"),
             RegisterError::EmailTaken => error(StatusCode::CONFLICT, "email taken"),
         })?;
+    let tokens = state.backend.mail_tokens();
+    request_activation(
+        &*tokens,
+        &crate::mail::Sha256Digest,
+        &*state.mailer,
+        domain::MailTokenId::new(uuid::Uuid::new_v4()),
+        &user,
+        crate::mail::generate_secret(),
+        OffsetDateTime::now_utc(),
+    )
+    .await;
     let token = start_session(&state, user.id()).await;
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
@@ -1337,6 +1351,136 @@ pub async fn ignore_state_handler(
     Ok(Json(IgnoreStateResponse {
         ignored: ignored_by(&*enforcement, current.id()).await.contains(&target),
     }))
+}
+
+#[derive(Deserialize)]
+pub struct ResetRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetConfirmRequest {
+    pub code: String,
+    pub new_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct ChangeEmailRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ConfirmRequest {
+    pub code: String,
+}
+
+pub async fn request_reset_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ResetRequest>,
+) -> StatusCode {
+    if let Ok(address) = Email::parse(&body.email) {
+        let users = state.backend.users();
+        let tokens = state.backend.mail_tokens();
+        request_password_reset(
+            &*users,
+            &*tokens,
+            &crate::mail::Sha256Digest,
+            &*state.mailer,
+            domain::MailTokenId::new(uuid::Uuid::new_v4()),
+            &address,
+            crate::mail::generate_secret(),
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+    }
+    StatusCode::ACCEPTED
+}
+
+pub async fn reset_password_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ResetConfirmRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let new_password = Password::parse(&body.new_password)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid new password"))?;
+    let users = state.backend.users();
+    let tokens = state.backend.mail_tokens();
+    let sessions = state.backend.sessions();
+    reset_password(
+        &*users,
+        &*tokens,
+        &*sessions,
+        &crate::mail::Sha256Digest,
+        &Argon2Hasher,
+        &body.code,
+        new_password,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid or expired code"))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn request_email_change_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ChangeEmailRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let address = Email::parse(&body.email)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid email"))?;
+    let users = state.backend.users();
+    let tokens = state.backend.mail_tokens();
+    request_email_change(
+        &*users,
+        &*tokens,
+        &crate::mail::Sha256Digest,
+        &*state.mailer,
+        domain::MailTokenId::new(uuid::Uuid::new_v4()),
+        &current,
+        &address,
+        crate::mail::generate_secret(),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        ChangeEmailError::AddressTaken => error(StatusCode::CONFLICT, "address taken"),
+    })?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn confirm_email_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ConfirmRequest>,
+) -> Result<Json<UserResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let users = state.backend.users();
+    let tokens = state.backend.mail_tokens();
+    let updated = confirm_email_change(
+        &*users,
+        &*tokens,
+        &crate::mail::Sha256Digest,
+        &body.code,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid or expired code"))?;
+    Ok(to_response(&updated))
+}
+
+pub async fn confirm_activation_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ConfirmRequest>,
+) -> Result<Json<UserResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let users = state.backend.users();
+    let tokens = state.backend.mail_tokens();
+    let updated = confirm_activation(
+        &*users,
+        &*tokens,
+        &crate::mail::Sha256Digest,
+        &body.code,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid or expired code"))?;
+    Ok(to_response(&updated))
 }
 
 #[derive(Deserialize)]

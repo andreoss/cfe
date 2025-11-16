@@ -13,7 +13,8 @@ impl MySqlUserRepository {
     }
 }
 
-const USER_COLUMNS: &str = "id, username, email, password_hash, bio, role, deregistered_at";
+const USER_COLUMNS: &str =
+    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at";
 
 #[derive(FromRow)]
 struct UserRow {
@@ -24,6 +25,7 @@ struct UserRow {
     bio: Option<String>,
     role: String,
     deregistered_at: Option<OffsetDateTime>,
+    confirmed_at: Option<OffsetDateTime>,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -53,6 +55,7 @@ fn to_user(row: UserRow) -> User {
         bio,
         role_from_str(&row.role),
         row.deregistered_at,
+        row.confirmed_at,
     )
 }
 
@@ -105,7 +108,7 @@ impl UserRepository for MySqlUserRepository {
     async fn update(&self, user: &User) {
         sqlx::query(
             "UPDATE users SET username = ?, email = ?, password_hash = ?, bio = ?, \
-             role = ?, deregistered_at = ? WHERE id = ?",
+             role = ?, deregistered_at = ?, confirmed_at = ? WHERE id = ?",
         )
         .bind(user.username().as_str())
         .bind(user.email().as_str())
@@ -113,6 +116,7 @@ impl UserRepository for MySqlUserRepository {
         .bind(user.bio().map(Bio::as_str))
         .bind(role_to_str(user.role()))
         .bind(user.deregistered_at())
+        .bind(user.confirmed_at())
         .bind(user.id().as_uuid())
         .execute(&self.pool)
         .await

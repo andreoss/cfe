@@ -3,6 +3,7 @@ mod avatar;
 mod bookmark;
 mod comment;
 mod enforcement;
+mod mail_token;
 mod notification;
 mod poll;
 mod reaction;
@@ -15,8 +16,9 @@ mod user;
 use crate::backend::Backend;
 use app::{
     ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, NotificationRepository, PollRepository, ReactionRepository,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
+    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
+    UserRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -96,5 +98,9 @@ impl Backend for MySqlBackend {
 
     fn activity(&self) -> Arc<dyn ActivityRepository + Send + Sync> {
         Arc::new(activity::MySqlActivityRepository::new(self.pool.clone()))
+    }
+
+    fn mail_tokens(&self) -> Arc<dyn MailTokenRepository + Send + Sync> {
+        Arc::new(mail_token::MySqlMailTokenRepository::new(self.pool.clone()))
     }
 }

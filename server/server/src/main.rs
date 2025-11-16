@@ -4,6 +4,8 @@ mod handlers;
 mod enforcement_repository;
 mod feed;
 mod hasher;
+mod mail;
+mod mail_token_repository;
 mod activity_repository;
 mod backend;
 mod duckdb;
@@ -49,6 +51,7 @@ async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let state = AppState {
         backend: connect(&database_url).await,
+        mailer: mail::build(),
     };
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))
@@ -93,6 +96,17 @@ async fn main() {
         )
         .route("/api/tags/{tag}/feed", get(handlers::tag_feed_handler))
         .route("/api/me/password", post(handlers::change_password_handler))
+        .route("/api/password-reset", post(handlers::request_reset_handler))
+        .route(
+            "/api/password-reset/confirm",
+            post(handlers::reset_password_handler),
+        )
+        .route(
+            "/api/me/email",
+            post(handlers::request_email_change_handler),
+        )
+        .route("/api/me/email/confirm", post(handlers::confirm_email_handler))
+        .route("/api/activate", post(handlers::confirm_activation_handler))
         .route("/api/me/warnings", get(handlers::my_warnings_handler))
         .route(
             "/api/me/warnings/acknowledge",
