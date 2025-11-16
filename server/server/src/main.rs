@@ -6,6 +6,7 @@ mod feed;
 mod hasher;
 mod activity_repository;
 mod backend;
+mod mysql;
 mod postgres;
 mod avatar_repository;
 mod bookmark_repository;
@@ -34,6 +35,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 async fn connect(url: &str) -> Arc<dyn Backend> {
     match Vendor::from_url(url) {
         Ok(Vendor::Postgres) => Arc::new(postgres::PostgresBackend::connect(url).await),
+        Ok(Vendor::MySql) => Arc::new(mysql::MySqlBackend::connect(url).await),
         Ok(vendor) => panic!("{} backend is not built into this binary", vendor.as_str()),
         Err(_) => panic!("DATABASE_URL must name a supported vendor"),
     }

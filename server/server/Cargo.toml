@@ -8,7 +8,7 @@ domain = { path = "../domain" }
 app = { path = "../app" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "time"] }
+sqlx = { version = "0.8", features = ["postgres", "mysql", "runtime-tokio", "uuid", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 time = "0.3"
 argon2 = "0.5"
