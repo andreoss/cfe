@@ -51,6 +51,15 @@ export type Warning = {
 }
 export type Ban = { reason: string; until: string | null }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
+export type PageInfo = {
+  number: number
+  size: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrevious: boolean
+}
+export type Paged<T> = { items: T[]; page: PageInfo }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -73,6 +82,48 @@ function post<T>(path: string, body: unknown): Promise<ApiResult<T>> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+type RawPageInfo = {
+  number: number
+  size: number
+  total: number
+  total_pages: number
+  has_next: boolean
+  has_previous: boolean
+}
+
+type RawPaged<T> = { items: T[]; page: RawPageInfo }
+
+function toPageInfo(raw: RawPageInfo): PageInfo {
+  return {
+    number: raw.number,
+    size: raw.size,
+    total: raw.total,
+    totalPages: raw.total_pages,
+    hasNext: raw.has_next,
+    hasPrevious: raw.has_previous,
+  }
+}
+
+function pageQuery(page?: number, size?: number): string {
+  const params = new URLSearchParams()
+  if (page !== undefined) params.set('page', String(page))
+  if (size !== undefined) params.set('size', String(size))
+  const query = params.toString()
+  return query.length > 0 ? `?${query}` : ''
+}
+
+async function requestPage<R, T>(
+  path: string,
+  map: (raw: R) => T,
+): Promise<ApiResult<Paged<T>>> {
+  const result = await request<RawPaged<R>>(path, { method: 'GET' })
+  if (!result.ok) return result
+  return {
+    ok: true,
+    value: { items: result.value.items.map(map), page: toPageInfo(result.value.page) },
+  }
 }
 
 export function register(
@@ -154,11 +205,15 @@ export function getSections(): Promise<ApiResult<Section[]>> {
   return request<Section[]>('/api/sections', { method: 'GET' })
 }
 
-export async function getTopics(slug: string): Promise<ApiResult<Topic[]>> {
-  const result = await request<RawTopic[]>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
-    method: 'GET',
-  })
-  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+export function getTopics(
+  slug: string,
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Topic>>> {
+  return requestPage<RawTopic, Topic>(
+    `/api/sections/${encodeURIComponent(slug)}/topics${pageQuery(page, size)}`,
+    toTopic,
+  )
 }
 
 export async function createTopic(
@@ -182,11 +237,15 @@ export async function getTopic(id: string): Promise<ApiResult<Topic>> {
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
 
-export async function getTopicsByTag(tag: string): Promise<ApiResult<Topic[]>> {
-  const result = await request<RawTopic[]>(`/api/tags/${encodeURIComponent(tag)}/topics`, {
-    method: 'GET',
-  })
-  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+export function getTopicsByTag(
+  tag: string,
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Topic>>> {
+  return requestPage<RawTopic, Topic>(
+    `/api/tags/${encodeURIComponent(tag)}/topics${pageQuery(page, size)}`,
+    toTopic,
+  )
 }
 
 type RawComment = {
@@ -217,12 +276,15 @@ function toComment(raw: RawComment): Comment {
   }
 }
 
-export async function getComments(topicId: string): Promise<ApiResult<Comment[]>> {
-  const result = await request<RawComment[]>(
-    `/api/topics/${encodeURIComponent(topicId)}/comments`,
-    { method: 'GET' },
+export function getComments(
+  topicId: string,
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Comment>>> {
+  return requestPage<RawComment, Comment>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments${pageQuery(page, size)}`,
+    toComment,
   )
-  return result.ok ? { ok: true, value: result.value.map(toComment) } : result
 }
 
 export async function postComment(
@@ -346,9 +408,14 @@ function toNotification(raw: RawNotification): Notification {
   }
 }
 
-export async function getNotifications(): Promise<ApiResult<Notification[]>> {
-  const result = await request<RawNotification[]>('/api/notifications', { method: 'GET' })
-  return result.ok ? { ok: true, value: result.value.map(toNotification) } : result
+export function getNotifications(
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Notification>>> {
+  return requestPage<RawNotification, Notification>(
+    `/api/notifications${pageQuery(page, size)}`,
+    toNotification,
+  )
 }
 
 export async function getUnreadCount(): Promise<ApiResult<number>> {
@@ -442,9 +509,8 @@ export function clearCommentReaction(
   return reactionRequest(commentReactionsPath(topicId, commentId), { method: 'DELETE' })
 }
 
-export async function getBookmarks(): Promise<ApiResult<Topic[]>> {
-  const result = await request<RawTopic[]>('/api/bookmarks', { method: 'GET' })
-  return result.ok ? { ok: true, value: result.value.map(toTopic) } : result
+export function getBookmarks(page?: number, size?: number): Promise<ApiResult<Paged<Topic>>> {
+  return requestPage<RawTopic, Topic>(`/api/bookmarks${pageQuery(page, size)}`, toTopic)
 }
 
 export async function getBookmarkState(topicId: string): Promise<ApiResult<boolean>> {

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { getTopics, createTopic, sectionFeedUrl, type Topic } from '@/api/client'
+import { getTopics, createTopic, sectionFeedUrl, type PageInfo, type Topic } from '@/api/client'
 
 const props = defineProps<{ slug: string }>()
 const auth = useAuthStore()
 
 const topics = ref<Topic[]>([])
+const page = ref<PageInfo | null>(null)
+const currentPage = ref(1)
 const loadError = ref('')
 const creating = ref(false)
 const titleDraft = ref('')
@@ -23,15 +25,33 @@ function parseTags(raw: string): string[] {
 
 async function load() {
   loadError.value = ''
-  const result = await getTopics(props.slug)
+  const result = await getTopics(props.slug, currentPage.value)
   if (result.ok) {
-    topics.value = result.value
+    topics.value = result.value.items
+    page.value = result.value.page
   } else {
     loadError.value = result.error
   }
 }
 
-watch(() => props.slug, load, { immediate: true })
+async function goToPage(target: number) {
+  currentPage.value = target
+  await load()
+}
+
+function previousPage() {
+  if (page.value) void goToPage(page.value.number - 1)
+}
+
+function nextPage() {
+  if (page.value) void goToPage(page.value.number + 1)
+}
+
+watch(
+  () => props.slug,
+  () => goToPage(1),
+  { immediate: true },
+)
 
 async function onCreate() {
   formError.value = ''
@@ -66,6 +86,12 @@ async function onCreate() {
       </li>
     </ul>
     <p v-if="topics.length === 0 && !loadError">No topics yet.</p>
+
+    <nav v-if="page && page.totalPages > 1">
+      <button type="button" :disabled="!page.hasPrevious" @click="previousPage">Previous</button>
+      <span>Page {{ page.number }} of {{ page.totalPages }}</span>
+      <button type="button" :disabled="!page.hasNext" @click="nextPage">Next</button>
+    </nav>
 
     <template v-if="auth.currentUser">
       <button v-if="!creating" type="button" @click="creating = true">New topic</button>

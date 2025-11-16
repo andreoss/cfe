@@ -111,6 +111,22 @@ function rawPoll(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+function rawPage(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    number: 1,
+    size: 25,
+    total: 1,
+    total_pages: 1,
+    has_next: false,
+    has_previous: false,
+    ...overrides,
+  }
+}
+
+function pagedBody(items: unknown[], overrides: Partial<Record<string, unknown>> = {}) {
+  return { items, page: rawPage({ total: items.length, ...overrides }) }
+}
+
 function jsonResponse(ok: boolean, body: unknown) {
   return { ok, text: async () => JSON.stringify(body) } as Response
 }
@@ -269,24 +285,94 @@ describe('getTopics', () => {
   })
 
   it('maps snake_case fields to the Topic type', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawTopic()])))
     const result = await getTopics('general')
-    expect(result).toEqual({
-      ok: true,
-      value: [
-        {
-          id: '1',
-          sectionSlug: 'general',
-          title: 'Hello',
-          body: 'World',
-          tags: ['rust'],
-          authorUsername: 'alice_01',
-          createdAt: '2026-09-03T00:00:00Z',
-          deleted: false,
-          deletedReason: null,
-        },
-      ],
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        sectionSlug: 'general',
+        title: 'Hello',
+        body: 'World',
+        tags: ['rust'],
+        authorUsername: 'alice_01',
+        createdAt: '2026-09-03T00:00:00Z',
+        deleted: false,
+        deletedReason: null,
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawTopic()], {
+          number: 2,
+          size: 10,
+          total: 7,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getTopics('general', 2, 10)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 10,
+      total: 7,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
     })
+  })
+
+  it('omits the query string when no page is asked for', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getTopics('general')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.not.stringContaining('?'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getTopics('general', 3, 50)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics?page=3&size=50'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('carries the page alone when no size is given', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getTopics('general', 2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics?page=2'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an empty page past the end with the real total', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([], { number: 9, total: 7, total_pages: 3, has_previous: true }),
+      ),
+    )
+    const result = await getTopics('general', 9)
+    expect(result.ok && result.value.items).toEqual([])
+    expect(result.ok && result.value.page.total).toBe(7)
+  })
+
+  it('returns the server error for an out-of-range page', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid page' }))
+    const result = await getTopics('general', 0)
+    expect(result).toEqual({ ok: false, error: 'invalid page' })
   })
 
   it('returns an error for an unknown section', async () => {
@@ -352,16 +438,33 @@ describe('getTopicsByTag', () => {
   })
 
   it('returns topics mapped to camelCase', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawTopic()])))
     const result = await getTopicsByTag('rust')
     expect(result.ok).toBe(true)
-    expect(result.ok && result.value[0]?.tags).toEqual(['rust'])
+    expect(result.ok && result.value.items[0]?.tags).toEqual(['rust'])
   })
 
   it('returns an empty list for a tag with no topics', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([], { total_pages: 0 })))
     const result = await getTopicsByTag('nothing')
-    expect(result).toEqual({ ok: true, value: [] })
+    expect(result.ok && result.value.items).toEqual([])
+    expect(result.ok && result.value.page.totalPages).toBe(0)
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getTopicsByTag('rust', 2, 5)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/tags/rust/topics?page=2&size=5'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns the server error for an out-of-range page', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid page' }))
+    const result = await getTopicsByTag('rust', 999999)
+    expect(result).toEqual({ ok: false, error: 'invalid page' })
   })
 })
 
@@ -371,35 +474,72 @@ describe('getComments', () => {
   })
 
   it('maps snake_case fields to the Comment type', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawComment()]))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawComment()])))
     const result = await getComments('t1')
-    expect(result).toEqual({
-      ok: true,
-      value: [
-        {
-          id: '1',
-          topicId: 't1',
-          parentId: null,
-          body: 'Nice topic!',
-          authorUsername: 'alice_01',
-          createdAt: '2026-09-03T00:00:00Z',
-          deleted: false,
-          deletedReason: null,
-        },
-      ],
-    })
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        topicId: 't1',
+        parentId: null,
+        body: 'Nice topic!',
+        authorUsername: 'alice_01',
+        createdAt: '2026-09-03T00:00:00Z',
+        deleted: false,
+        deletedReason: null,
+      },
+    ])
   })
 
   it('maps the ignored flag of a hidden comment', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, [rawComment({ body: '', ignored: true })]),
+      jsonResponse(true, pagedBody([rawComment({ body: '', ignored: true })])),
     )
     const result = await getComments('t1')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const [first] = result.value
+    const [first] = result.value.items
     expect(first?.ignored).toBe(true)
     expect(first?.body).toBe('')
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawComment()], {
+          number: 1,
+          size: 25,
+          total: 30,
+          total_pages: 2,
+          has_next: true,
+        }),
+      ),
+    )
+    const result = await getComments('t1')
+    expect(result.ok && result.value.page).toEqual({
+      number: 1,
+      size: 25,
+      total: 30,
+      totalPages: 2,
+      hasNext: true,
+      hasPrevious: false,
+    })
+  })
+
+  it('carries the page in the query string after the encoded id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getComments('t/1', 2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/comments?page=2'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns the server error for an out-of-range size', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid page' }))
+    const result = await getComments('t1', 1, 500)
+    expect(result).toEqual({ ok: false, error: 'invalid page' })
   })
 
   it('returns an error for an unknown topic', async () => {
@@ -631,22 +771,59 @@ describe('getNotifications', () => {
   })
 
   it('maps snake_case fields to the Notification type', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawNotification()]))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawNotification()])))
     const result = await getNotifications()
-    expect(result).toEqual({
-      ok: true,
-      value: [
-        {
-          id: '1',
-          topicId: 't1',
-          topicTitle: 'Getting Started',
-          commentId: 'c1',
-          actorUsername: 'bob_02',
-          createdAt: '2026-09-03T00:00:00Z',
-          read: false,
-        },
-      ],
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        topicId: 't1',
+        topicTitle: 'Getting Started',
+        commentId: 'c1',
+        actorUsername: 'bob_02',
+        createdAt: '2026-09-03T00:00:00Z',
+        read: false,
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawNotification()], {
+          number: 3,
+          size: 25,
+          total: 60,
+          total_pages: 3,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getNotifications(3)
+    expect(result.ok && result.value.page).toEqual({
+      number: 3,
+      size: 25,
+      total: 60,
+      totalPages: 3,
+      hasNext: false,
+      hasPrevious: true,
     })
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getNotifications(2, 25)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/notifications?page=2&size=25'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns the server error for an out-of-range page', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid page' }))
+    const result = await getNotifications(-1)
+    expect(result).toEqual({ ok: false, error: 'invalid page' })
   })
 
   it('returns an error when not authenticated', async () => {
@@ -709,24 +886,62 @@ describe('getBookmarks', () => {
   })
 
   it('maps snake_case fields to the Topic type', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawTopic()]))
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawTopic()])))
     const result = await getBookmarks()
-    expect(result).toEqual({
-      ok: true,
-      value: [
-        {
-          id: '1',
-          sectionSlug: 'general',
-          title: 'Hello',
-          body: 'World',
-          tags: ['rust'],
-          authorUsername: 'alice_01',
-          createdAt: '2026-09-03T00:00:00Z',
-          deleted: false,
-          deletedReason: null,
-        },
-      ],
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        sectionSlug: 'general',
+        title: 'Hello',
+        body: 'World',
+        tags: ['rust'],
+        authorUsername: 'alice_01',
+        createdAt: '2026-09-03T00:00:00Z',
+        deleted: false,
+        deletedReason: null,
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawTopic()], {
+          number: 2,
+          size: 25,
+          total: 51,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getBookmarks(2)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 25,
+      total: 51,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
     })
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getBookmarks(4, 100)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/bookmarks?page=4&size=100'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns the server error for an out-of-range page', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid page' }))
+    const result = await getBookmarks(0)
+    expect(result).toEqual({ ok: false, error: 'invalid page' })
   })
 
   it('returns an error when not authenticated', async () => {

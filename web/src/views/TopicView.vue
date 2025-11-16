@@ -18,6 +18,7 @@ import {
   votePoll,
   type Topic,
   type Comment,
+  type PageInfo,
   type ReactionSummary,
   type Poll,
 } from '@/api/client'
@@ -33,6 +34,8 @@ const auth = useAuthStore()
 const topic = ref<Topic | null>(null)
 const notFound = ref(false)
 const comments = ref<Comment[]>([])
+const commentPage = ref<PageInfo | null>(null)
+const currentCommentPage = ref(1)
 const newCommentDraft = ref('')
 const formError = ref('')
 const deleting = ref(false)
@@ -150,6 +153,7 @@ async function onCreatePoll() {
 async function load() {
   notFound.value = false
   topic.value = null
+  currentCommentPage.value = 1
   const result = await getTopic(props.id)
   if (result.ok) {
     topic.value = result.value
@@ -164,10 +168,24 @@ async function load() {
 }
 
 async function loadComments() {
-  const result = await getComments(props.id)
+  const result = await getComments(props.id, currentCommentPage.value)
   if (result.ok) {
-    comments.value = result.value
+    comments.value = result.value.items
+    commentPage.value = result.value.page
   }
+}
+
+async function goToCommentPage(target: number) {
+  currentCommentPage.value = target
+  await loadComments()
+}
+
+function previousComments() {
+  if (commentPage.value) void goToCommentPage(commentPage.value.number - 1)
+}
+
+function nextComments() {
+  if (commentPage.value) void goToCommentPage(commentPage.value.number + 1)
 }
 
 watch(() => props.id, load, { immediate: true })
@@ -326,6 +344,12 @@ async function onUnsave() {
       <h2>Comments</h2>
       <CommentThread :comments="comments" :parent-id="null" :topic-id="id" :on-posted="loadComments" />
       <p v-if="comments.length === 0">No comments yet.</p>
+
+      <nav v-if="commentPage && commentPage.totalPages > 1">
+        <button type="button" :disabled="!commentPage.hasPrevious" @click="previousComments">Previous</button>
+        <span>Page {{ commentPage.number }} of {{ commentPage.totalPages }}</span>
+        <button type="button" :disabled="!commentPage.hasNext" @click="nextComments">Next</button>
+      </nav>
 
       <form v-if="auth.currentUser" @submit.prevent="onPostComment">
         <label>

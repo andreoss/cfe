@@ -1,18 +1,39 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { getNotifications, markNotificationRead, type Notification } from '@/api/client'
+import {
+  getNotifications,
+  markNotificationRead,
+  type Notification,
+  type PageInfo,
+} from '@/api/client'
 
 const notifications = ref<Notification[]>([])
+const page = ref<PageInfo | null>(null)
+const currentPage = ref(1)
 const loadError = ref('')
 
 async function load() {
   loadError.value = ''
-  const result = await getNotifications()
+  const result = await getNotifications(currentPage.value)
   if (result.ok) {
-    notifications.value = result.value
+    notifications.value = result.value.items
+    page.value = result.value.page
   } else {
     loadError.value = result.error
   }
+}
+
+async function goToPage(target: number) {
+  currentPage.value = target
+  await load()
+}
+
+function previousPage() {
+  if (page.value) void goToPage(page.value.number - 1)
+}
+
+function nextPage() {
+  if (page.value) void goToPage(page.value.number + 1)
 }
 
 async function onMarkRead(notification: Notification) {
@@ -45,5 +66,11 @@ load()
       </li>
     </ul>
     <p v-if="notifications.length === 0 && !loadError">No notifications.</p>
+
+    <nav v-if="page && page.totalPages > 1">
+      <button type="button" :disabled="!page.hasPrevious" @click="previousPage">Previous</button>
+      <span>Page {{ page.number }} of {{ page.totalPages }}</span>
+      <button type="button" :disabled="!page.hasNext" @click="nextPage">Next</button>
+    </nav>
   </main>
 </template>
