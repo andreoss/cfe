@@ -4,6 +4,7 @@ mod handlers;
 mod enforcement_repository;
 mod feed;
 mod hasher;
+mod activity_repository;
 mod avatar_repository;
 mod bookmark_repository;
 mod notification_repository;
@@ -76,6 +77,7 @@ async fn main() {
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
+        .route("/api/activity", get(handlers::activity_handler))
         .route(
             "/api/sections/{slug}/feed",
             get(handlers::section_feed_handler),

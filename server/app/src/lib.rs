@@ -1,4 +1,5 @@
 mod account;
+mod activity;
 mod avatars;
 mod bookmarks;
 mod comments;
@@ -17,6 +18,7 @@ mod sign_in;
 mod test_support;
 mod topics;
 
+pub use activity::recent_activity;
 pub use account::{ChangePasswordError, change_password, deregister};
 pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
 pub use bookmarks::{
@@ -34,7 +36,8 @@ pub use polls::{
     CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,
 };
 pub use ports::{
-    AvatarRepository, BookmarkRepository, CommentRepository, EnforcementRepository,
+    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    EnforcementRepository,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,

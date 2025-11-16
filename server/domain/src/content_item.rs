@@ -1,7 +1,7 @@
 use crate::{Comment, Topic};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SearchHit {
+pub enum ContentItem {
     Topic(Topic),
     Comment(Comment),
 }
@@ -31,7 +31,7 @@ mod tests {
             Body::parse("Nice topic!").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
         );
-        assert!(matches!(SearchHit::Topic(topic), SearchHit::Topic(_)));
-        assert!(matches!(SearchHit::Comment(comment), SearchHit::Comment(_)));
+        assert!(matches!(ContentItem::Topic(topic), ContentItem::Topic(_)));
+        assert!(matches!(ContentItem::Comment(comment), ContentItem::Comment(_)));
     }
 }

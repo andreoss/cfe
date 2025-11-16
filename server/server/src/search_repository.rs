@@ -1,6 +1,6 @@
 use app::SearchRepository;
 use domain::{
-    Body, Comment, CommentId, Query, Revision, SearchHit, SectionId, TagSet, Title, Topic, TopicId,
+    Body, Comment, CommentId, Query, Revision, ContentItem, SectionId, TagSet, Title, Topic, TopicId,
     UserId,
 };
 use sqlx::{FromRow, PgPool};
@@ -56,7 +56,7 @@ fn revision(by: Option<uuid::Uuid>, at: Option<OffsetDateTime>) -> Option<Revisi
 
 #[async_trait::async_trait]
 impl SearchRepository for PgSearchRepository {
-    async fn search(&self, query: &Query) -> Vec<SearchHit> {
+    async fn search(&self, query: &Query) -> Vec<ContentItem> {
         let topic_rows = sqlx::query_as::<_, TopicRow>(
             "SELECT id, section_id, author_id, title, body, tags, created_at, edited_by, \
              edited_at, ts_rank(to_tsvector('english', title || ' ' || body), \
@@ -87,9 +87,9 @@ impl SearchRepository for PgSearchRepository {
         .await
         .expect("query search comments");
 
-        let mut ranked: Vec<(f32, SearchHit)> = Vec::new();
+        let mut ranked: Vec<(f32, ContentItem)> = Vec::new();
         for row in topic_rows {
-            let hit = SearchHit::Topic(Topic::from_parts(
+            let hit = ContentItem::Topic(Topic::from_parts(
                 TopicId::new(row.id),
                 SectionId::new(row.section_id),
                 UserId::new(row.author_id),
@@ -103,7 +103,7 @@ impl SearchRepository for PgSearchRepository {
             ranked.push((row.rank, hit));
         }
         for row in comment_rows {
-            let hit = SearchHit::Comment(Comment::from_parts(
+            let hit = ContentItem::Comment(Comment::from_parts(
                 CommentId::new(row.id),
                 TopicId::new(row.topic_id),
                 UserId::new(row.author_id),

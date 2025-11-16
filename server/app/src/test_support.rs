@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use crate::ports::{
-    AvatarRepository, BookmarkRepository, CommentRepository, EnforcementRepository,
+    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    EnforcementRepository,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
@@ -9,7 +10,7 @@ use crate::ports::{
 use domain::{
     Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query,
     Reaction, Warning,
-    ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
+    ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
 };
 use std::sync::Mutex;
@@ -292,12 +293,12 @@ impl CommentRepository for FakeCommentRepo {
 }
 
 pub struct FakeSearchRepo {
-    hits: Vec<SearchHit>,
+    hits: Vec<ContentItem>,
     last_query: Mutex<Option<String>>,
 }
 
 impl FakeSearchRepo {
-    pub fn with(hits: Vec<SearchHit>) -> Self {
+    pub fn with(hits: Vec<ContentItem>) -> Self {
         Self {
             hits,
             last_query: Mutex::new(None),
@@ -311,7 +312,7 @@ impl FakeSearchRepo {
 
 #[async_trait::async_trait]
 impl SearchRepository for FakeSearchRepo {
-    async fn search(&self, query: &Query) -> Vec<SearchHit> {
+    async fn search(&self, query: &Query) -> Vec<ContentItem> {
         *self.last_query.lock().unwrap() = Some(query.as_str().to_owned());
         self.hits.clone()
     }
@@ -668,5 +669,31 @@ impl EnforcementRepository for FakeEnforcementRepo {
             .filter(|(a, _)| *a == user_id)
             .map(|(_, b)| *b)
             .collect()
+    }
+}
+
+pub struct FakeActivityRepo {
+    items: Vec<ContentItem>,
+    last_limit: Mutex<Option<u32>>,
+}
+
+impl FakeActivityRepo {
+    pub fn with(items: Vec<ContentItem>) -> Self {
+        Self {
+            items,
+            last_limit: Mutex::new(None),
+        }
+    }
+
+    pub fn last_limit(&self) -> Option<u32> {
+        *self.last_limit.lock().unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+impl ActivityRepository for FakeActivityRepo {
+    async fn recent(&self, limit: u32) -> Vec<ContentItem> {
+        *self.last_limit.lock().unwrap() = Some(limit);
+        self.items.clone()
     }
 }

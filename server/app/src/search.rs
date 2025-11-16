@@ -1,7 +1,7 @@
 use crate::ports::SearchRepository;
-use domain::{Query, SearchHit};
+use domain::{Query, ContentItem};
 
-pub async fn search(repo: &impl SearchRepository, query: &Query) -> Vec<SearchHit> {
+pub async fn search(repo: &impl SearchRepository, query: &Query) -> Vec<ContentItem> {
     repo.search(query).await
 }
 
@@ -38,13 +38,13 @@ mod tests {
     #[tokio::test]
     async fn returns_matching_topics_and_comments_in_rank_order() {
         let repo = FakeSearchRepo::with(vec![
-            SearchHit::Topic(topic("Ports and adapters", "A note on layering")),
-            SearchHit::Comment(comment("Adapters keep the domain clean")),
+            ContentItem::Topic(topic("Ports and adapters", "A note on layering")),
+            ContentItem::Comment(comment("Adapters keep the domain clean")),
         ]);
         let hits = search(&repo, &Query::parse("adapters").unwrap()).await;
         assert_eq!(hits.len(), 2);
-        assert!(matches!(hits[0], SearchHit::Topic(_)));
-        assert!(matches!(hits[1], SearchHit::Comment(_)));
+        assert!(matches!(hits[0], ContentItem::Topic(_)));
+        assert!(matches!(hits[1], ContentItem::Comment(_)));
     }
 
     #[tokio::test]

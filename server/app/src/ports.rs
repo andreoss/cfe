@@ -2,7 +2,7 @@ use domain::{
     Avatar, Ban, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId,
     PollOptionId,
     Query, Reaction,
-    ReactionKind, ReactionTarget, SearchHit, Section, SectionId, Session, SessionId, SessionToken,
+    ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
     Slug, Topic, TopicId, User, UserId, Username, Vote, Warning,
 };
 use time::OffsetDateTime;
@@ -45,6 +45,11 @@ pub trait TopicRepository {
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
     async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
+}
+
+#[async_trait::async_trait]
+pub trait ActivityRepository {
+    async fn recent(&self, limit: u32) -> Vec<ContentItem>;
 }
 
 #[async_trait::async_trait]
@@ -102,7 +107,7 @@ pub trait NotificationRepository {
 
 #[async_trait::async_trait]
 pub trait SearchRepository {
-    async fn search(&self, query: &Query) -> Vec<SearchHit>;
+    async fn search(&self, query: &Query) -> Vec<ContentItem>;
 }
 
 #[async_trait::async_trait]

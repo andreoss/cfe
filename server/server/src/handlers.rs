@@ -1,4 +1,5 @@
 use crate::auth::{CurrentUser, OptionalUser, SESSION_COOKIE};
+use crate::activity_repository::PgActivityRepository;
 use crate::avatar_repository::PgAvatarRepository;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -17,6 +18,7 @@ use crate::topic_repository::PgTopicRepository;
 use app::{
     AvatarLookupError, BookmarkError, ChangePasswordError, CommentRepository, CreatePollError,
     EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
+    recent_activity,
     lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
     CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
     get_avatar, set_avatar,
@@ -37,7 +39,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::{
     Avatar, AvatarError, Bio, Body, CommentId, Email, Password, PollId, PollOption, PollOptionId,
     Question, Reason,
-    ReactionTarget, SearchHit, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
+    ReactionTarget, ContentItem, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
     UserId, Username,
 };
 use serde::{Deserialize, Serialize};
@@ -160,7 +162,7 @@ pub struct SearchParams {
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SearchHitResponse {
+pub enum ContentItemResponse {
     Topic(TopicResponse),
     Comment(CommentResponse),
 }
@@ -1467,10 +1469,31 @@ pub async fn tag_feed_handler(
     ))
 }
 
+pub async fn activity_handler(
+    State(state): State<AppState>,
+    OptionalUser(viewer): OptionalUser,
+) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let activity = PgActivityRepository::new(state.pool.clone());
+    let enforcement = PgEnforcementRepository::new(state.pool.clone());
+    let items = recent_activity(&activity, &enforcement, viewer.map(|u| u.id()), 30).await;
+    let mut responses = Vec::with_capacity(items.len());
+    for item in &items {
+        match item {
+            ContentItem::Topic(topic) => responses.push(ContentItemResponse::Topic(
+                topic_response(&state.pool, topic).await?.0,
+            )),
+            ContentItem::Comment(comment) => responses.push(ContentItemResponse::Comment(
+                comment_response(&state.pool, comment).await?,
+            )),
+        }
+    }
+    Ok(Json(responses))
+}
+
 pub async fn search_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<SearchParams>,
-) -> Result<Json<Vec<SearchHitResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let query = domain::Query::parse(&params.q)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid query"))?;
     let repo = PgSearchRepository::new(state.pool.clone());
@@ -1478,10 +1501,10 @@ pub async fn search_handler(
     let mut responses = Vec::with_capacity(hits.len());
     for hit in &hits {
         match hit {
-            SearchHit::Topic(topic) => responses.push(SearchHitResponse::Topic(
+            ContentItem::Topic(topic) => responses.push(ContentItemResponse::Topic(
                 topic_response(&state.pool, topic).await?.0,
             )),
-            SearchHit::Comment(comment) => responses.push(SearchHitResponse::Comment(
+            ContentItem::Comment(comment) => responses.push(ContentItemResponse::Comment(
                 comment_response(&state.pool, comment).await?,
             )),
         }
