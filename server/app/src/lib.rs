@@ -8,6 +8,7 @@ mod enforcement;
 mod moderation;
 mod notifications;
 mod polls;
+mod paging;
 mod ports;
 mod profile;
 mod reactions;
@@ -35,6 +36,7 @@ pub use notifications::{MarkReadError, count_unread, list_notifications, mark_re
 pub use polls::{
     CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,
 };
+pub use paging::Paged;
 pub use ports::{
     ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository,

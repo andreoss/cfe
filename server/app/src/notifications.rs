@@ -1,5 +1,6 @@
 use crate::ports::NotificationRepository;
-use domain::{Notification, NotificationId, UserId};
+use crate::paging::Paged;
+use domain::{Notification, NotificationId, Page, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -10,8 +11,11 @@ pub enum MarkReadError {
 pub async fn list_notifications(
     repo: &(impl NotificationRepository + ?Sized),
     recipient_id: UserId,
-) -> Vec<Notification> {
-    repo.list_by_recipient(recipient_id).await
+    page: Page,
+) -> Paged<Notification> {
+    let items = repo.list_by_recipient(recipient_id, page).await;
+    let total = repo.count_by_recipient(recipient_id).await;
+    Paged::new(items, page, total)
 }
 
 pub async fn count_unread(repo: &(impl NotificationRepository + ?Sized), recipient_id: UserId) -> u64 {
@@ -64,9 +68,9 @@ mod tests {
             UserId::new(uuid::Uuid::max()),
         ))
         .await;
-        let listed = list_notifications(&repo, recipient()).await;
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].recipient_id(), recipient());
+        let listed = list_notifications(&repo, recipient(), Page::first()).await;
+        assert_eq!(listed.items.len(), 1);
+        assert_eq!(listed.items[0].recipient_id(), recipient());
     }
 
     #[tokio::test]

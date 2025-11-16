@@ -1,5 +1,6 @@
 use crate::ports::{SectionRepository, TopicRepository};
-use domain::{Body, Section, Slug, TagSet, Title, Topic, TopicId, UserId};
+use crate::paging::Paged;
+use domain::{Body, Page, Section, Slug, TagSet, Title, Topic, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,16 +41,25 @@ pub async fn list_topics(
     sections: &(impl SectionRepository + ?Sized),
     topics: &(impl TopicRepository + ?Sized),
     slug: &Slug,
-) -> Result<Vec<Topic>, ListTopicsError> {
+    page: Page,
+) -> Result<Paged<Topic>, ListTopicsError> {
     let section = sections
         .find_by_slug(slug)
         .await
         .ok_or(ListTopicsError::SectionNotFound)?;
-    Ok(topics.list_by_section(section.id()).await)
+    let items = topics.list_by_section(section.id(), page).await;
+    let total = topics.count_by_section(section.id()).await;
+    Ok(Paged::new(items, page, total))
 }
 
-pub async fn list_topics_by_tag(topics: &(impl TopicRepository + ?Sized), tag: &Slug) -> Vec<Topic> {
-    topics.list_by_tag(tag).await
+pub async fn list_topics_by_tag(
+    topics: &(impl TopicRepository + ?Sized),
+    tag: &Slug,
+    page: Page,
+) -> Paged<Topic> {
+    let items = topics.list_by_tag(tag, page).await;
+    let total = topics.count_by_tag(tag).await;
+    Paged::new(items, page, total)
 }
 
 pub async fn get_topic(topics: &(impl TopicRepository + ?Sized), id: TopicId) -> Option<Topic> {
@@ -93,7 +103,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(topic.section_id(), section().id());
-        assert_eq!(topics.list_by_section(section().id()).await.len(), 1);
+        assert_eq!(topics.list_by_section(section().id(), Page::first()).await.len(), 1);
     }
 
     #[tokio::test]
@@ -132,18 +142,18 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics(&sections, &topics, &Slug::parse("general").unwrap())
+        let listed = list_topics(&sections, &topics, &Slug::parse("general").unwrap(), Page::first())
             .await
             .unwrap();
-        assert_eq!(listed.len(), 1);
+        assert_eq!(listed.items.len(), 1);
     }
 
     #[tokio::test]
     async fn rejects_listing_an_unknown_section() {
         let sections = FakeSectionRepo::new();
         let topics = FakeTopicRepo::new();
-        let result = list_topics(&sections, &topics, &Slug::parse("ghost").unwrap()).await;
-        assert_eq!(result, Err(ListTopicsError::SectionNotFound));
+        let result = list_topics(&sections, &topics, &Slug::parse("ghost").unwrap(), Page::first()).await;
+        assert!(matches!(result, Err(ListTopicsError::SectionNotFound)));
     }
 
     #[tokio::test]
@@ -173,9 +183,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap()).await;
-        assert_eq!(listed.len(), 1);
-        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap()).await;
-        assert_eq!(empty.len(), 0);
+        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap(), Page::first()).await;
+        assert_eq!(listed.items.len(), 1);
+        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap(), Page::first()).await;
+        assert_eq!(empty.items.len(), 0);
     }
 }

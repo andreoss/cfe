@@ -1,5 +1,6 @@
 use domain::{
-    Avatar, Ban, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Poll, PollId,
+    Avatar, Ban, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Page, Poll,
+    PollId,
     PollOptionId,
     Query, Reaction,
     ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
@@ -43,8 +44,10 @@ pub trait TopicRepository {
     async fn save(&self, topic: &Topic);
     async fn update(&self, topic: &Topic);
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;
-    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic>;
-    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic>;
+    async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic>;
+    async fn count_by_section(&self, section_id: SectionId) -> u64;
+    async fn list_by_tag(&self, tag: &Slug, page: Page) -> Vec<Topic>;
+    async fn count_by_tag(&self, tag: &Slug) -> u64;
 }
 
 #[async_trait::async_trait]
@@ -76,7 +79,8 @@ pub trait BookmarkRepository {
     async fn save(&self, bookmark: &Bookmark);
     async fn delete(&self, user_id: UserId, topic_id: TopicId);
     async fn exists(&self, user_id: UserId, topic_id: TopicId) -> bool;
-    async fn list_topics(&self, user_id: UserId) -> Vec<Topic>;
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic>;
+    async fn count_topics(&self, user_id: UserId) -> u64;
 }
 
 #[async_trait::async_trait]
@@ -101,7 +105,8 @@ pub trait NotificationRepository {
     async fn save(&self, notification: &Notification);
     async fn update(&self, notification: &Notification);
     async fn find_by_id(&self, id: NotificationId) -> Option<Notification>;
-    async fn list_by_recipient(&self, recipient_id: UserId) -> Vec<Notification>;
+    async fn list_by_recipient(&self, recipient_id: UserId, page: Page) -> Vec<Notification>;
+    async fn count_by_recipient(&self, recipient_id: UserId) -> u64;
     async fn count_unread(&self, recipient_id: UserId) -> u64;
 }
 
@@ -115,5 +120,6 @@ pub trait CommentRepository {
     async fn save(&self, comment: &Comment);
     async fn update(&self, comment: &Comment);
     async fn find_by_id(&self, id: CommentId) -> Option<Comment>;
-    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment>;
+    async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment>;
+    async fn count_roots(&self, topic_id: TopicId) -> u64;
 }

@@ -1,5 +1,6 @@
 use crate::ports::{CommentRepository, NotificationRepository, TopicRepository};
-use domain::{Body, Comment, CommentId, Notification, NotificationId, TopicId, UserId};
+use crate::paging::Paged;
+use domain::{Body, Comment, CommentId, Notification, NotificationId, Page, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -53,8 +54,14 @@ pub async fn post_comment(
     Ok(comment)
 }
 
-pub async fn list_comments(comments: &(impl CommentRepository + ?Sized), topic_id: TopicId) -> Vec<Comment> {
-    comments.list_by_topic(topic_id).await
+pub async fn list_comments(
+    comments: &(impl CommentRepository + ?Sized),
+    topic_id: TopicId,
+    page: Page,
+) -> Paged<Comment> {
+    let items = comments.list_by_topic(topic_id, page).await;
+    let total = comments.count_roots(topic_id).await;
+    Paged::new(items, page, total)
 }
 
 #[cfg(test)]
@@ -95,7 +102,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(comment.parent_id(), None);
-        assert_eq!(list_comments(&comments, topic().id()).await.len(), 1);
+        assert_eq!(list_comments(&comments, topic().id(), Page::first()).await.items.len(), 1);
     }
 
     #[tokio::test]
@@ -118,7 +125,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let raised = notifications.list_by_recipient(topic().author_id()).await;
+        let raised = notifications.list_by_recipient(topic().author_id(), Page::first()).await;
         assert_eq!(raised.len(), 1);
         assert_eq!(raised[0].actor_id(), commenter);
         assert_eq!(raised[0].topic_id(), topic().id());
@@ -160,7 +167,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let raised = notifications.list_by_recipient(parent_author).await;
+        let raised = notifications.list_by_recipient(parent_author, Page::first()).await;
         assert_eq!(raised.len(), 1);
         assert_eq!(raised[0].actor_id(), replier);
         assert_eq!(raised[0].comment_id(), CommentId::new(uuid::Uuid::max()));
@@ -187,10 +194,74 @@ mod tests {
         .unwrap();
         assert!(
             notifications
-                .list_by_recipient(topic().author_id())
+                .list_by_recipient(topic().author_id(), Page::first())
                 .await
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn paging_keeps_a_thread_whole() {
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let mut roots = Vec::new();
+        for n in 1u128..=3 {
+            let root = post_comment(
+                &topics,
+                &comments,
+                &notifications,
+                CommentId::new(uuid::Uuid::from_u128(n)),
+                NotificationId::new(uuid::Uuid::new_v4()),
+                topic().id(),
+                UserId::new(uuid::Uuid::nil()),
+                None,
+                Body::parse(&format!("Root {n}")).unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .unwrap();
+            post_comment(
+                &topics,
+                &comments,
+                &notifications,
+                CommentId::new(uuid::Uuid::from_u128(n + 100)),
+                NotificationId::new(uuid::Uuid::new_v4()),
+                topic().id(),
+                UserId::new(uuid::Uuid::nil()),
+                Some(root.id()),
+                Body::parse(&format!("Reply to {n}")).unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .unwrap();
+            roots.push(root.id());
+        }
+
+        let first = list_comments(&comments, topic().id(), Page::parse(1, 2).unwrap()).await;
+        assert_eq!(first.total, 3);
+        assert_eq!(first.total_pages(), 2);
+        assert!(first.has_next());
+        assert_eq!(first.items.len(), 4);
+        assert!(first.items.iter().any(|c| c.id() == roots[0]));
+        assert!(
+            first
+                .items
+                .iter()
+                .any(|c| c.parent_id() == Some(roots[0]))
+        );
+        assert!(!first.items.iter().any(|c| c.id() == roots[2]));
+
+        let second = list_comments(&comments, topic().id(), Page::parse(2, 2).unwrap()).await;
+        assert_eq!(second.items.len(), 2);
+        assert!(second.items.iter().any(|c| c.id() == roots[2]));
+        assert!(
+            second
+                .items
+                .iter()
+                .any(|c| c.parent_id() == Some(roots[2]))
+        );
+        assert!(!second.has_next());
     }
 
     #[tokio::test]
@@ -248,7 +319,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(reply.parent_id(), Some(root.id()));
-        assert_eq!(list_comments(&comments, topic().id()).await.len(), 2);
+        assert_eq!(list_comments(&comments, topic().id(), Page::first()).await.items.len(), 2);
     }
 
     #[tokio::test]

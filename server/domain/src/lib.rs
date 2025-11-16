@@ -8,6 +8,7 @@ mod enforcement;
 mod moderation;
 mod password;
 mod notification;
+mod page;
 mod poll;
 mod query;
 mod reaction;
@@ -33,6 +34,7 @@ pub use enforcement::{Ban, Warning, WarningId};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};
 pub use notification::{Notification, NotificationId};
+pub use page::{DEFAULT_SIZE as PAGE_DEFAULT_SIZE, MAX_SIZE as PAGE_MAX_SIZE, Page, PageError};
 pub use poll::{
     Poll, PollError, PollId, PollOption, PollOptionId, Question, QuestionError, Vote,
 };

@@ -8,7 +8,8 @@ use crate::ports::{
     UserRepository,
 };
 use domain::{
-    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Query,
+    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, Notification, NotificationId, Page,
+    Query,
     Reaction, Warning,
     ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
@@ -219,24 +220,46 @@ impl TopicRepository for FakeTopicRepo {
             .cloned()
     }
 
-    async fn list_by_section(&self, section_id: SectionId) -> Vec<Topic> {
+    async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
         self.topics
             .lock()
             .unwrap()
             .iter()
             .filter(|t| t.section_id() == section_id)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
             .cloned()
             .collect()
     }
 
-    async fn list_by_tag(&self, tag: &Slug) -> Vec<Topic> {
+    async fn count_by_section(&self, section_id: SectionId) -> u64 {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.section_id() == section_id)
+            .count() as u64
+    }
+
+    async fn list_by_tag(&self, tag: &Slug, page: Page) -> Vec<Topic> {
         self.topics
             .lock()
             .unwrap()
             .iter()
             .filter(|t| t.tags().contains(tag))
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
             .cloned()
             .collect()
+    }
+
+    async fn count_by_tag(&self, tag: &Slug) -> u64 {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.tags().contains(tag))
+            .count() as u64
     }
 
     async fn update(&self, topic: &Topic) {
@@ -274,14 +297,34 @@ impl CommentRepository for FakeCommentRepo {
             .cloned()
     }
 
-    async fn list_by_topic(&self, topic_id: TopicId) -> Vec<Comment> {
+    async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
+        let all = self.comments.lock().unwrap();
+        let roots: Vec<CommentId> = all
+            .iter()
+            .filter(|c| c.topic_id() == topic_id && c.parent_id().is_none())
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .map(|c| c.id())
+            .collect();
+        all.iter()
+            .filter(|c| {
+                c.topic_id() == topic_id
+                    && match c.parent_id() {
+                        None => roots.contains(&c.id()),
+                        Some(parent) => roots.contains(&parent),
+                    }
+            })
+            .cloned()
+            .collect()
+    }
+
+    async fn count_roots(&self, topic_id: TopicId) -> u64 {
         self.comments
             .lock()
             .unwrap()
             .iter()
-            .filter(|c| c.topic_id() == topic_id)
-            .cloned()
-            .collect()
+            .filter(|c| c.topic_id() == topic_id && c.parent_id().is_none())
+            .count() as u64
     }
 
     async fn update(&self, comment: &Comment) {
@@ -352,14 +395,25 @@ impl NotificationRepository for FakeNotificationRepo {
             .cloned()
     }
 
-    async fn list_by_recipient(&self, recipient_id: UserId) -> Vec<Notification> {
+    async fn list_by_recipient(&self, recipient_id: UserId, page: Page) -> Vec<Notification> {
         self.notifications
             .lock()
             .unwrap()
             .iter()
             .filter(|n| n.recipient_id() == recipient_id)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
             .cloned()
             .collect()
+    }
+
+    async fn count_by_recipient(&self, recipient_id: UserId) -> u64 {
+        self.notifications
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.recipient_id() == recipient_id)
+            .count() as u64
     }
 
     async fn count_unread(&self, recipient_id: UserId) -> u64 {
@@ -414,13 +468,24 @@ impl BookmarkRepository for FakeBookmarkRepo {
             .any(|b| b.user_id() == user_id && b.topic_id() == topic_id)
     }
 
-    async fn list_topics(&self, user_id: UserId) -> Vec<Topic> {
+    async fn count_topics(&self, user_id: UserId) -> u64 {
+        self.bookmarks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|b| b.user_id() == user_id)
+            .count() as u64
+    }
+
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic> {
         let known = self.topics.lock().unwrap();
         self.bookmarks
             .lock()
             .unwrap()
             .iter()
             .filter(|b| b.user_id() == user_id)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
             .map(|b| {
                 known
                     .iter()

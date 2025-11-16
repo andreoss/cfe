@@ -1,5 +1,6 @@
 use crate::ports::{BookmarkRepository, TopicRepository};
-use domain::{Bookmark, Topic, TopicId, UserId};
+use crate::paging::Paged;
+use domain::{Bookmark, Page, Topic, TopicId, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -35,8 +36,11 @@ pub async fn remove_bookmark(
 pub async fn list_bookmarked_topics(
     bookmarks: &(impl BookmarkRepository + ?Sized),
     user_id: UserId,
-) -> Vec<Topic> {
-    bookmarks.list_topics(user_id).await
+    page: Page,
+) -> Paged<Topic> {
+    let items = bookmarks.list_topics(user_id, page).await;
+    let total = bookmarks.count_topics(user_id).await;
+    Paged::new(items, page, total)
 }
 
 pub async fn is_bookmarked(
@@ -84,9 +88,9 @@ mod tests {
         .await
         .unwrap();
         assert!(is_bookmarked(&bookmarks, user_id(), topic().id()).await);
-        let listed = list_bookmarked_topics(&bookmarks, user_id()).await;
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].id(), topic().id());
+        let listed = list_bookmarked_topics(&bookmarks, user_id(), Page::first()).await;
+        assert_eq!(listed.items.len(), 1);
+        assert_eq!(listed.items[0].id(), topic().id());
     }
 
     #[tokio::test]
@@ -104,7 +108,7 @@ mod tests {
             .await
             .unwrap();
         }
-        assert_eq!(list_bookmarked_topics(&bookmarks, user_id()).await.len(), 1);
+        assert_eq!(list_bookmarked_topics(&bookmarks, user_id(), Page::first()).await.items.len(), 1);
     }
 
     #[tokio::test]
@@ -137,7 +141,7 @@ mod tests {
         .unwrap();
         remove_bookmark(&bookmarks, user_id(), topic().id()).await;
         assert!(!is_bookmarked(&bookmarks, user_id(), topic().id()).await);
-        assert!(list_bookmarked_topics(&bookmarks, user_id()).await.is_empty());
+        assert!(list_bookmarked_topics(&bookmarks, user_id(), Page::first()).await.items.is_empty());
     }
 
     #[tokio::test]
@@ -155,6 +159,6 @@ mod tests {
         .unwrap();
         let other = UserId::new(uuid::Uuid::max());
         assert!(!is_bookmarked(&bookmarks, other, topic().id()).await);
-        assert!(list_bookmarked_topics(&bookmarks, other).await.is_empty());
+        assert!(list_bookmarked_topics(&bookmarks, other, Page::first()).await.items.is_empty());
     }
 }
