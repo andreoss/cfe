@@ -52,6 +52,11 @@ import {
   ignoreUser,
   stopIgnoring,
   promoteUser,
+  requestPasswordReset,
+  confirmPasswordReset,
+  requestEmailChange,
+  confirmEmailChange,
+  activateAccount,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -1828,5 +1833,171 @@ describe('promoteUser', () => {
     )
     const result = await promoteUser('alice_01')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('requestPasswordReset', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the address and succeeds on an empty body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await requestPasswordReset('alice@example.com')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/password-reset'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'alice@example.com' }),
+      }),
+    )
+  })
+
+  it('succeeds the same way for an unknown address', async () => {
+    vi.mocked(fetch).mockResolvedValue(emptyResponse(true))
+    const result = await requestPasswordReset('nobody@example.com')
+    expect(result).toEqual({ ok: true, value: undefined })
+  })
+
+  it('returns the server error for an invalid address', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid email' }))
+    const result = await requestPasswordReset('nope')
+    expect(result).toEqual({ ok: false, error: 'invalid email' })
+  })
+})
+
+describe('confirmPasswordReset', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends the code and the new password under snake_case keys', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await confirmPasswordReset('a'.repeat(64), 'batterystaple')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/password-reset/confirm'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: 'a'.repeat(64), new_password: 'batterystaple' }),
+      }),
+    )
+  })
+
+  it('returns the server error for an expired code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'invalid or expired code' }),
+    )
+    const result = await confirmPasswordReset('b'.repeat(64), 'batterystaple')
+    expect(result).toEqual({ ok: false, error: 'invalid or expired code' })
+  })
+
+  it('returns the server error for a short new password', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'invalid new password' }),
+    )
+    const result = await confirmPasswordReset('a'.repeat(64), 'short')
+    expect(result).toEqual({ ok: false, error: 'invalid new password' })
+  })
+})
+
+describe('requestEmailChange', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the new address and succeeds on an empty body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await requestEmailChange('alice@example.org')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/email'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'alice@example.org' }),
+      }),
+    )
+  })
+
+  it('returns the server error for an address already taken', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'address taken' }))
+    const result = await requestEmailChange('bob@example.org')
+    expect(result).toEqual({ ok: false, error: 'address taken' })
+  })
+
+  it('returns the server error for an invalid address', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid email' }))
+    const result = await requestEmailChange('nope')
+    expect(result).toEqual({ ok: false, error: 'invalid email' })
+  })
+})
+
+describe('confirmEmailChange', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the code and returns the user', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    const result = await confirmEmailChange('c'.repeat(64))
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', role: 'member' },
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/me/email/confirm'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: 'c'.repeat(64) }),
+      }),
+    )
+  })
+
+  it('returns the server error for a bad code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'invalid or expired code' }),
+    )
+    const result = await confirmEmailChange('d'.repeat(64))
+    expect(result).toEqual({ ok: false, error: 'invalid or expired code' })
+  })
+})
+
+describe('activateAccount', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the code and returns the user', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'member' }),
+    )
+    const result = await activateAccount('e'.repeat(64))
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', role: 'member' },
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/activate'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: 'e'.repeat(64) }),
+      }),
+    )
+  })
+
+  it('returns the server error for a bad code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'invalid or expired code' }),
+    )
+    const result = await activateAccount('f'.repeat(64))
+    expect(result).toEqual({ ok: false, error: 'invalid or expired code' })
   })
 })

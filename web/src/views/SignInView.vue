@@ -35,5 +35,6 @@ async function onSubmit() {
       <p v-if="formError" role="alert">{{ formError }}</p>
       <button type="submit">Sign in</button>
     </form>
+    <RouterLink to="/forgot-password">Forgot password?</RouterLink>
   </main>
 </template>

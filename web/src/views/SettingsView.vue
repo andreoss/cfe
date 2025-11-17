@@ -7,6 +7,8 @@ import {
   deregister,
   getMyWarnings,
   acknowledgeWarnings,
+  requestEmailChange,
+  confirmEmailChange,
   type Warning,
 } from '@/api/client'
 
@@ -21,6 +23,12 @@ const confirming = ref(false)
 const deregisterError = ref('')
 const warnings = ref<Warning[]>([])
 const warningsError = ref('')
+const newEmail = ref('')
+const emailSent = ref(false)
+const emailError = ref('')
+const emailCode = ref('')
+const emailUpdated = ref(false)
+const emailCodeError = ref('')
 
 async function loadWarnings() {
   warningsError.value = ''
@@ -42,6 +50,30 @@ async function onAcknowledge() {
     return
   }
   await loadWarnings()
+}
+
+async function onChangeEmail() {
+  emailError.value = ''
+  emailSent.value = false
+  const result = await requestEmailChange(newEmail.value)
+  if (!result.ok) {
+    emailError.value = result.error
+    return
+  }
+  newEmail.value = ''
+  emailSent.value = true
+}
+
+async function onConfirmEmail() {
+  emailCodeError.value = ''
+  emailUpdated.value = false
+  const result = await confirmEmailChange(emailCode.value)
+  if (!result.ok) {
+    emailCodeError.value = result.error
+    return
+  }
+  emailCode.value = ''
+  emailUpdated.value = true
 }
 
 async function onChangePassword() {
@@ -85,6 +117,24 @@ async function onDeregister() {
         </template>
         <p v-if="warningsError" role="alert">{{ warningsError }}</p>
       </section>
+      <form @submit.prevent="onChangeEmail">
+        <label>
+          New address
+          <input v-model="newEmail" name="new-email" type="email" />
+        </label>
+        <p v-if="emailSent" role="status">Confirmation sent to the new address.</p>
+        <p v-if="emailError" role="alert">{{ emailError }}</p>
+        <button type="submit">Change address</button>
+      </form>
+      <form @submit.prevent="onConfirmEmail">
+        <label>
+          Confirmation code
+          <input v-model="emailCode" name="email-code" type="text" />
+        </label>
+        <p v-if="emailUpdated" role="status">Address updated.</p>
+        <p v-if="emailCodeError" role="alert">{{ emailCodeError }}</p>
+        <button type="submit">Confirm address change</button>
+      </form>
       <form @submit.prevent="onChangePassword">
         <label>
           Current password

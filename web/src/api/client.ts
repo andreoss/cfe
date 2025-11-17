@@ -161,6 +161,29 @@ export async function deregister(): Promise<ApiResult<User>> {
   return request<User>('/api/me/deregister', { method: 'POST' })
 }
 
+export function requestPasswordReset(email: string): Promise<ApiResult<void>> {
+  return post<void>('/api/password-reset', { email })
+}
+
+export function confirmPasswordReset(
+  code: string,
+  newPassword: string,
+): Promise<ApiResult<void>> {
+  return post<void>('/api/password-reset/confirm', { code, new_password: newPassword })
+}
+
+export function requestEmailChange(email: string): Promise<ApiResult<void>> {
+  return post<void>('/api/me/email', { email })
+}
+
+export function confirmEmailChange(code: string): Promise<ApiResult<User>> {
+  return post<User>('/api/me/email/confirm', { code })
+}
+
+export function activateAccount(code: string): Promise<ApiResult<User>> {
+  return post<User>('/api/activate', { code })
+}
+
 export function getProfile(username: string): Promise<ApiResult<Profile>> {
   return request<Profile>(`/api/users/${encodeURIComponent(username)}`, { method: 'GET' })
 }

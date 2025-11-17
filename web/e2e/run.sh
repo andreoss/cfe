@@ -9,6 +9,8 @@ API_PORT="${API_PORT:-58080}"
 WEB_PORT="${WEB_PORT:-58081}"
 CONTAINER="tcbs-e2e-$VENDOR"
 DB_FILE="${DB_FILE:-/tmp/tcbs-e2e-duck.db}"
+MAIL_LOG="${MAIL_LOG:-/tmp/tcbs-e2e-mail.log}"
+rm -f "$MAIL_LOG"
 
 cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
@@ -54,6 +56,8 @@ VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
 (cd "$ROOT/server" && \
   DATABASE_URL="$DATABASE_URL" \
   BIND_ADDR="127.0.0.1:$API_PORT" \
+  MAIL_TRANSPORT=log \
+  MAIL_LOG="$MAIL_LOG" \
   cargo run -p server) &
 SERVER_PID=$!
 
@@ -65,6 +69,7 @@ until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
 export API_URL="http://127.0.0.1:$API_PORT"
+export MAIL_LOG
 export E2E_ROOT_USER="e2e_root"
 export E2E_ROOT_PASS="correcthorse"
 curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: application/json' \
@@ -93,3 +98,4 @@ node e2e/account.mjs
 node e2e/enforcement.mjs
 node e2e/activity.mjs
 node e2e/paging.mjs
+node e2e/recovery.mjs
