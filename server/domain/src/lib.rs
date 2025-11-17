@@ -16,6 +16,7 @@ mod reaction;
 mod revision;
 mod role;
 mod content_item;
+mod score;
 mod section;
 mod session;
 mod slug;
@@ -45,6 +46,9 @@ pub use reaction::{Reaction, ReactionKind, ReactionKindError, ReactionTarget};
 pub use revision::Revision;
 pub use role::Role;
 pub use content_item::ContentItem;
+pub use score::{
+    DELETION_PENALTY, MAX as SCORE_MAX, MIN as SCORE_MIN, Score, for_deletion, for_reaction,
+};
 pub use section::{Section, SectionId};
 pub use session::{Session, SessionId, SessionToken, SessionTokenError};
 pub use slug::{Slug, SlugError};
