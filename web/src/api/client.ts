@@ -1,5 +1,5 @@
 export type User = { id: string; username: string; role: string }
-export type Profile = { id: string; username: string; bio: string | null }
+export type Profile = { id: string; username: string; bio: string | null; score: number }
 export type Section = { slug: string; title: string }
 export type Topic = {
   id: string

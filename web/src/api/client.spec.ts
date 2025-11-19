@@ -223,15 +223,36 @@ describe('getProfile', () => {
 
   it('returns the profile on success', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'hello' }),
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'hello', score: 7 }),
     )
     const result = await getProfile('alice_01')
-    expect(result).toEqual({ ok: true, value: { id: '1', username: 'alice_01', bio: 'hello' } })
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', bio: 'hello', score: 7 },
+    })
+  })
+
+  it('carries a negative score', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: null, score: -10 }),
+    )
+    const result = await getProfile('alice_01')
+    expect(result.ok && result.value.score).toBe(-10)
+  })
+
+  it('carries a zero score', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: null, score: 0 }),
+    )
+    const result = await getProfile('alice_01')
+    expect(result.ok && result.value.score).toBe(0)
   })
 
   it('url-encodes the username', async () => {
     const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'a b', bio: null }))
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'a b', bio: null, score: 0 }),
+    )
     await getProfile('a b')
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/users/a%20b'),
@@ -253,15 +274,20 @@ describe('updateBio', () => {
 
   it('returns the updated profile on success', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'new bio' }),
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'new bio', score: 3 }),
     )
     const result = await updateBio('new bio')
-    expect(result).toEqual({ ok: true, value: { id: '1', username: 'alice_01', bio: 'new bio' } })
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', bio: 'new bio', score: 3 },
+    })
   })
 
   it('sends null for an empty bio', async () => {
     const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01', bio: null }))
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: null, score: 0 }),
+    )
     await updateBio('')
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),

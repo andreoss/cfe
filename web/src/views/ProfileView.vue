@@ -202,6 +202,7 @@ async function onPromote() {
     <template v-else-if="profile">
       <UserAvatar :username="username" :size="96" :version="avatarVersion" />
       <h1>{{ profile.username }}</h1>
+      <p data-test="score">Score: {{ profile.score }}</p>
       <template v-if="isOwnProfile">
         <input name="avatar-file" type="file" accept="image/*" @change="onFilePick" />
         <button type="button" @click="onUploadAvatar">Upload avatar</button>

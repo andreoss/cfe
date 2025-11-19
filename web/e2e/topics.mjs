@@ -53,7 +53,11 @@ async function run() {
     await driver.wait(until.elementLocated(By.linkText(topicTitle)), 5000)
 
     await driver.findElement(By.linkText(topicTitle)).click()
-    await driver.wait(until.elementLocated(By.css('h1')), 5000)
+    await driver.wait(
+      async () => (await driver.findElement(By.css('body')).getText()).includes(topicBody),
+      10000,
+      'the topic page should load the topic it links to',
+    )
     bodyText = await driver.findElement(By.css('body')).getText()
     assert(bodyText.includes(topicTitle), 'topic page should show the title')
     assert(bodyText.includes(topicBody), 'topic page should show the body')

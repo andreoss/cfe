@@ -99,3 +99,4 @@ node e2e/enforcement.mjs
 node e2e/activity.mjs
 node e2e/paging.mjs
 node e2e/recovery.mjs
+node e2e/reputation.mjs
