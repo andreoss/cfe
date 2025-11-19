@@ -1,38 +1,35 @@
 use crate::auth::{CurrentUser, OptionalUser, SESSION_COOKIE};
 use crate::backend::Backend;
-use std::sync::Arc;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use crate::hasher::Argon2Hasher;
 use app::{
-    AvatarLookupError, BookmarkError, ChangePasswordError, CreatePollError,
-    EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
-    recent_activity,
-    lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
-    CreateTopicError, DeleteError, EditError, change_password, clear_avatar, deregister,
-    get_avatar, set_avatar,
-    ChangeEmailError, ListTopicsError, MarkReadError, PollResults, VoteError, cast_vote,
-    confirm_activation, confirm_email_change, create_poll, poll_results, request_activation,
-    request_email_change, request_password_reset, reset_password,
-    PostCommentError, RegisterError, SignInError, UpdateBioError, add_bookmark, count_unread, create_session,
-    create_topic, delete_comment, delete_topic, edit_comment, edit_topic, get_topic,
-    ReactionSummary, clear_reaction, is_bookmarked, list_bookmarked_topics, list_comments,
-    list_notifications, list_sections, list_topics, list_topics_by_tag, mark_read, post_comment,
-    react, register, remove_bookmark, search, sign_in, sign_out as end_session,
-    summarize_reactions, update_bio,
+    AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError, CreatePollError,
+    CreateTopicError, DeleteError, EditError, EnforcementError, ListTopicsError, MarkReadError,
+    PollResults, PostCommentError, ReactionSummary, RegisterError, SignInError, UpdateBioError,
+    VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user, cast_vote,
+    change_password, clear_avatar, clear_reaction, confirm_activation, confirm_email_change,
+    count_unread, create_poll, create_session, create_topic, delete_comment, delete_topic,
+    deregister, edit_comment, edit_topic, get_avatar, get_topic, ignore_user, ignored_by,
+    is_bookmarked, lift_ban, list_bookmarked_topics, list_comments, list_notifications,
+    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, poll_results,
+    post_comment, promote_to_moderator, react, recent_activity, register, remove_bookmark,
+    request_activation, request_email_change, request_password_reset, reset_password, search,
+    set_avatar, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions, update_bio,
+    warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
-    Avatar, AvatarError, Bio, Body, CommentId, Email, Password, PollId, PollOption, PollOptionId,
-    Page, Question, Reason,
-    ReactionTarget, ContentItem, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
-    UserId, Username,
+    Avatar, AvatarError, Bio, Body, CommentId, ContentItem, Email, Page, Password, PollId,
+    PollOption, PollOptionId, Question, ReactionTarget, Reason, Session, SessionId, SessionToken,
+    Slug, TagSet, Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
@@ -625,8 +622,10 @@ pub async fn delete_topic_handler(
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
     let topics = state.backend.topics();
+    let users = state.backend.users();
     let topic = delete_topic(
         &*topics,
+        &*users,
         &current,
         TopicId::new(id),
         reason,
@@ -649,8 +648,10 @@ pub async fn delete_comment_handler(
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
     let comments = state.backend.comments();
+    let users = state.backend.users();
     let comment = delete_comment(
         &*comments,
+        &*users,
         &current,
         CommentId::new(id),
         reason,
@@ -898,7 +899,7 @@ async fn reaction_target(
     state: &AppState,
     topic_id: uuid::Uuid,
     comment_id: Option<uuid::Uuid>,
-) -> Result<ReactionTarget, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(ReactionTarget, domain::UserId), (StatusCode, Json<ErrorResponse>)> {
     match comment_id {
         Some(id) => {
             let comments = state.backend.comments();
@@ -912,7 +913,7 @@ async fn reaction_target(
                     "comment in different topic",
                 ));
             }
-            Ok(ReactionTarget::Comment(comment.id()))
+            Ok((ReactionTarget::Comment(comment.id()), comment.author_id()))
         }
         None => {
             let topics = state.backend.topics();
@@ -920,7 +921,7 @@ async fn reaction_target(
                 .find_by_id(TopicId::new(topic_id))
                 .await
                 .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
-            Ok(ReactionTarget::Topic(topic.id()))
+            Ok((ReactionTarget::Topic(topic.id()), topic.author_id()))
         }
     }
 }
@@ -940,7 +941,7 @@ pub async fn topic_reactions_handler(
     Path(id): Path<uuid::Uuid>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state, id, None).await?;
+    let (target, _) = reaction_target(&state, id, None).await?;
     Ok(reactions_for(&state, viewer.as_ref(), target).await)
 }
 
@@ -952,9 +953,19 @@ pub async fn react_to_topic_handler(
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let kind = domain::ReactionKind::parse(&body.kind)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
-    let target = reaction_target(&state, id, None).await?;
+    let (target, author_id) = reaction_target(&state, id, None).await?;
     let repo = state.backend.reactions();
-    react(&*repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    let users = state.backend.users();
+    react(
+        &*repo,
+        &*users,
+        author_id,
+        current.id(),
+        target,
+        kind,
+        OffsetDateTime::now_utc(),
+    )
+    .await;
     Ok(reactions_for(&state, Some(&current), target).await)
 }
 
@@ -963,9 +974,10 @@ pub async fn clear_topic_reaction_handler(
     Path(id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state, id, None).await?;
+    let (target, author_id) = reaction_target(&state, id, None).await?;
     let repo = state.backend.reactions();
-    clear_reaction(&*repo, current.id(), target).await;
+    let users = state.backend.users();
+    clear_reaction(&*repo, &*users, author_id, current.id(), target).await;
     Ok(reactions_for(&state, Some(&current), target).await)
 }
 
@@ -974,7 +986,7 @@ pub async fn comment_reactions_handler(
     Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
     OptionalUser(viewer): OptionalUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    let (target, _) = reaction_target(&state, topic_id, Some(id)).await?;
     Ok(reactions_for(&state, viewer.as_ref(), target).await)
 }
 
@@ -986,9 +998,19 @@ pub async fn react_to_comment_handler(
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let kind = domain::ReactionKind::parse(&body.kind)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "unknown reaction"))?;
-    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    let (target, author_id) = reaction_target(&state, topic_id, Some(id)).await?;
     let repo = state.backend.reactions();
-    react(&*repo, current.id(), target, kind, OffsetDateTime::now_utc()).await;
+    let users = state.backend.users();
+    react(
+        &*repo,
+        &*users,
+        author_id,
+        current.id(),
+        target,
+        kind,
+        OffsetDateTime::now_utc(),
+    )
+    .await;
     Ok(reactions_for(&state, Some(&current), target).await)
 }
 
@@ -997,9 +1019,10 @@ pub async fn clear_comment_reaction_handler(
     Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
     CurrentUser(current): CurrentUser,
 ) -> Result<Json<ReactionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let target = reaction_target(&state, topic_id, Some(id)).await?;
+    let (target, author_id) = reaction_target(&state, topic_id, Some(id)).await?;
     let repo = state.backend.reactions();
-    clear_reaction(&*repo, current.id(), target).await;
+    let users = state.backend.users();
+    clear_reaction(&*repo, &*users, author_id, current.id(), target).await;
     Ok(reactions_for(&state, Some(&current), target).await)
 }
 
@@ -1168,13 +1191,9 @@ pub struct WarningResponse {
 
 fn enforcement_error(e: EnforcementError) -> (StatusCode, Json<ErrorResponse>) {
     match e {
-        EnforcementError::NotAuthorized => {
-            error(StatusCode::FORBIDDEN, "moderator role required")
-        }
+        EnforcementError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
         EnforcementError::UserNotFound => error(StatusCode::NOT_FOUND, "user not found"),
-        EnforcementError::NotYourself => {
-            error(StatusCode::UNPROCESSABLE_ENTITY, "not yourself")
-        }
+        EnforcementError::NotYourself => error(StatusCode::UNPROCESSABLE_ENTITY, "not yourself"),
     }
 }
 
@@ -1295,7 +1314,10 @@ pub async fn my_warnings_handler(
             .map(|w| WarningResponse {
                 id: w.id().as_uuid().to_string(),
                 reason: w.reason().as_str().to_owned(),
-                created_at: w.created_at().format(&Rfc3339).unwrap_or_else(|_| String::new()),
+                created_at: w
+                    .created_at()
+                    .format(&Rfc3339)
+                    .unwrap_or_else(|_| String::new()),
                 acknowledged: w.is_acknowledged(),
             })
             .collect(),
@@ -1349,7 +1371,9 @@ pub async fn ignore_state_handler(
     let target = find_user_id(&state, &username).await?;
     let enforcement = state.backend.enforcement();
     Ok(Json(IgnoreStateResponse {
-        ignored: ignored_by(&*enforcement, current.id()).await.contains(&target),
+        ignored: ignored_by(&*enforcement, current.id())
+            .await
+            .contains(&target),
     }))
 }
 

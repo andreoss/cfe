@@ -1,21 +1,21 @@
+mod activity_repository;
 mod auth;
+mod avatar_repository;
+mod backend;
+mod bookmark_repository;
 mod comment_repository;
-mod handlers;
+mod duckdb;
 mod enforcement_repository;
 mod feed;
+mod handlers;
 mod hasher;
 mod mail;
 mod mail_token_repository;
-mod activity_repository;
-mod backend;
-mod duckdb;
 mod mysql;
-mod postgres;
-mod avatar_repository;
-mod bookmark_repository;
 mod notification_repository;
-mod reaction_repository;
 mod poll_repository;
+mod postgres;
+mod reaction_repository;
 mod repository;
 mod search_repository;
 mod section_repository;
@@ -25,13 +25,13 @@ mod topic_repository;
 use axum::Router;
 use axum::http::{Method, header};
 use axum::routing::{get, patch, post};
+use backend::{Backend, Vendor};
 use handlers::{
     AppState, create_topic_handler, delete_comment_handler, delete_topic_handler,
     get_profile_handler, get_topic_handler, list_comments_handler, list_sections_handler,
     list_topics_by_tag_handler, list_topics_handler, post_comment_handler, register_handler,
     sign_in_handler, sign_out_handler, update_bio_handler,
 };
-use backend::{Backend, Vendor};
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -105,7 +105,10 @@ async fn main() {
             "/api/me/email",
             post(handlers::request_email_change_handler),
         )
-        .route("/api/me/email/confirm", post(handlers::confirm_email_handler))
+        .route(
+            "/api/me/email/confirm",
+            post(handlers::confirm_email_handler),
+        )
         .route("/api/activate", post(handlers::confirm_activation_handler))
         .route("/api/me/warnings", get(handlers::my_warnings_handler))
         .route(
@@ -116,7 +119,10 @@ async fn main() {
             "/api/users/{username}/ban",
             post(handlers::ban_user_handler).delete(handlers::lift_ban_handler),
         )
-        .route("/api/users/{username}/warn", post(handlers::warn_user_handler))
+        .route(
+            "/api/users/{username}/warn",
+            post(handlers::warn_user_handler),
+        )
         .route(
             "/api/users/{username}/promote",
             post(handlers::promote_handler),

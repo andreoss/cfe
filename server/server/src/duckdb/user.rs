@@ -1,7 +1,7 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{opt_text, opt_time, read_opt_time, read_uuid, uuid_value};
 use app::UserRepository;
-use domain::{Bio, Email, Role, User, UserId, Username};
+use domain::{Bio, Email, Role, Score, User, UserId, Username};
 use duckdb::Row;
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -17,7 +17,7 @@ impl DuckUserRepository {
 }
 
 const USER_COLUMNS: &str =
-    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at";
+    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score";
 
 struct UserRow {
     id: uuid::Uuid,
@@ -28,6 +28,7 @@ struct UserRow {
     role: String,
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
+    score: i32,
 }
 
 fn user_row(row: &Row) -> UserRow {
@@ -40,6 +41,7 @@ fn user_row(row: &Row) -> UserRow {
         role: row.get(5).expect("read role"),
         deregistered_at: read_opt_time(row, 6),
         confirmed_at: read_opt_time(row, 7),
+        score: row.get(8).expect("read score"),
     }
 }
 
@@ -71,6 +73,7 @@ fn to_user(row: UserRow) -> User {
         role_from_str(&row.role),
         row.deregistered_at,
         row.confirmed_at,
+        Score::of(row.score),
     )
 }
 
@@ -129,11 +132,12 @@ impl UserRepository for DuckUserRepository {
             Value::Text(user.email().as_str().to_owned()),
             Value::Text(user.password_hash().to_owned()),
             Value::Text(role_to_str(user.role()).to_owned()),
+            Value::Int(user.score().value()),
         ];
         self.db
             .execute(
-                "INSERT INTO users (id, username, email, password_hash, role) \
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO users (id, username, email, password_hash, role, score) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;
@@ -148,12 +152,13 @@ impl UserRepository for DuckUserRepository {
             Value::Text(role_to_str(user.role()).to_owned()),
             opt_time(user.deregistered_at()),
             opt_time(user.confirmed_at()),
+            Value::Int(user.score().value()),
             uuid_value(user.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE users SET username = ?, email = ?, password_hash = ?, bio = ?, \
-                 role = ?, deregistered_at = ?, confirmed_at = ? WHERE id = ?",
+                 role = ?, deregistered_at = ?, confirmed_at = ?, score = ? WHERE id = ?",
                 params,
             )
             .await;

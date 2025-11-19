@@ -7,6 +7,7 @@ CREATE TABLE users (
     role VARCHAR(16) NOT NULL DEFAULT 'user',
     deregistered_at TIMESTAMP(6) NULL,
     confirmed_at TIMESTAMP(6) NULL,
+    score INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 );
 

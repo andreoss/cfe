@@ -136,15 +136,13 @@ impl EnforcementRepository for PgEnforcementRepository {
     }
 
     async fn list_ignored(&self, user_id: UserId) -> Vec<UserId> {
-        sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT ignored_id FROM ignores WHERE user_id = $1",
-        )
-        .bind(user_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .expect("query ignores")
-        .into_iter()
-        .map(UserId::new)
-        .collect()
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT ignored_id FROM ignores WHERE user_id = $1")
+            .bind(user_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await
+            .expect("query ignores")
+            .into_iter()
+            .map(UserId::new)
+            .collect()
     }
 }

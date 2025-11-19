@@ -1,4 +1,4 @@
-use crate::{Bio, Email, Role, Username};
+use crate::{Bio, Email, Role, Score, Username};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,6 +24,7 @@ pub struct User {
     role: Role,
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
+    score: Score,
 }
 
 impl User {
@@ -37,6 +38,7 @@ impl User {
             role: Role::User,
             deregistered_at: None,
             confirmed_at: None,
+            score: Score::initial(),
         }
     }
 
@@ -49,6 +51,7 @@ impl User {
         role: Role,
         deregistered_at: Option<OffsetDateTime>,
         confirmed_at: Option<OffsetDateTime>,
+        score: Score,
     ) -> Self {
         Self {
             id,
@@ -59,6 +62,18 @@ impl User {
             role,
             deregistered_at,
             confirmed_at,
+            score,
+        }
+    }
+
+    pub fn score(&self) -> Score {
+        self.score
+    }
+
+    pub fn with_score(&self, score: Score) -> Self {
+        Self {
+            score,
+            ..self.clone()
         }
     }
 

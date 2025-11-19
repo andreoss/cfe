@@ -190,8 +190,11 @@ async fn replace_tags(db: &Db, topic: &Topic) {
         .map(|t| t.as_str().to_owned())
         .collect();
     db.call(move |conn| {
-        conn.execute("DELETE FROM topic_tags WHERE topic_id = ?", [uuid_value(id)])
-            .expect("clear tags");
+        conn.execute(
+            "DELETE FROM topic_tags WHERE topic_id = ?",
+            [uuid_value(id)],
+        )
+        .expect("clear tags");
         for (position, tag) in tags.iter().enumerate() {
             conn.execute(
                 "INSERT INTO topic_tags (topic_id, tag, position) VALUES (?, ?, ?)",

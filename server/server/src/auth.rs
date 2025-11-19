@@ -1,6 +1,6 @@
 use crate::handlers::{AppState, ErrorResponse};
-use axum::Json;
 use app::{active_ban, current_user as resolve_current_user};
+use axum::Json;
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
 use axum::http::request::Parts;

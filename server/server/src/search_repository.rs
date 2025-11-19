@@ -1,7 +1,7 @@
 use app::SearchRepository;
 use domain::{
-    Body, Comment, CommentId, Query, Revision, ContentItem, SectionId, TagSet, Title, Topic, TopicId,
-    UserId,
+    Body, Comment, CommentId, ContentItem, Query, Revision, SectionId, TagSet, Title, Topic,
+    TopicId, UserId,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;

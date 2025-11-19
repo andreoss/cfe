@@ -131,7 +131,12 @@ mod tests {
 
     #[test]
     fn a_feed_title_is_escaped_too() {
-        let xml = render("Tag & <b>", "http://host/feed?q=1&x=2", "2026-01-01T00:00:00Z", &[]);
+        let xml = render(
+            "Tag & <b>",
+            "http://host/feed?q=1&x=2",
+            "2026-01-01T00:00:00Z",
+            &[],
+        );
         assert!(xml.contains("<title>Tag &amp; &lt;b&gt;</title>"));
         assert!(xml.contains("href=\"http://host/feed?q=1&amp;x=2\""));
     }

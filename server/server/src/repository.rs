@@ -1,5 +1,5 @@
 use app::UserRepository;
-use domain::{Bio, Email, Role, User, UserId, Username};
+use domain::{Bio, Email, Role, Score, User, UserId, Username};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -23,6 +23,7 @@ struct Row {
     role: String,
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
+    score: i32,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -53,6 +54,7 @@ fn to_user(row: Row) -> User {
         role_from_str(&row.role),
         row.deregistered_at,
         row.confirmed_at,
+        Score::of(row.score),
     )
 }
 
@@ -60,7 +62,7 @@ fn to_user(row: Row) -> User {
 impl UserRepository for PgUserRepository {
     async fn find_by_username(&self, username: &Username) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at FROM users WHERE username = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE username = $1",
         )
         .bind(username.as_str())
         .fetch_optional(&self.pool)
@@ -71,7 +73,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_email(&self, email: &Email) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at FROM users WHERE email = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE email = $1",
         )
         .bind(email.as_str())
         .fetch_optional(&self.pool)
@@ -82,7 +84,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_id(&self, id: UserId) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at FROM users WHERE id = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE id = $1",
         )
         .bind(id.as_uuid())
         .fetch_optional(&self.pool)
@@ -93,14 +95,15 @@ impl UserRepository for PgUserRepository {
 
     async fn save(&self, user: &User) {
         sqlx::query(
-            "INSERT INTO users (id, username, email, password_hash, role) \
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO users (id, username, email, password_hash, role, score) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(user.id().as_uuid())
         .bind(user.username().as_str())
         .bind(user.email().as_str())
         .bind(user.password_hash())
         .bind(role_to_str(user.role()))
+        .bind(user.score().value())
         .execute(&self.pool)
         .await
         .expect("insert user");
@@ -109,7 +112,7 @@ impl UserRepository for PgUserRepository {
     async fn update(&self, user: &User) {
         sqlx::query(
             "UPDATE users SET username = $2, email = $3, password_hash = $4, bio = $5, \
-             role = $6, deregistered_at = $7, confirmed_at = $8 WHERE id = $1",
+             role = $6, deregistered_at = $7, confirmed_at = $8, score = $9 WHERE id = $1",
         )
         .bind(user.id().as_uuid())
         .bind(user.username().as_str())
@@ -119,6 +122,7 @@ impl UserRepository for PgUserRepository {
         .bind(role_to_str(user.role()))
         .bind(user.deregistered_at())
         .bind(user.confirmed_at())
+        .bind(user.score().value())
         .execute(&self.pool)
         .await
         .expect("update user");

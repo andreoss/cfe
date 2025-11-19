@@ -76,9 +76,8 @@ impl Mailer for SmtpMailer {
         let subject = message.subject.clone();
         let body = message.body.clone();
         tokio::task::spawn_blocking(move || {
-            let payload = format!(
-                "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n{body}\r\n"
-            );
+            let payload =
+                format!("From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n{body}\r\n");
             if let Err(error) = deliver(&url, &from, &to, &payload) {
                 eprintln!("mail delivery failed: {error}");
             }

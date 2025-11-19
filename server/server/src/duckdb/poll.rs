@@ -82,11 +82,16 @@ impl PollRepository for DuckPollRepository {
             .db
             .call(move |conn| {
                 let mut stmt = conn
-                    .prepare("SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY position")
+                    .prepare(
+                        "SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY position",
+                    )
                     .expect("prepare poll options");
                 let mapped = stmt
                     .query_map([uuid_value(poll_id)], |row| {
-                        Ok((read_uuid(row, 0), row.get::<_, String>(1).expect("read text")))
+                        Ok((
+                            read_uuid(row, 0),
+                            row.get::<_, String>(1).expect("read text"),
+                        ))
                     })
                     .expect("query poll options");
                 mapped

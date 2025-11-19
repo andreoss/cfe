@@ -277,6 +277,7 @@ mod tests {
         let sent = env.mailer.sent();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].to, "owner@example.com");
+        assert_eq!(sent[0].subject, "Reset your password");
         assert!(sent[0].body.contains("secret-code"));
     }
 
@@ -336,7 +337,7 @@ mod tests {
     async fn a_code_cannot_be_used_twice() {
         let env = env();
         ask_for_reset(&env, &address()).await;
-        let mut attempt = || {
+        let attempt = || {
             reset_password(
                 &env.users,
                 &env.tokens,

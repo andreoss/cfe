@@ -1,4 +1,5 @@
-use crate::ports::{CommentRepository, TopicRepository};
+use crate::ports::{CommentRepository, TopicRepository, UserRepository};
+use crate::reputation;
 use domain::{Comment, CommentId, Deletion, Reason, Topic, TopicId, User};
 use time::OffsetDateTime;
 
@@ -10,6 +11,7 @@ pub enum DeleteError {
 
 pub async fn delete_topic(
     topics: &(impl TopicRepository + ?Sized),
+    users: &(impl UserRepository + ?Sized),
     moderator: &User,
     topic_id: TopicId,
     reason: Reason,
@@ -25,11 +27,13 @@ pub async fn delete_topic(
     let deletion = Deletion::new(moderator.id(), reason, now);
     let deleted = topic.with_deletion(deletion);
     topics.update(&deleted).await;
+    reputation::apply_deletion(users, deleted.author_id()).await;
     Ok(deleted)
 }
 
 pub async fn delete_comment(
     comments: &(impl CommentRepository + ?Sized),
+    users: &(impl UserRepository + ?Sized),
     moderator: &User,
     comment_id: CommentId,
     reason: Reason,
@@ -45,13 +49,14 @@ pub async fn delete_comment(
     let deletion = Deletion::new(moderator.id(), reason, now);
     let deleted = comment.with_deletion(deletion);
     comments.update(&deleted).await;
+    reputation::apply_deletion(users, deleted.author_id()).await;
     Ok(deleted)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+    use crate::test_support::{FakeCommentRepo, FakeTopicRepo, FakeUserRepo};
     use domain::{Body, Email, SectionId, TagSet, Title, UserId, Username};
 
     fn moderator() -> User {
@@ -101,6 +106,7 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let deleted = delete_topic(
             &topics,
+            &FakeUserRepo::new(),
             &moderator(),
             topic().id(),
             Reason::parse("spam").unwrap(),
@@ -116,6 +122,7 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let result = delete_topic(
             &topics,
+            &FakeUserRepo::new(),
             &plain_user(),
             topic().id(),
             Reason::parse("spam").unwrap(),
@@ -130,6 +137,7 @@ mod tests {
         let topics = FakeTopicRepo::new();
         let result = delete_topic(
             &topics,
+            &FakeUserRepo::new(),
             &moderator(),
             topic().id(),
             Reason::parse("spam").unwrap(),
@@ -145,6 +153,7 @@ mod tests {
         comments.save(&comment()).await;
         let deleted = delete_comment(
             &comments,
+            &FakeUserRepo::new(),
             &moderator(),
             comment().id(),
             Reason::parse("off-topic").unwrap(),
@@ -156,11 +165,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deleting_a_topic_costs_its_author() {
+        let topics = FakeTopicRepo::with(topic());
+        let users = FakeUserRepo::new();
+        let author = User::register(
+            topic().author_id(),
+            Username::parse("author_01").unwrap(),
+            Email::parse("author@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        users.save(&author).await;
+        delete_topic(
+            &topics,
+            &users,
+            &moderator(),
+            topic().id(),
+            Reason::parse("spam").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let after = users.find_by_id(author.id()).await.unwrap();
+        assert_eq!(after.score().value(), domain::for_deletion());
+    }
+
+    #[tokio::test]
+    async fn a_refused_deletion_leaves_the_score_alone() {
+        let topics = FakeTopicRepo::with(topic());
+        let users = FakeUserRepo::new();
+        let author = User::register(
+            topic().author_id(),
+            Username::parse("author_02").unwrap(),
+            Email::parse("author2@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        users.save(&author).await;
+        let result = delete_topic(
+            &topics,
+            &users,
+            &plain_user(),
+            topic().id(),
+            Reason::parse("spam").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await;
+        assert_eq!(result, Err(DeleteError::NotAuthorized));
+        let after = users.find_by_id(author.id()).await.unwrap();
+        assert_eq!(after.score().value(), 0);
+    }
+
+    #[tokio::test]
     async fn plain_user_cannot_delete_a_comment() {
         let comments = FakeCommentRepo::new();
         comments.save(&comment()).await;
         let result = delete_comment(
             &comments,
+            &FakeUserRepo::new(),
             &plain_user(),
             comment().id(),
             Reason::parse("off-topic").unwrap(),

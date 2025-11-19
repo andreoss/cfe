@@ -75,7 +75,10 @@ pub async fn tags_for(pool: &MySqlPool, topic_id: uuid::Uuid) -> TagSet {
         .fetch_all(pool)
         .await
         .expect("query topic tags");
-    let tags: Vec<String> = rows.into_iter().map(|r| r.get::<String, _>("tag")).collect();
+    let tags: Vec<String> = rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("tag"))
+        .collect();
     TagSet::parse(&tags).expect("stored tags are valid")
 }
 

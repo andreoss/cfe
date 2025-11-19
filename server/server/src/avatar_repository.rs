@@ -38,13 +38,12 @@ impl AvatarRepository for PgAvatarRepository {
     }
 
     async fn find_by_user(&self, user_id: UserId) -> Option<Avatar> {
-        let row = sqlx::query_as::<_, Row>(
-            "SELECT bytes, content_type FROM avatars WHERE user_id = $1",
-        )
-        .bind(user_id.as_uuid())
-        .fetch_optional(&self.pool)
-        .await
-        .expect("query avatar")?;
+        let row =
+            sqlx::query_as::<_, Row>("SELECT bytes, content_type FROM avatars WHERE user_id = $1")
+                .bind(user_id.as_uuid())
+                .fetch_optional(&self.pool)
+                .await
+                .expect("query avatar")?;
         let format = ImageFormat::parse(&row.content_type)?;
         Some(Avatar::from_parts(row.bytes, format))
     }

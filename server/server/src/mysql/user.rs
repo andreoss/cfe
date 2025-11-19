@@ -1,5 +1,5 @@
 use app::UserRepository;
-use domain::{Bio, Email, Role, User, UserId, Username};
+use domain::{Bio, Email, Role, Score, User, UserId, Username};
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
 
@@ -14,7 +14,7 @@ impl MySqlUserRepository {
 }
 
 const USER_COLUMNS: &str =
-    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at";
+    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score";
 
 #[derive(FromRow)]
 struct UserRow {
@@ -26,6 +26,7 @@ struct UserRow {
     role: String,
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
+    score: i32,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -56,6 +57,7 @@ fn to_user(row: UserRow) -> User {
         role_from_str(&row.role),
         row.deregistered_at,
         row.confirmed_at,
+        Score::of(row.score),
     )
 }
 
@@ -92,14 +94,15 @@ impl UserRepository for MySqlUserRepository {
 
     async fn save(&self, user: &User) {
         sqlx::query(
-            "INSERT INTO users (id, username, email, password_hash, role) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, username, email, password_hash, role, score) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(user.id().as_uuid())
         .bind(user.username().as_str())
         .bind(user.email().as_str())
         .bind(user.password_hash())
         .bind(role_to_str(user.role()))
+        .bind(user.score().value())
         .execute(&self.pool)
         .await
         .expect("insert user");
@@ -108,7 +111,7 @@ impl UserRepository for MySqlUserRepository {
     async fn update(&self, user: &User) {
         sqlx::query(
             "UPDATE users SET username = ?, email = ?, password_hash = ?, bio = ?, \
-             role = ?, deregistered_at = ?, confirmed_at = ? WHERE id = ?",
+             role = ?, deregistered_at = ?, confirmed_at = ?, score = ? WHERE id = ?",
         )
         .bind(user.username().as_str())
         .bind(user.email().as_str())
@@ -117,6 +120,7 @@ impl UserRepository for MySqlUserRepository {
         .bind(role_to_str(user.role()))
         .bind(user.deregistered_at())
         .bind(user.confirmed_at())
+        .bind(user.score().value())
         .bind(user.id().as_uuid())
         .execute(&self.pool)
         .await

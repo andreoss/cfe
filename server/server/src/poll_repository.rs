@@ -36,14 +36,16 @@ struct CountRow {
 #[async_trait::async_trait]
 impl PollRepository for PgPollRepository {
     async fn save(&self, poll: &Poll) {
-        sqlx::query("INSERT INTO polls (id, topic_id, question, created_at) VALUES ($1, $2, $3, $4)")
-            .bind(poll.id().as_uuid())
-            .bind(poll.topic_id().as_uuid())
-            .bind(poll.question().as_str())
-            .bind(poll.created_at())
-            .execute(&self.pool)
-            .await
-            .expect("insert poll");
+        sqlx::query(
+            "INSERT INTO polls (id, topic_id, question, created_at) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(poll.id().as_uuid())
+        .bind(poll.topic_id().as_uuid())
+        .bind(poll.question().as_str())
+        .bind(poll.created_at())
+        .execute(&self.pool)
+        .await
+        .expect("insert poll");
         for (position, option) in poll.options().iter().enumerate() {
             sqlx::query(
                 "INSERT INTO poll_options (id, poll_id, text, position) VALUES ($1, $2, $3, $4)",
