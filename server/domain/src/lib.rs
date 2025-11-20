@@ -1,4 +1,5 @@
 mod avatar;
+mod address;
 mod bio;
 mod bookmark;
 mod body;
@@ -28,12 +29,13 @@ mod user;
 mod username;
 
 pub use avatar::{Avatar, AvatarError, ImageFormat, MAX_BYTES as AVATAR_MAX_BYTES};
+pub use address::{Address, AddressError};
 pub use bio::{Bio, BioError};
 pub use bookmark::Bookmark;
 pub use body::{Body, BodyError};
 pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
-pub use enforcement::{Ban, Warning, WarningId};
+pub use enforcement::{AddressBlock, Ban, Warning, WarningId};
 pub use mail_token::{MailToken, MailTokenId, TokenPurpose, TokenPurposeError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};

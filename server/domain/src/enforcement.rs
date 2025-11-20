@@ -1,4 +1,4 @@
-use crate::{Reason, UserId};
+use crate::{Address, Reason, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +34,60 @@ impl Ban {
 
     pub fn banned_at(&self) -> OffsetDateTime {
         self.banned_at
+    }
+
+    pub fn until(&self) -> Option<OffsetDateTime> {
+        self.until
+    }
+
+    pub fn is_active_at(&self, now: OffsetDateTime) -> bool {
+        match self.until {
+            Some(until) => now < until,
+            None => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressBlock {
+    addr: Address,
+    moderator_id: UserId,
+    reason: Reason,
+    blocked_at: OffsetDateTime,
+    until: Option<OffsetDateTime>,
+}
+
+impl AddressBlock {
+    pub fn new(
+        addr: Address,
+        moderator_id: UserId,
+        reason: Reason,
+        blocked_at: OffsetDateTime,
+        until: Option<OffsetDateTime>,
+    ) -> Self {
+        Self {
+            addr,
+            moderator_id,
+            reason,
+            blocked_at,
+            until,
+        }
+    }
+
+    pub fn addr(&self) -> &Address {
+        &self.addr
+    }
+
+    pub fn moderator_id(&self) -> UserId {
+        self.moderator_id
+    }
+
+    pub fn reason(&self) -> &Reason {
+        &self.reason
+    }
+
+    pub fn blocked_at(&self) -> OffsetDateTime {
+        self.blocked_at
     }
 
     pub fn until(&self) -> Option<OffsetDateTime> {
@@ -201,5 +255,39 @@ mod tests {
         assert_eq!(seen.user_id(), warning.user_id());
         assert_eq!(seen.created_at(), warning.created_at());
         assert!(seen.is_acknowledged());
+    }
+
+    #[test]
+    fn an_address_block_without_an_end_is_always_active() {
+        let block = AddressBlock::new(
+            crate::Address::parse("203.0.113.9").unwrap(),
+            moderator(),
+            reason(),
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        assert!(block.is_active_at(OffsetDateTime::UNIX_EPOCH));
+        assert!(block.is_active_at(OffsetDateTime::UNIX_EPOCH + Duration::days(3650)));
+        assert_eq!(block.addr().as_str(), "203.0.113.9");
+        assert_eq!(block.until(), None);
+        assert_eq!(block.reason(), &reason());
+        assert_eq!(block.moderator_id(), moderator());
+    }
+
+    #[test]
+    fn a_timed_address_block_lapses_at_its_end() {
+        let start = OffsetDateTime::UNIX_EPOCH;
+        let until = start + Duration::days(30);
+        let block = AddressBlock::new(
+            crate::Address::parse("198.51.100.1/24").unwrap(),
+            moderator(),
+            reason(),
+            start,
+            Some(until),
+        );
+        assert!(block.is_active_at(start));
+        assert!(block.is_active_at(until - Duration::seconds(1)));
+        assert!(!block.is_active_at(until));
+        assert!(!block.is_active_at(until + Duration::days(1)));
     }
 }
