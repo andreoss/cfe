@@ -21,9 +21,9 @@ CREATE TABLE sessions (
 CREATE TABLE sections (
     id UUID PRIMARY KEY,
     slug VARCHAR NOT NULL UNIQUE,
-    title VARCHAR NOT NULL
+    title VARCHAR NOT NULL,
+    topics_score INTEGER NOT NULL DEFAULT -9999
 );
-
 CREATE TABLE topics (
     id UUID PRIMARY KEY,
     section_id UUID NOT NULL,
@@ -31,6 +31,7 @@ CREATE TABLE topics (
     title VARCHAR NOT NULL,
     body VARCHAR NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
+    postscore INTEGER NOT NULL DEFAULT -9999,
     deleted_reason VARCHAR,
     deleted_by UUID,
     deleted_at TIMESTAMPTZ,

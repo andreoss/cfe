@@ -1,6 +1,8 @@
-use crate::ports::{CommentRepository, NotificationRepository, TopicRepository};
+use crate::ports::{
+    CommentRepository, NotificationRepository, SectionRepository, TopicRepository,
+};
 use crate::paging::Paged;
-use domain::{Body, Comment, CommentId, Notification, NotificationId, Page, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Notification, NotificationId, Page, TopicId, User};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -8,16 +10,18 @@ pub enum PostCommentError {
     TopicNotFound,
     ParentNotFound,
     ParentInDifferentTopic,
+    Restricted,
 }
 
 pub async fn post_comment(
+    sections: &(impl SectionRepository + ?Sized),
     topics: &(impl TopicRepository + ?Sized),
     comments: &(impl CommentRepository + ?Sized),
     notifications: &(impl NotificationRepository + ?Sized),
     id: CommentId,
     notification_id: NotificationId,
     topic_id: TopicId,
-    author_id: UserId,
+    author: &User,
     parent_id: Option<CommentId>,
     body: Body,
     now: OffsetDateTime,
@@ -26,6 +30,20 @@ pub async fn post_comment(
         .find_by_id(topic_id)
         .await
         .ok_or(PostCommentError::TopicNotFound)?;
+    let comment_count = comments.count_roots(topic_id).await;
+    let section = sections
+        .find_by_id(topic.section_id())
+        .await
+        .ok_or(PostCommentError::TopicNotFound)?;
+    let restriction = domain::comment_restriction(
+        topic.postscore(),
+        section.topics_score(),
+        comment_count,
+    );
+    let by_author = topic.author_id() == author.id();
+    if !restriction.allows(author.score(), author.role().is_moderator(), by_author) {
+        return Err(PostCommentError::Restricted);
+    }
     let mut recipient_id = topic.author_id();
     if let Some(parent_id) = parent_id {
         let parent = comments
@@ -37,14 +55,14 @@ pub async fn post_comment(
         }
         recipient_id = parent.author_id();
     }
-    let comment = Comment::new(id, topic_id, author_id, parent_id, body, now);
+    let comment = Comment::new(id, topic_id, author.id(), parent_id, body, now);
     comments.save(&comment).await;
-    if recipient_id != author_id {
+    if recipient_id != author.id() {
         notifications
             .save(&Notification::new(
                 notification_id,
                 recipient_id,
-                author_id,
+                author.id(),
                 topic_id,
                 id,
                 now,
@@ -67,8 +85,8 @@ pub async fn list_comments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeCommentRepo, FakeNotificationRepo, FakeTopicRepo};
-    use domain::{SectionId, TagSet, Title, Topic};
+    use crate::test_support::{FakeCommentRepo, FakeNotificationRepo, FakeSectionRepo, FakeTopicRepo};
+    use domain::{Email, Section, SectionId, Slug, TagSet, Title, Topic, User, UserId, Username};
 
     fn topic() -> Topic {
         Topic::new(
@@ -82,19 +100,42 @@ mod tests {
         )
     }
 
+    fn section_for(topic: &Topic) -> Section {
+        Section::new(
+            topic.section_id(),
+            Slug::parse("general").unwrap(),
+            Title::parse("General").unwrap(),
+        )
+    }
+
+    fn repo_with_section(topic: &Topic) -> FakeSectionRepo {
+        FakeSectionRepo::with(section_for(topic))
+    }
+
+    fn plain_user(id: uuid::Uuid) -> User {
+        User::register(
+            UserId::new(id),
+            Username::parse("commenter_01").unwrap(),
+            Email::parse("commenter@example.com").unwrap(),
+            "hash".to_owned(),
+        )
+    }
+
     #[tokio::test]
     async fn posts_a_top_level_comment() {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let comment = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             None,
             Body::parse("Nice topic!").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -110,15 +151,17 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let commenter = UserId::new(uuid::Uuid::max());
         post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            commenter,
+            &plain_user(uuid::Uuid::max()),
             None,
             Body::parse("Nice topic!").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -137,16 +180,18 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let parent_author = UserId::new(uuid::Uuid::from_u128(7));
         let replier = UserId::new(uuid::Uuid::max());
         let root = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            parent_author,
+            &plain_user(uuid::Uuid::from_u128(7)),
             None,
             Body::parse("Root").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -154,13 +199,14 @@ mod tests {
         .await
         .unwrap();
         post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::max()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            replier,
+            &plain_user(uuid::Uuid::max()),
             Some(root.id()),
             Body::parse("Reply").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -178,14 +224,16 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            topic().author_id(),
+            &plain_user(uuid::Uuid::nil()),
             None,
             Body::parse("Replying to myself").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -208,13 +256,14 @@ mod tests {
         let mut roots = Vec::new();
         for n in 1u128..=3 {
             let root = post_comment(
+                &repo_with_section(&topic()),
                 &topics,
                 &comments,
                 &notifications,
                 CommentId::new(uuid::Uuid::from_u128(n)),
                 NotificationId::new(uuid::Uuid::new_v4()),
                 topic().id(),
-                UserId::new(uuid::Uuid::nil()),
+                &plain_user(uuid::Uuid::nil()),
                 None,
                 Body::parse(&format!("Root {n}")).unwrap(),
                 OffsetDateTime::UNIX_EPOCH,
@@ -222,13 +271,14 @@ mod tests {
             .await
             .unwrap();
             post_comment(
+                &repo_with_section(&topic()),
                 &topics,
                 &comments,
                 &notifications,
                 CommentId::new(uuid::Uuid::from_u128(n + 100)),
                 NotificationId::new(uuid::Uuid::new_v4()),
                 topic().id(),
-                UserId::new(uuid::Uuid::nil()),
+                &plain_user(uuid::Uuid::nil()),
                 Some(root.id()),
                 Body::parse(&format!("Reply to {n}")).unwrap(),
                 OffsetDateTime::UNIX_EPOCH,
@@ -269,14 +319,16 @@ mod tests {
         let topics = FakeTopicRepo::new();
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = FakeSectionRepo::new();
         let result = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             None,
             Body::parse("Nice topic!").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -290,14 +342,16 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let root = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             None,
             Body::parse("Root").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -305,13 +359,14 @@ mod tests {
         .await
         .unwrap();
         let reply = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::max()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Some(root.id()),
             Body::parse("Reply").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -327,14 +382,16 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let result = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Some(CommentId::new(uuid::Uuid::max())),
             Body::parse("Reply").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
@@ -348,6 +405,7 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
         let other_topic_id = TopicId::new(uuid::Uuid::max());
         let foreign_parent = Comment::new(
             CommentId::new(uuid::Uuid::max()),
@@ -359,18 +417,153 @@ mod tests {
         );
         comments.save(&foreign_parent).await;
         let result = post_comment(
+            &sections,
             &topics,
             &comments,
             &notifications,
             CommentId::new(uuid::Uuid::nil()),
             NotificationId::new(uuid::Uuid::new_v4()),
             topic().id(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Some(foreign_parent.id()),
             Body::parse("Reply").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
         assert_eq!(result, Err(PostCommentError::ParentInDifferentTopic));
+    }
+
+    #[tokio::test]
+    async fn a_low_score_user_is_refused_in_a_restricted_topic() {
+        let topics = FakeTopicRepo::with(
+            topic().with_postscore(domain::PostScore::NoComments),
+        );
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
+        let result = post_comment(
+            &sections,
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            &plain_user(uuid::Uuid::max()),
+            None,
+            Body::parse("Nice topic!").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await;
+        assert_eq!(result, Err(PostCommentError::Restricted));
+    }
+
+    #[tokio::test]
+    async fn a_moderator_can_comment_when_only_moderators_may() {
+        let topics = FakeTopicRepo::with(
+            topic().with_postscore(domain::PostScore::ModeratorsOnly),
+        );
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let comment = post_comment(
+            &sections,
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            &moderator,
+            None,
+            Body::parse("Still allowed").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(comment.author_id(), moderator.id());
+    }
+
+    #[tokio::test]
+    async fn even_a_moderator_is_refused_when_comments_are_closed() {
+        let topics = FakeTopicRepo::with(
+            topic().with_postscore(domain::PostScore::NoComments),
+        );
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let result = post_comment(
+            &sections,
+            &topics,
+            &comments,
+            &notifications,
+            CommentId::new(uuid::Uuid::nil()),
+            NotificationId::new(uuid::Uuid::new_v4()),
+            topic().id(),
+            &moderator,
+            None,
+            Body::parse("Still refused").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await;
+        assert_eq!(result, Err(PostCommentError::Restricted));
+    }
+
+    #[tokio::test]
+    async fn a_thread_that_grew_past_a_thousand_requires_score() {
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        let notifications = FakeNotificationRepo::new();
+        let sections = repo_with_section(&topic());
+        for n in 1u128..=1001 {
+            comments
+                .save(&Comment::new(
+                    CommentId::new(uuid::Uuid::from_u128(n)),
+                    topic().id(),
+                    UserId::new(uuid::Uuid::nil()),
+                    None,
+                    Body::parse("Seed").unwrap(),
+                    OffsetDateTime::UNIX_EPOCH,
+                ))
+                .await;
+        }
+        let low = plain_user(uuid::Uuid::max());
+        assert_eq!(
+            post_comment(
+                &sections,
+                &topics,
+                &comments,
+                &notifications,
+                CommentId::new(uuid::Uuid::from_u128(99999)),
+                NotificationId::new(uuid::Uuid::new_v4()),
+                topic().id(),
+                &low,
+                None,
+                Body::parse("Late to the party").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await,
+            Err(PostCommentError::Restricted)
+        );
+        let qualified = low.with_score(domain::Score::of(domain::FLOOR_50));
+        assert!(
+            post_comment(
+                &sections,
+                &topics,
+                &comments,
+                &notifications,
+                CommentId::new(uuid::Uuid::from_u128(100000)),
+                NotificationId::new(uuid::Uuid::new_v4()),
+                topic().id(),
+                &qualified,
+                None,
+                Body::parse("Earned the right").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .is_ok()
+        );
     }
 }

@@ -1,7 +1,7 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{read_uuid, uuid_value};
 use app::SectionRepository;
-use domain::{Section, SectionId, Slug, Title};
+use domain::{PostScore, Section, SectionId, Slug, Title};
 use duckdb::Row;
 use duckdb::types::Value;
 
@@ -15,12 +15,13 @@ impl DuckSectionRepository {
     }
 }
 
-const SECTION_COLUMNS: &str = "id, slug, title";
+const SECTION_COLUMNS: &str = "id, slug, title, topics_score";
 
 struct SectionRow {
     id: uuid::Uuid,
     slug: String,
     title: String,
+    topics_score: i32,
 }
 
 fn section_row(row: &Row) -> SectionRow {
@@ -28,14 +29,16 @@ fn section_row(row: &Row) -> SectionRow {
         id: read_uuid(row, 0),
         slug: row.get(1).expect("read slug"),
         title: row.get(2).expect("read title"),
+        topics_score: row.get(3).expect("read topics_score"),
     }
 }
 
 fn to_section(row: SectionRow) -> Section {
-    Section::new(
+    Section::from_parts(
         SectionId::new(row.id),
         Slug::parse(&row.slug).expect("stored slug is valid"),
         Title::parse(&row.title).expect("stored title is valid"),
+        PostScore::from_db(row.topics_score),
     )
 }
 

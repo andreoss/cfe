@@ -16,6 +16,7 @@ import {
   getPoll,
   createPoll,
   votePoll,
+  setPostscore,
   type Topic,
   type Comment,
   type PageInfo,
@@ -41,6 +42,22 @@ const formError = ref('')
 const deleting = ref(false)
 const deleteReason = ref('')
 const deleteError = ref('')
+const postscoreOpen = ref(false)
+const postscoreError = ref('')
+
+const postscoreOptions = [
+  { value: -9999, label: 'Anyone' },
+  { value: -50, label: 'Registered only' },
+  { value: 50, label: 'Score 50' },
+  { value: 100, label: 'Score 100' },
+  { value: 200, label: 'Score 200' },
+  { value: 300, label: 'Score 300' },
+  { value: 400, label: 'Score 400' },
+  { value: 500, label: 'Score 500' },
+  { value: 9999, label: 'Moderators and author' },
+  { value: 10000, label: 'Moderators only' },
+  { value: 10001, label: 'No comments' },
+]
 const editing = ref(false)
 const editTitle = ref('')
 const editBody = ref('')
@@ -212,6 +229,17 @@ async function onDelete() {
   deleting.value = false
 }
 
+async function onSetPostscore(value: number) {
+  postscoreError.value = ''
+  const result = await setPostscore(props.id, value)
+  if (!result.ok) {
+    postscoreError.value = result.error
+    return
+  }
+  topic.value = result.value
+  postscoreOpen.value = false
+}
+
 async function onEdit() {
   editError.value = ''
   const tags = editTags.value
@@ -333,6 +361,13 @@ async function onUnsave() {
           <button type="submit">Confirm delete</button>
           <button type="button" @click="deleting = false">Cancel</button>
         </form>
+        <details v-if="!deleting && !editing">
+          <summary>Comment restrictions</summary>
+          <select :value="topic.postscore" name="postscore" @change="onSetPostscore(Number(($event.target as HTMLSelectElement).value))">
+            <option v-for="opt in postscoreOptions" :key="opt.value" :value="opt.value" :selected="topic.postscore === opt.value">{{ opt.label }}</option>
+          </select>
+          <p v-if="postscoreError" role="alert">{{ postscoreError }}</p>
+        </details>
       </template>
 
       <template v-if="auth.currentUser && !topic.deleted">

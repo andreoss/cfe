@@ -1,6 +1,7 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
+    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title, Topic,
+    TopicId, UserId,
 };
 use sqlx::{FromRow, MySqlPool, Row};
 use time::OffsetDateTime;
@@ -15,7 +16,7 @@ impl MySqlTopicRepository {
     }
 }
 
-pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, \
+pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
     deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 #[derive(FromRow)]
@@ -26,6 +27,7 @@ pub struct TopicRow {
     pub title: String,
     pub body: String,
     pub created_at: OffsetDateTime,
+    pub postscore: i32,
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
@@ -67,6 +69,7 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         deleted,
         edited,
     )
+    .with_postscore(PostScore::from_db(row.postscore))
 }
 
 pub async fn tags_for(pool: &MySqlPool, topic_id: uuid::Uuid) -> TagSet {
@@ -129,11 +132,12 @@ impl TopicRepository for MySqlTopicRepository {
 
     async fn update(&self, topic: &Topic) {
         sqlx::query(
-            "UPDATE topics SET title = ?, body = ?, deleted_reason = ?, deleted_by = ?, \
-             deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
+            "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
+             deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
         )
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
+        .bind(topic.postscore().to_db())
         .bind(topic.deletion().map(|d| d.reason().as_str()))
         .bind(topic.deletion().map(|d| d.moderator_id().as_uuid()))
         .bind(topic.deletion().map(|d| d.deleted_at()))

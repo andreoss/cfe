@@ -58,6 +58,6 @@ pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
 pub use sign_in::{SignInError, sign_in};
 pub use topics::{
-    CreateTopicError, ListTopicsError, create_topic, get_topic, list_sections, list_topics,
-    list_topics_by_tag,
+    CreateTopicError, ListTopicsError, SetPostscoreError, create_topic, get_topic,
+    list_sections, list_topics, list_topics_by_tag, set_postscore,
 };

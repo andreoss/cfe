@@ -22,7 +22,8 @@ CREATE TABLE sessions (
 CREATE TABLE sections (
     id BINARY(16) PRIMARY KEY,
     slug VARCHAR(64) NOT NULL UNIQUE,
-    title VARCHAR(255) NOT NULL
+    title VARCHAR(255) NOT NULL,
+    topics_score INT NOT NULL DEFAULT -9999
 );
 
 CREATE TABLE topics (
@@ -32,6 +33,7 @@ CREATE TABLE topics (
     title VARCHAR(255) NOT NULL,
     body TEXT NOT NULL,
     created_at TIMESTAMP(6) NOT NULL,
+    postscore INT NOT NULL DEFAULT -9999,
     deleted_reason TEXT,
     deleted_by BINARY(16),
     deleted_at TIMESTAMP(6) NULL,

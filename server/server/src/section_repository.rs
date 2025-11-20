@@ -1,5 +1,5 @@
 use app::SectionRepository;
-use domain::{Section, SectionId, Slug, Title};
+use domain::{PostScore, Section, SectionId, Slug, Title};
 use sqlx::{FromRow, PgPool};
 
 pub struct PgSectionRepository {
@@ -17,20 +17,22 @@ struct Row {
     id: uuid::Uuid,
     slug: String,
     title: String,
+    topics_score: i32,
 }
 
 fn to_section(row: Row) -> Section {
-    Section::new(
+    Section::from_parts(
         SectionId::new(row.id),
         Slug::parse(&row.slug).expect("stored slug is valid"),
         Title::parse(&row.title).expect("stored title is valid"),
+        PostScore::from_db(row.topics_score),
     )
 }
 
 #[async_trait::async_trait]
 impl SectionRepository for PgSectionRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
-        sqlx::query_as::<_, Row>("SELECT id, slug, title FROM sections WHERE slug = $1")
+        sqlx::query_as::<_, Row>("SELECT id, slug, title, topics_score FROM sections WHERE slug = $1")
             .bind(slug.as_str())
             .fetch_optional(&self.pool)
             .await
@@ -39,7 +41,7 @@ impl SectionRepository for PgSectionRepository {
     }
 
     async fn find_by_id(&self, id: SectionId) -> Option<Section> {
-        sqlx::query_as::<_, Row>("SELECT id, slug, title FROM sections WHERE id = $1")
+        sqlx::query_as::<_, Row>("SELECT id, slug, title, topics_score FROM sections WHERE id = $1")
             .bind(id.as_uuid())
             .fetch_optional(&self.pool)
             .await
@@ -48,7 +50,7 @@ impl SectionRepository for PgSectionRepository {
     }
 
     async fn list(&self) -> Vec<Section> {
-        sqlx::query_as::<_, Row>("SELECT id, slug, title FROM sections ORDER BY title")
+        sqlx::query_as::<_, Row>("SELECT id, slug, title, topics_score FROM sections ORDER BY title")
             .fetch_all(&self.pool)
             .await
             .expect("query list sections")

@@ -1,11 +1,12 @@
 use crate::ports::{SectionRepository, TopicRepository};
 use crate::paging::Paged;
-use domain::{Body, Page, Section, Slug, TagSet, Title, Topic, TopicId, UserId};
+use domain::{Body, Page, Section, Slug, TagSet, Title, Topic, TopicId, User};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CreateTopicError {
     SectionNotFound,
+    Restricted,
 }
 
 pub async fn create_topic(
@@ -13,7 +14,7 @@ pub async fn create_topic(
     topics: &(impl TopicRepository + ?Sized),
     id: TopicId,
     slug: &Slug,
-    author_id: UserId,
+    author: &User,
     title: Title,
     body: Body,
     tags: TagSet,
@@ -23,7 +24,13 @@ pub async fn create_topic(
         .find_by_slug(slug)
         .await
         .ok_or(CreateTopicError::SectionNotFound)?;
-    let topic = Topic::new(id, section.id(), author_id, title, body, tags, now);
+    let allowed = section
+        .topics_score()
+        .allows(author.score(), author.role().is_moderator(), false);
+    if !allowed {
+        return Err(CreateTopicError::Restricted);
+    }
+    let topic = Topic::new(id, section.id(), author.id(), title, body, tags, now);
     topics.save(&topic).await;
     Ok(topic)
 }
@@ -66,11 +73,36 @@ pub async fn get_topic(topics: &(impl TopicRepository + ?Sized), id: TopicId) ->
     topics.find_by_id(id).await
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetPostscoreError {
+    NotFound,
+    NotAuthorized,
+}
+
+pub async fn set_postscore(
+    topics: &(impl TopicRepository + ?Sized),
+    moderator: &User,
+    topic_id: TopicId,
+    postscore: domain::PostScore,
+) -> Result<Topic, SetPostscoreError> {
+    if !moderator.role().is_moderator() {
+        return Err(SetPostscoreError::NotAuthorized);
+    }
+    let topic = topics
+        .find_by_id(topic_id)
+        .await
+        .ok_or(SetPostscoreError::NotFound)?;
+    let updated = topic.with_postscore(postscore);
+    topics.update(&updated).await;
+    Ok(updated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::{FakeSectionRepo, FakeTopicRepo};
     use domain::SectionId as DomainSectionId;
+    use domain::UserId;
 
     fn section() -> Section {
         Section::new(
@@ -84,6 +116,15 @@ mod tests {
         TagSet::parse(&values.iter().map(|v| v.to_string()).collect::<Vec<_>>()).unwrap()
     }
 
+    fn plain_user(id: uuid::Uuid) -> User {
+        User::register(
+            UserId::new(id),
+            domain::Username::parse("alice_01").unwrap(),
+            domain::Email::parse("alice@example.com").unwrap(),
+            "hash".to_owned(),
+        )
+    }
+
     #[tokio::test]
     async fn creates_a_topic_in_an_existing_section() {
         let sections = FakeSectionRepo::with(section());
@@ -94,7 +135,7 @@ mod tests {
             &topics,
             TopicId::new(uuid::Uuid::nil()),
             &Slug::parse("general").unwrap(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
             tags(&["rust"]),
@@ -115,7 +156,7 @@ mod tests {
             &topics,
             TopicId::new(uuid::Uuid::nil()),
             &Slug::parse("ghost").unwrap(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
             TagSet::empty(),
@@ -134,7 +175,7 @@ mod tests {
             &topics,
             TopicId::new(uuid::Uuid::nil()),
             &Slug::parse("general").unwrap(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
             TagSet::empty(),
@@ -175,7 +216,7 @@ mod tests {
             &topics,
             TopicId::new(uuid::Uuid::nil()),
             &Slug::parse("general").unwrap(),
-            UserId::new(uuid::Uuid::nil()),
+            &plain_user(uuid::Uuid::nil()),
             Title::parse("Hello").unwrap(),
             Body::parse("World").unwrap(),
             tags(&["rust"]),
@@ -187,5 +228,136 @@ mod tests {
         assert_eq!(listed.items.len(), 1);
         let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap(), Page::first()).await;
         assert_eq!(empty.items.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_low_score_user_is_refused_in_a_restricted_section() {
+        let mut section = section();
+        section = section.with_topics_score(domain::PostScore::Floor(domain::FLOOR_50));
+        let sections = FakeSectionRepo::with(section);
+        let topics = FakeTopicRepo::new();
+        let result = create_topic(
+            &sections,
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            &Slug::parse("general").unwrap(),
+            &plain_user(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await;
+        assert_eq!(result, Err(CreateTopicError::Restricted));
+    }
+
+    #[tokio::test]
+    async fn a_moderator_can_post_in_a_restricted_section() {
+        let mut section = section();
+        section = section.with_topics_score(domain::PostScore::Floor(domain::FLOOR_500));
+        let sections = FakeSectionRepo::with(section);
+        let topics = FakeTopicRepo::new();
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let topic = create_topic(
+            &sections,
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            &Slug::parse("general").unwrap(),
+            &moderator,
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(topic.author_id(), moderator.id());
+    }
+
+    #[tokio::test]
+    async fn a_high_score_user_can_post_in_a_restricted_section() {
+        let mut section = section();
+        section = section.with_topics_score(domain::PostScore::Floor(domain::FLOOR_50));
+        let sections = FakeSectionRepo::with(section);
+        let topics = FakeTopicRepo::new();
+        let qualified = plain_user(uuid::Uuid::nil()).with_score(domain::Score::of(50));
+        let topic = create_topic(
+            &sections,
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            &Slug::parse("general").unwrap(),
+            &qualified,
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(topic.author_id(), qualified.id());
+    }
+
+    #[tokio::test]
+    async fn a_moderator_can_set_a_topics_comment_restriction() {
+        let topics = FakeTopicRepo::with(
+            Topic::new(
+                TopicId::new(uuid::Uuid::nil()),
+                DomainSectionId::new(uuid::Uuid::max()),
+                UserId::new(uuid::Uuid::nil()),
+                Title::parse("Hello").unwrap(),
+                Body::parse("World").unwrap(),
+                TagSet::empty(),
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+        );
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let updated = set_postscore(
+            &topics,
+            &moderator,
+            TopicId::new(uuid::Uuid::nil()),
+            domain::PostScore::NoComments,
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated.postscore(), domain::PostScore::NoComments);
+        let stored = get_topic(&topics, TopicId::new(uuid::Uuid::nil())).await.unwrap();
+        assert_eq!(stored.postscore(), domain::PostScore::NoComments);
+    }
+
+    #[tokio::test]
+    async fn a_plain_user_cannot_set_a_topics_restriction() {
+        let topics = FakeTopicRepo::with(
+            Topic::new(
+                TopicId::new(uuid::Uuid::nil()),
+                DomainSectionId::new(uuid::Uuid::max()),
+                UserId::new(uuid::Uuid::nil()),
+                Title::parse("Hello").unwrap(),
+                Body::parse("World").unwrap(),
+                TagSet::empty(),
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+        );
+        let result = set_postscore(
+            &topics,
+            &plain_user(uuid::Uuid::max()),
+            TopicId::new(uuid::Uuid::nil()),
+            domain::PostScore::NoComments,
+        )
+        .await;
+        assert_eq!(result, Err(SetPostscoreError::NotAuthorized));
+    }
+
+    #[tokio::test]
+    async fn setting_a_restriction_on_an_unknown_topic_fails() {
+        let topics = FakeTopicRepo::new();
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let result = set_postscore(
+            &topics,
+            &moderator,
+            TopicId::new(uuid::Uuid::nil()),
+            domain::PostScore::ModeratorsOnly,
+        )
+        .await;
+        assert_eq!(result, Err(SetPostscoreError::NotFound));
     }
 }

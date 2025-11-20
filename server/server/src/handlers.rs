@@ -4,8 +4,8 @@ use crate::hasher::Argon2Hasher;
 use app::{
     AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError, CreatePollError,
     CreateTopicError, DeleteError, EditError, EnforcementError, ListTopicsError, MarkReadError,
-    PollResults, PostCommentError, ReactionSummary, RegisterError, SignInError, UpdateBioError,
-    VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user, cast_vote,
+    PollResults, PostCommentError, ReactionSummary, RegisterError, SetPostscoreError, SignInError,
+    UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user, cast_vote,
     change_password, clear_avatar, clear_reaction, confirm_activation, confirm_email_change,
     count_unread, create_poll, create_session, create_topic, delete_comment, delete_topic,
     deregister, edit_comment, edit_topic, get_avatar, get_topic, ignore_user, ignored_by,
@@ -13,8 +13,8 @@ use app::{
     list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, poll_results,
     post_comment, promote_to_moderator, react, recent_activity, register, remove_bookmark,
     request_activation, request_email_change, request_password_reset, reset_password, search,
-    set_avatar, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions, update_bio,
-    warn_user,
+    set_avatar, set_postscore, sign_in, sign_out as end_session, stop_ignoring,
+    summarize_reactions, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -103,6 +103,7 @@ pub struct TopicResponse {
     pub deleted: bool,
     pub deleted_reason: Option<String>,
     pub edited: bool,
+    pub postscore: i32,
 }
 
 #[derive(Deserialize)]
@@ -128,6 +129,11 @@ pub struct CommentResponse {
 #[derive(Deserialize)]
 pub struct DeleteRequest {
     pub reason: String,
+}
+
+#[derive(Deserialize)]
+pub struct SetPostscoreRequest {
+    pub postscore: i32,
 }
 
 #[derive(Deserialize)]
@@ -416,6 +422,7 @@ async fn topic_response(
         deleted: topic.is_deleted(),
         deleted_reason: topic.deletion().map(|d| d.reason().as_str().to_owned()),
         edited: topic.is_edited(),
+        postscore: topic.postscore().to_db(),
     }))
 }
 
@@ -476,7 +483,7 @@ pub async fn create_topic_handler(
         &*topics,
         domain::TopicId::new(uuid::Uuid::new_v4()),
         &slug,
-        current.id(),
+        &current,
         title,
         topic_body,
         tags,
@@ -485,6 +492,7 @@ pub async fn create_topic_handler(
     .await
     .map_err(|e| match e {
         CreateTopicError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+        CreateTopicError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to post here"),
     })?;
     topic_response(&state, &topic).await
 }
@@ -591,14 +599,16 @@ pub async fn post_comment_handler(
     let topics = state.backend.topics();
     let comments = state.backend.comments();
     let notifications = state.backend.notifications();
+    let sections = state.backend.sections();
     let comment = post_comment(
+        &*sections,
         &*topics,
         &*comments,
         &*notifications,
         CommentId::new(uuid::Uuid::new_v4()),
         domain::NotificationId::new(uuid::Uuid::new_v4()),
         TopicId::new(topic_id),
-        current.id(),
+        &current,
         parent_id,
         comment_body,
         OffsetDateTime::now_utc(),
@@ -611,6 +621,7 @@ pub async fn post_comment_handler(
             StatusCode::UNPROCESSABLE_ENTITY,
             "parent in different topic",
         ),
+        PostCommentError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to comment"),
     })?;
     Ok(Json(comment_response(&state, &comment).await?))
 }
@@ -665,6 +676,27 @@ pub async fn delete_comment_handler(
         DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
     Ok(Json(comment_response(&state, &comment).await?))
+}
+
+pub async fn set_postscore_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetPostscoreRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = set_postscore(
+        &*topics,
+        &current,
+        TopicId::new(id),
+        domain::PostScore::from_db(body.postscore),
+    )
+    .await
+    .map_err(|e| match e {
+        SetPostscoreError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        SetPostscoreError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
+    })?;
+    topic_response(&state, &topic).await
 }
 
 pub async fn edit_topic_handler(

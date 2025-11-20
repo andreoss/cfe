@@ -1,7 +1,8 @@
 use crate::duckdb::conn::Db;
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, Reason, Revision, SectionId, Slug, TagSet, Title, Topic, TopicId, UserId,
+    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title, Topic,
+    TopicId, UserId,
 };
 use duckdb::Row;
 use duckdb::types::Value;
@@ -17,7 +18,7 @@ impl DuckTopicRepository {
     }
 }
 
-pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, \
+pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
     deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 pub struct TopicRow {
@@ -27,6 +28,7 @@ pub struct TopicRow {
     pub title: String,
     pub body: String,
     pub created_at: OffsetDateTime,
+    pub postscore: i32,
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
@@ -126,11 +128,12 @@ pub fn topic_row(row: &Row) -> TopicRow {
         title: row.get(3).expect("read title"),
         body: row.get(4).expect("read body"),
         created_at: read_time(row, 5),
-        deleted_reason: row.get(6).expect("read reason"),
-        deleted_by: read_opt_uuid(row, 7),
-        deleted_at: read_opt_time(row, 8),
-        edited_by: read_opt_uuid(row, 9),
-        edited_at: read_opt_time(row, 10),
+        postscore: row.get(6).expect("read postscore"),
+        deleted_reason: row.get(7).expect("read reason"),
+        deleted_by: read_opt_uuid(row, 8),
+        deleted_at: read_opt_time(row, 9),
+        edited_by: read_opt_uuid(row, 10),
+        edited_at: read_opt_time(row, 11),
     }
 }
 
@@ -164,6 +167,7 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         deleted,
         edited,
     )
+    .with_postscore(PostScore::from_db(row.postscore))
 }
 
 pub async fn tags_for(db: &Db, topic_id: uuid::Uuid) -> TagSet {
@@ -251,6 +255,7 @@ impl TopicRepository for DuckTopicRepository {
         let params = vec![
             Value::Text(topic.title().as_str().to_owned()),
             Value::Text(topic.body().as_str().to_owned()),
+            Value::BigInt(topic.postscore().to_db() as i64),
             opt_text(topic.deletion().map(|d| d.reason().as_str())),
             opt_uuid(topic.deletion().map(|d| d.moderator_id().as_uuid())),
             opt_time(topic.deletion().map(|d| d.deleted_at())),
@@ -260,8 +265,8 @@ impl TopicRepository for DuckTopicRepository {
         ];
         self.db
             .execute(
-                "UPDATE topics SET title = ?, body = ?, deleted_reason = ?, deleted_by = ?, \
-                 deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
+                "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
+                 deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
                 params,
             )
             .await;

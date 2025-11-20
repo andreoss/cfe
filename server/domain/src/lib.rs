@@ -16,6 +16,7 @@ mod reaction;
 mod revision;
 mod role;
 mod content_item;
+mod post_score;
 mod score;
 mod section;
 mod session;
@@ -48,6 +49,11 @@ pub use role::Role;
 pub use content_item::ContentItem;
 pub use score::{
     DELETION_PENALTY, MAX as SCORE_MAX, MIN as SCORE_MIN, Score, for_deletion, for_reaction,
+};
+pub use post_score::{
+    FLOOR_100, FLOOR_200, FLOOR_300, FLOOR_400, FLOOR_50, FLOOR_500, MODERATOR_OR_AUTHOR,
+    MODERATORS_ONLY, NO_COMMENTS, REGISTERED, UNRESTRICTED, PostScore, comment_restriction,
+    thread_size_restriction,
 };
 pub use section::{Section, SectionId};
 pub use session::{Session, SessionId, SessionToken, SessionTokenError};

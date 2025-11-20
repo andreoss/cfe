@@ -1,6 +1,7 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId, UserId,
+    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId,
+    UserId,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -16,7 +17,7 @@ impl PgTopicRepository {
 }
 
 const SELECT_COLUMNS: &str = "id, section_id, author_id, title, body, tags, created_at, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    postscore, deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 #[derive(FromRow)]
 struct Row {
@@ -27,6 +28,7 @@ struct Row {
     body: String,
     tags: Vec<String>,
     created_at: OffsetDateTime,
+    postscore: i32,
     deleted_reason: Option<String>,
     deleted_by: Option<uuid::Uuid>,
     deleted_at: Option<OffsetDateTime>,
@@ -68,6 +70,7 @@ fn to_topic(row: Row) -> Topic {
         deleted,
         edited,
     )
+    .with_postscore(PostScore::from_db(row.postscore))
 }
 
 fn tag_strings(topic: &Topic) -> Vec<String> {
@@ -100,13 +103,15 @@ impl TopicRepository for PgTopicRepository {
 
     async fn update(&self, topic: &Topic) {
         sqlx::query(
-            "UPDATE topics SET title = $2, body = $3, tags = $4, deleted_reason = $5, \
-             deleted_by = $6, deleted_at = $7, edited_by = $8, edited_at = $9 WHERE id = $1",
+            "UPDATE topics SET title = $2, body = $3, tags = $4, postscore = $5, \
+             deleted_reason = $6, deleted_by = $7, deleted_at = $8, edited_by = $9, \
+             edited_at = $10 WHERE id = $1",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
         .bind(tag_strings(topic))
+        .bind(topic.postscore().to_db())
         .bind(topic.deletion().map(|d| d.reason().as_str()))
         .bind(topic.deletion().map(|d| d.moderator_id().as_uuid()))
         .bind(topic.deletion().map(|d| d.deleted_at()))

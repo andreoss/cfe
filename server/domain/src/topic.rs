@@ -1,4 +1,4 @@
-use crate::{Body, Deletion, Revision, SectionId, TagSet, Title, UserId};
+use crate::{Body, Deletion, PostScore, Revision, SectionId, TagSet, Title, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -25,6 +25,7 @@ pub struct Topic {
     created_at: OffsetDateTime,
     deleted: Option<Deletion>,
     edited: Option<Revision>,
+    postscore: PostScore,
 }
 
 impl Topic {
@@ -47,6 +48,7 @@ impl Topic {
             created_at,
             deleted: None,
             edited: None,
+            postscore: PostScore::default(),
         }
     }
 
@@ -71,6 +73,7 @@ impl Topic {
             created_at,
             deleted,
             edited,
+            postscore: PostScore::default(),
         }
     }
 
@@ -131,6 +134,17 @@ impl Topic {
             body,
             tags,
             edited: Some(revision),
+            ..self.clone()
+        }
+    }
+
+    pub fn postscore(&self) -> PostScore {
+        self.postscore
+    }
+
+    pub fn with_postscore(&self, postscore: PostScore) -> Self {
+        Self {
+            postscore,
             ..self.clone()
         }
     }
@@ -199,6 +213,24 @@ mod tests {
         assert_eq!(edited.tags(), &tags);
         assert!(edited.is_edited());
         assert_eq!(edited.revision(), Some(&revision));
+    }
+
+    #[test]
+    fn with_postscore_changes_the_comment_restriction() {
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert_eq!(topic.postscore(), crate::PostScore::default());
+        let closed = topic.with_postscore(crate::PostScore::NoComments);
+        assert_eq!(closed.id(), topic.id());
+        assert_eq!(closed.postscore(), crate::PostScore::NoComments);
+        assert_eq!(topic.postscore(), crate::PostScore::default());
     }
 
     #[test]

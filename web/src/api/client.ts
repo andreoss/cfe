@@ -12,6 +12,7 @@ export type Topic = {
   deleted: boolean
   deletedReason: string | null
   edited: boolean
+  postscore: number
 }
 export type Comment = {
   id: string
@@ -207,6 +208,7 @@ type RawTopic = {
   deleted: boolean
   deleted_reason: string | null
   edited: boolean
+  postscore: number
 }
 
 function toTopic(raw: RawTopic): Topic {
@@ -221,6 +223,7 @@ function toTopic(raw: RawTopic): Topic {
     deleted: raw.deleted,
     deletedReason: raw.deleted_reason,
     edited: raw.edited,
+    postscore: raw.postscore,
   }
 }
 
@@ -331,6 +334,15 @@ export async function deleteTopic(id: string, reason: string): Promise<ApiResult
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function setPostscore(id: string, postscore: number): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/postscore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ postscore }),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
