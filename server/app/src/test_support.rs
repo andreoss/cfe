@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::ports::{
-    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     TokenDigest,
@@ -9,8 +9,8 @@ use crate::ports::{
     UserRepository,
 };
 use domain::{
-    Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, MailToken, Notification,
-    NotificationId, Page,
+    Address, AddressBlock, Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, MailToken,
+    Notification, NotificationId, Page,
     Query,
     Reaction, Warning,
     ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
@@ -846,5 +846,85 @@ impl MailTokenRepository for FakeMailTokenRepo {
             .iter()
             .find(|t| t.digest() == digest)
             .cloned()
+    }
+}
+
+pub struct FakeAbuseRepo {
+    blocks: Mutex<Vec<AddressBlock>>,
+    posts: Mutex<Vec<(UserId, Address, OffsetDateTime)>>,
+}
+
+impl FakeAbuseRepo {
+    pub fn new() -> Self {
+        Self {
+            blocks: Mutex::new(Vec::new()),
+            posts: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn insert_block(&self, block: AddressBlock) {
+        let mut blocks = self.blocks.lock().unwrap();
+        blocks.retain(|b| b.addr() != block.addr());
+        blocks.push(block);
+    }
+
+    pub fn set_last_post(&self, user_id: UserId, at: OffsetDateTime) {
+        self.posts.lock().unwrap().push((user_id, Address::parse("0.0.0.0").unwrap(), at));
+    }
+
+    pub fn set_address_posts(&self, addr: &Address, at: OffsetDateTime, count: u64) {
+        let mut posts = self.posts.lock().unwrap();
+        for _ in 0..count {
+            posts.push((UserId::new(uuid::Uuid::nil()), addr.clone(), at));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AbuseRepository for FakeAbuseRepo {
+    async fn find_address_block(&self, addr: &Address) -> Option<AddressBlock> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|b| b.addr() == addr)
+            .cloned()
+    }
+
+    async fn save_address_block(&self, addr: &Address, block: &AddressBlock) {
+        self.insert_block(block.clone());
+        let _ = addr;
+    }
+
+    async fn delete_address_block(&self, addr: &Address) {
+        let mut blocks = self.blocks.lock().unwrap();
+        blocks.retain(|b| b.addr() != addr);
+    }
+
+    async fn list_address_blocks(&self) -> Vec<AddressBlock> {
+        self.blocks.lock().unwrap().clone()
+    }
+
+    async fn count_posts_by_address(&self, addr: &Address, since: OffsetDateTime) -> u64 {
+        self.posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, a, at)| a == addr && *at >= since)
+            .count() as u64
+    }
+
+    async fn last_post_by_user(&self, user_id: UserId) -> Option<OffsetDateTime> {
+        self.posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(u, _, _)| *u == user_id)
+            .map(|(_, _, at)| *at)
+            .max()
+    }
+
+    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
+        self.posts.lock().unwrap().push((user_id, addr.clone(), at));
     }
 }

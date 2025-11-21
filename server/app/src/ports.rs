@@ -1,6 +1,6 @@
 use domain::{
-    Avatar, Ban, Bookmark, Comment, CommentId, Email, MailToken, Notification, NotificationId,
-    Page, Poll,
+    Address, AddressBlock, Avatar, Ban, Bookmark, Comment, CommentId, Email, MailToken,
+    Notification, NotificationId, Page, Poll,
     PollId,
     PollOptionId,
     Query, Reaction,
@@ -66,6 +66,17 @@ pub trait EnforcementRepository {
     async fn save_ignore(&self, user_id: UserId, ignored_id: UserId);
     async fn delete_ignore(&self, user_id: UserId, ignored_id: UserId);
     async fn list_ignored(&self, user_id: UserId) -> Vec<UserId>;
+}
+
+#[async_trait::async_trait]
+pub trait AbuseRepository {
+    async fn find_address_block(&self, addr: &Address) -> Option<AddressBlock>;
+    async fn save_address_block(&self, addr: &Address, block: &AddressBlock);
+    async fn delete_address_block(&self, addr: &Address);
+    async fn list_address_blocks(&self) -> Vec<AddressBlock>;
+    async fn count_posts_by_address(&self, addr: &Address, since: OffsetDateTime) -> u64;
+    async fn last_post_by_user(&self, user_id: UserId) -> Option<OffsetDateTime>;
+    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime);
 }
 
 #[async_trait::async_trait]

@@ -1,3 +1,4 @@
+mod abuse;
 mod account;
 mod activity;
 mod avatars;
@@ -22,6 +23,11 @@ mod test_support;
 mod topics;
 
 pub use activity::recent_activity;
+pub use abuse::{
+    RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, SLOW_MODE_INTERVAL, SLOW_MODE_SCORE_FLOOR, AbuseError,
+    block_address, enforce_posting, is_address_blocked, lift_address_block, list_address_blocks,
+    record_post,
+};
 pub use account::{ChangePasswordError, change_password, deregister};
 pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
 pub use bookmarks::{
@@ -44,7 +50,7 @@ pub use polls::{
 };
 pub use paging::Paged;
 pub use ports::{
-    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TokenDigest,
