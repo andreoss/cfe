@@ -26,20 +26,32 @@ CREATE TABLE sections (
     topics_score INT NOT NULL DEFAULT -9999
 );
 
+CREATE TABLE groups (
+    id BINARY(16) PRIMARY KEY,
+    section_id BINARY(16) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(64) NOT NULL,
+    UNIQUE (section_id, slug),
+    FOREIGN KEY (section_id) REFERENCES sections (id)
+);
+
 CREATE TABLE topics (
     id BINARY(16) PRIMARY KEY,
     section_id BINARY(16) NOT NULL,
+    group_id BINARY(16),
     author_id BINARY(16) NOT NULL,
     title VARCHAR(255) NOT NULL,
     body TEXT NOT NULL,
     created_at TIMESTAMP(6) NOT NULL,
     postscore INT NOT NULL DEFAULT -9999,
+    pending BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_reason TEXT,
     deleted_by BINARY(16),
     deleted_at TIMESTAMP(6) NULL,
     edited_by BINARY(16),
     edited_at TIMESTAMP(6) NULL,
     FOREIGN KEY (section_id) REFERENCES sections (id),
+    FOREIGN KEY (group_id) REFERENCES groups (id),
     FOREIGN KEY (author_id) REFERENCES users (id),
     FULLTEXT KEY topics_search_idx (title, body)
 );

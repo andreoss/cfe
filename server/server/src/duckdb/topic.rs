@@ -1,8 +1,8 @@
 use crate::duckdb::conn::Db;
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title, Topic,
-    TopicId, UserId,
+    Body, Deletion, GroupId, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title,
+    Topic, TopicId, UserId,
 };
 use duckdb::Row;
 use duckdb::types::Value;
@@ -19,7 +19,7 @@ impl DuckTopicRepository {
 }
 
 pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending";
 
 pub struct TopicRow {
     pub id: uuid::Uuid,
@@ -34,6 +34,8 @@ pub struct TopicRow {
     pub deleted_at: Option<OffsetDateTime>,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
+    pub group_id: Option<uuid::Uuid>,
+    pub pending: bool,
 }
 
 pub fn micros_to_time(micros: i64) -> OffsetDateTime {
@@ -134,6 +136,8 @@ pub fn topic_row(row: &Row) -> TopicRow {
         deleted_at: read_opt_time(row, 9),
         edited_by: read_opt_uuid(row, 10),
         edited_at: read_opt_time(row, 11),
+        group_id: read_opt_uuid(row, 12),
+        pending: row.get(13).expect("read pending"),
     }
 }
 
@@ -166,8 +170,8 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         row.created_at,
         deleted,
         edited,
-        None,
-        false,
+        row.group_id.map(GroupId::new),
+        row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
 }
@@ -242,11 +246,13 @@ impl TopicRepository for DuckTopicRepository {
             Value::Text(topic.title().as_str().to_owned()),
             Value::Text(topic.body().as_str().to_owned()),
             time_to_value(topic.created_at()),
+            opt_uuid(topic.group_id().map(|g| g.as_uuid())),
+            Value::Boolean(topic.is_pending()),
         ];
         self.db
             .execute(
-                "INSERT INTO topics (id, section_id, author_id, title, body, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO topics (id, section_id, author_id, title, body, created_at, \
+                 group_id, pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;
@@ -263,12 +269,15 @@ impl TopicRepository for DuckTopicRepository {
             opt_time(topic.deletion().map(|d| d.deleted_at())),
             opt_uuid(topic.revision().map(|r| r.editor_id().as_uuid())),
             opt_time(topic.revision().map(|r| r.edited_at())),
+            opt_uuid(topic.group_id().map(|g| g.as_uuid())),
+            Value::Boolean(topic.is_pending()),
             uuid_value(topic.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
-                 deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
+                 deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, group_id = ?, \
+                 pending = ? WHERE id = ?",
                 params,
             )
             .await;

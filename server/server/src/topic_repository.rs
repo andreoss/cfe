@@ -1,7 +1,7 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, TagSet, Title, Topic, TopicId,
-    UserId,
+    Body, Deletion, GroupId, Page, PostScore, Reason, Revision, SectionId, TagSet, Title, Topic,
+    TopicId, UserId,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -17,7 +17,7 @@ impl PgTopicRepository {
 }
 
 const SELECT_COLUMNS: &str = "id, section_id, author_id, title, body, tags, created_at, \
-    postscore, deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    postscore, deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending";
 
 #[derive(FromRow)]
 struct Row {
@@ -34,6 +34,8 @@ struct Row {
     deleted_at: Option<OffsetDateTime>,
     edited_by: Option<uuid::Uuid>,
     edited_at: Option<OffsetDateTime>,
+    group_id: Option<uuid::Uuid>,
+    pending: bool,
 }
 
 fn to_revision(row: &Row) -> Option<Revision> {
@@ -69,8 +71,8 @@ fn to_topic(row: Row) -> Topic {
         row.created_at,
         deleted,
         edited,
-        None,
-        false,
+        row.group_id.map(GroupId::new),
+        row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
 }
@@ -88,8 +90,8 @@ fn tag_strings(topic: &Topic) -> Vec<String> {
 impl TopicRepository for PgTopicRepository {
     async fn save(&self, topic: &Topic) {
         sqlx::query(
-            "INSERT INTO topics (id, section_id, author_id, title, body, tags, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO topics (id, section_id, author_id, title, body, tags, created_at, \
+             group_id, pending) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.section_id().as_uuid())
@@ -98,6 +100,8 @@ impl TopicRepository for PgTopicRepository {
         .bind(topic.body().as_str())
         .bind(tag_strings(topic))
         .bind(topic.created_at())
+        .bind(topic.group_id().map(|g| g.as_uuid()))
+        .bind(topic.is_pending())
         .execute(&self.pool)
         .await
         .expect("insert topic");
@@ -107,7 +111,7 @@ impl TopicRepository for PgTopicRepository {
         sqlx::query(
             "UPDATE topics SET title = $2, body = $3, tags = $4, postscore = $5, \
              deleted_reason = $6, deleted_by = $7, deleted_at = $8, edited_by = $9, \
-             edited_at = $10 WHERE id = $1",
+             edited_at = $10, group_id = $11, pending = $12 WHERE id = $1",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.title().as_str())
@@ -119,6 +123,8 @@ impl TopicRepository for PgTopicRepository {
         .bind(topic.deletion().map(|d| d.deleted_at()))
         .bind(topic.revision().map(|r| r.editor_id().as_uuid()))
         .bind(topic.revision().map(|r| r.edited_at()))
+        .bind(topic.group_id().map(|g| g.as_uuid()))
+        .bind(topic.is_pending())
         .execute(&self.pool)
         .await
         .expect("update topic");

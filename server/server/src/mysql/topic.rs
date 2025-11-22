@@ -1,7 +1,7 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title, Topic,
-    TopicId, UserId,
+    Body, Deletion, GroupId, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title,
+    Topic, TopicId, UserId,
 };
 use sqlx::{FromRow, MySqlPool, Row};
 use time::OffsetDateTime;
@@ -16,18 +16,20 @@ impl MySqlTopicRepository {
     }
 }
 
-pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+pub const TOPIC_COLUMNS: &str = "id, section_id, group_id, author_id, title, body, created_at, \
+    postscore, pending, deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
 
 #[derive(FromRow)]
 pub struct TopicRow {
     pub id: uuid::Uuid,
     pub section_id: uuid::Uuid,
+    pub group_id: Option<uuid::Uuid>,
     pub author_id: uuid::Uuid,
     pub title: String,
     pub body: String,
     pub created_at: OffsetDateTime,
     pub postscore: i32,
+    pub pending: bool,
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
@@ -68,8 +70,8 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         row.created_at,
         deleted,
         edited,
-        None,
-        false,
+        row.group_id.map(GroupId::new),
+        row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
 }
@@ -117,15 +119,17 @@ async fn with_tags(pool: &MySqlPool, rows: Vec<TopicRow>) -> Vec<Topic> {
 impl TopicRepository for MySqlTopicRepository {
     async fn save(&self, topic: &Topic) {
         sqlx::query(
-            "INSERT INTO topics (id, section_id, author_id, title, body, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO topics (id, section_id, group_id, author_id, title, body, created_at, \
+             pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.section_id().as_uuid())
+        .bind(topic.group_id().map(|g| g.as_uuid()))
         .bind(topic.author_id().as_uuid())
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
         .bind(topic.created_at())
+        .bind(topic.is_pending())
         .execute(&self.pool)
         .await
         .expect("insert topic");
@@ -134,17 +138,20 @@ impl TopicRepository for MySqlTopicRepository {
 
     async fn update(&self, topic: &Topic) {
         sqlx::query(
-            "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
-             deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
+            "UPDATE topics SET title = ?, body = ?, postscore = ?, pending = ?, \
+             deleted_reason = ?, deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, \
+             group_id = ? WHERE id = ?",
         )
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
         .bind(topic.postscore().to_db())
+        .bind(topic.is_pending())
         .bind(topic.deletion().map(|d| d.reason().as_str()))
         .bind(topic.deletion().map(|d| d.moderator_id().as_uuid()))
         .bind(topic.deletion().map(|d| d.deleted_at()))
         .bind(topic.revision().map(|r| r.editor_id().as_uuid()))
         .bind(topic.revision().map(|r| r.edited_at()))
+        .bind(topic.group_id().map(|g| g.as_uuid()))
         .bind(topic.id().as_uuid())
         .execute(&self.pool)
         .await

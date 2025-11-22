@@ -7,6 +7,7 @@ mod comment_repository;
 mod duckdb;
 mod enforcement_repository;
 mod abuse_repository;
+mod group_repository;
 mod feed;
 mod handlers;
 mod hasher;
@@ -28,11 +29,13 @@ use axum::http::{Method, header};
 use axum::routing::{delete, get, patch, post};
 use backend::{Backend, Vendor};
 use handlers::{
-    AppState, block_address_handler, create_topic_handler, delete_comment_handler,
-    delete_topic_handler, get_profile_handler, get_topic_handler, lift_address_block_handler,
-    list_address_blocks_handler, list_comments_handler, list_sections_handler,
-    list_topics_by_tag_handler, list_topics_handler, post_comment_handler, register_handler,
-    set_postscore_handler, sign_in_handler, sign_out_handler, update_bio_handler,
+    AppState, block_address_handler, commit_topic_handler, create_group_handler,
+    create_topic_handler, delete_comment_handler, delete_topic_handler, get_profile_handler,
+    get_topic_handler, lift_address_block_handler, list_address_blocks_handler,
+    list_comments_handler, list_groups_handler, list_sections_handler, list_topics_by_tag_handler,
+    list_topics_handler, move_topic_handler, post_comment_handler, register_handler,
+    set_postscore_handler, sign_in_handler, sign_out_handler, uncommit_topic_handler,
+    update_bio_handler,
 };
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -73,11 +76,18 @@ async fn main() {
             get(list_topics_handler).post(create_topic_handler),
         )
         .route(
+            "/api/sections/{slug}/groups",
+            get(list_groups_handler).post(create_group_handler),
+        )
+        .route(
             "/api/topics/{id}",
             get(get_topic_handler).patch(handlers::edit_topic_handler),
         )
         .route("/api/topics/{id}/delete", post(delete_topic_handler))
         .route("/api/topics/{id}/postscore", post(set_postscore_handler))
+        .route("/api/topics/{id}/commit", post(commit_topic_handler))
+        .route("/api/topics/{id}/uncommit", post(uncommit_topic_handler))
+        .route("/api/topics/{id}/move", post(move_topic_handler))
         .route(
             "/api/topics/{id}/comments",
             get(list_comments_handler).post(post_comment_handler),

@@ -17,10 +17,11 @@ use crate::duckdb::topic::DuckTopicRepository;
 use crate::duckdb::user::DuckUserRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
-    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
+    PollRepository, ReactionRepository, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository, UserRepository,
 };
+use crate::duckdb::group::DuckGroupRepository;
 use std::sync::Arc;
 
 pub struct DuckDbBackend {
@@ -64,6 +65,10 @@ impl Backend for DuckDbBackend {
 
     fn topics(&self) -> Arc<dyn TopicRepository + Send + Sync> {
         Arc::new(DuckTopicRepository::new(self.db.clone()))
+    }
+
+    fn groups(&self) -> Arc<dyn GroupRepository + Send + Sync> {
+        Arc::new(DuckGroupRepository::new(self.db.clone()))
     }
 
     fn comments(&self) -> Arc<dyn CommentRepository + Send + Sync> {

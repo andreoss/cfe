@@ -3,19 +3,20 @@ use crate::backend::Backend;
 use crate::hasher::Argon2Hasher;
 use app::{
     AbuseError, AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError,
-    CreatePollError, CreateTopicError, DeleteError, EditError, EnforcementError, ListTopicsError,
-    MarkReadError, PollResults, PostCommentError, ReactionSummary, RegisterError, SetPostscoreError,
-    SignInError, UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark,
-    ban_user, block_address, cast_vote, change_password, clear_avatar, clear_reaction,
-    confirm_activation, confirm_email_change, count_unread, create_poll, create_session,
-    create_topic, delete_comment, delete_topic, deregister, edit_comment, edit_topic,
-    enforce_posting, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block,
-    lift_ban, list_address_blocks, list_bookmarked_topics, list_comments, list_notifications,
-    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, poll_results,
-    post_comment, promote_to_moderator, react, recent_activity, record_post, register,
+    CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
+    EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults, PostCommentError,
+    ReactionSummary, RegisterError, SetPostscoreError, SignInError, UpdateBioError, VoteError,
+    acknowledge_warnings, active_ban, add_bookmark, ban_user, block_address, cast_vote,
+    change_password, clear_avatar, clear_reaction, commit_topic, confirm_activation,
+    confirm_email_change, count_unread, create_group, create_poll, create_session, create_topic,
+    delete_comment, delete_topic, deregister, edit_comment, edit_topic, enforce_posting,
+    get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
+    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
+    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, move_topic,
+    poll_results, post_comment, promote_to_moderator, react, recent_activity, record_post, register,
     remove_bookmark, request_activation, request_email_change, request_password_reset,
     reset_password, search, set_avatar, set_postscore, sign_in, sign_out as end_session,
-    stop_ignoring, summarize_reactions, update_bio, warn_user,
+    stop_ignoring, summarize_reactions, uncommit_topic, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -25,7 +26,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
-    Address, Avatar, AvatarError, Bio, Body, CommentId, ContentItem, Email, Page,
+    Address, Avatar, AvatarError, Bio, Body, CommentId, ContentItem, Email, GroupId, Page,
     Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, Session,
     SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
 };
@@ -84,18 +85,29 @@ pub struct SectionResponse {
     pub title: String,
 }
 
+#[derive(Serialize)]
+pub struct GroupResponse {
+    pub id: String,
+    pub section_slug: String,
+    pub name: String,
+    pub slug: String,
+}
+
 #[derive(Deserialize)]
 pub struct CreateTopicRequest {
     pub title: String,
     pub body: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct TopicResponse {
     pub id: String,
     pub section_slug: String,
+    pub group_slug: Option<String>,
     pub title: String,
     pub body: String,
     pub tags: Vec<String>,
@@ -407,9 +419,20 @@ async fn topic_response(
         .created_at()
         .format(&Rfc3339)
         .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?;
+    let group_slug = match topic.group_id() {
+        Some(group_id) => {
+            let groups = state.backend.groups();
+            groups
+                .find_by_id(group_id)
+                .await
+                .map(|g| g.slug().as_str().to_owned())
+        }
+        None => None,
+    };
     Ok(Json(TopicResponse {
         id: topic.id().as_uuid().to_string(),
         section_slug: section.slug().as_str().to_owned(),
+        group_slug,
         title: topic.title().as_str().to_owned(),
         body: topic.body().as_str().to_owned(),
         tags: topic
@@ -444,6 +467,7 @@ pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<Se
 pub async fn list_topics_handler(
     State(state): State<AppState>,
     Path(slug): Path<String>,
+    OptionalUser(current): OptionalUser,
     axum::extract::Query(params): axum::extract::Query<PageParams>,
 ) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let slug = Slug::parse(&slug)
@@ -451,7 +475,8 @@ pub async fn list_topics_handler(
     let page = to_page(&params)?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug, page)
+    let include_pending = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
+    let list = list_topics(&*sections, &*topics, &slug, page, include_pending)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
@@ -487,6 +512,23 @@ pub async fn create_topic_handler(
     }
     let sections = state.backend.sections();
     let topics = state.backend.topics();
+    let groups = state.backend.groups();
+    let group_id: Option<GroupId> = match &body.group {
+        Some(group_slug) => {
+            let group_slug = Slug::parse(group_slug)
+                .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid group slug"))?;
+            let section = sections
+                .find_by_slug(&slug)
+                .await
+                .ok_or_else(|| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section"))?;
+            let group = groups
+                .find_by_slug(section.id(), &group_slug)
+                .await
+                .ok_or_else(|| error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"))?;
+            Some(group.id())
+        }
+        None => None,
+    };
     let author = current.id();
     let topic = create_topic(
         &*sections,
@@ -497,6 +539,7 @@ pub async fn create_topic_handler(
         title,
         topic_body,
         tags,
+        group_id,
         now,
     )
     .await
@@ -513,29 +556,180 @@ pub async fn create_topic_handler(
 pub async fn get_topic_handler(
     State(state): State<AppState>,
     Path(id): Path<uuid::Uuid>,
+    OptionalUser(current): OptionalUser,
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topic_id = domain::TopicId::new(id);
     let topics = state.backend.topics();
-    let topic = get_topic(&*topics, domain::TopicId::new(id))
+    let is_moderator = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
+    let mut topic = get_topic(&*topics, topic_id, is_moderator)
         .await
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+    if topic.is_pending() && !is_moderator {
+        if let Some(user) = current.as_ref() {
+            if topic.author_id() == user.id() {
+                topic = get_topic(&*topics, topic_id, true)
+                    .await
+                    .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+            } else {
+                return Err(error(StatusCode::NOT_FOUND, "topic not found"));
+            }
+        } else {
+            return Err(error(StatusCode::NOT_FOUND, "topic not found"));
+        }
+    }
     topic_response(&state, &topic).await
 }
 
 pub async fn list_topics_by_tag_handler(
     State(state): State<AppState>,
     Path(tag): Path<String>,
+    OptionalUser(current): OptionalUser,
     axum::extract::Query(params): axum::extract::Query<PageParams>,
 ) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let page = to_page(&params)?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag, page).await;
+    let include_pending = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
+    let list = list_topics_by_tag(&*topics, &tag, page, include_pending).await;
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
     }
     Ok(Json(paged(&list, responses)))
+}
+
+#[derive(Deserialize)]
+pub struct CreateGroupRequest {
+    pub name: String,
+    pub slug: String,
+}
+
+#[derive(Deserialize)]
+pub struct MoveTopicRequest {
+    pub group: String,
+}
+
+pub async fn create_group_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<CreateGroupRequest>,
+) -> Result<Json<GroupResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let name = Title::parse(&body.name)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid name"))?;
+    let group_slug = Slug::parse(&body.slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid slug"))?;
+    let sections = state.backend.sections();
+    let groups = state.backend.groups();
+    let group = create_group(
+        &*sections,
+        &*groups,
+        domain::GroupId::new(uuid::Uuid::new_v4()),
+        &slug,
+        name,
+        group_slug,
+        &current,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        CreateGroupError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+        CreateGroupError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
+        CreateGroupError::SlugTaken => error(StatusCode::CONFLICT, "slug already used"),
+    })?;
+    Ok(Json(GroupResponse {
+        id: group.id().as_uuid().to_string(),
+        section_slug: slug.as_str().to_owned(),
+        name: group.name().as_str().to_owned(),
+        slug: group.slug().as_str().to_owned(),
+    }))
+}
+
+pub async fn list_groups_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<Vec<GroupResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let sections = state.backend.sections();
+    let groups = state.backend.groups();
+    let section = sections
+        .find_by_slug(&slug)
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "section not found"))?;
+    let list = list_groups(&*groups, section.id()).await;
+    Ok(Json(
+        list.into_iter()
+            .map(|g| GroupResponse {
+                id: g.id().as_uuid().to_string(),
+                section_slug: slug.as_str().to_owned(),
+                name: g.name().as_str().to_owned(),
+                slug: g.slug().as_str().to_owned(),
+            })
+            .collect(),
+    ))
+}
+
+pub async fn commit_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = commit_topic(&*topics, &current, domain::TopicId::new(id))
+        .await
+        .map_err(|e| match e {
+            CommitTopicError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+            CommitTopicError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
+        })?;
+    topic_response(&state, &topic).await
+}
+
+pub async fn uncommit_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = uncommit_topic(&*topics, &current, domain::TopicId::new(id))
+        .await
+        .map_err(|e| match e {
+            CommitTopicError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+            CommitTopicError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
+        })?;
+    topic_response(&state, &topic).await
+}
+
+pub async fn move_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<MoveTopicRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let group_slug = Slug::parse(&body.group)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid group slug"))?;
+    let topics = state.backend.topics();
+    let groups = state.backend.groups();
+    let topic = topics
+        .find_by_id(domain::TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+    let group = groups
+        .find_by_slug(topic.section_id(), &group_slug)
+        .await
+        .ok_or_else(|| error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"))?;
+    let topic = move_topic(&*topics, &*groups, &current, domain::TopicId::new(id), group.id())
+        .await
+        .map_err(|e| match e {
+            MoveTopicError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+            MoveTopicError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
+            MoveTopicError::GroupNotFound => error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"),
+            MoveTopicError::WrongSection => error(StatusCode::UNPROCESSABLE_ENTITY, "group in another section"),
+        })?;
+    topic_response(&state, &topic).await
 }
 
 async fn comment_response(
@@ -1804,7 +1998,7 @@ pub async fn section_feed_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug, feed_page())
+    let list = list_topics(&*sections, &*topics, &slug, feed_page(), false)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
@@ -1824,7 +2018,7 @@ pub async fn tag_feed_handler(
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag, feed_page()).await;
+    let list = list_topics_by_tag(&*topics, &tag, feed_page(), false).await;
     let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         tag.as_str(),

@@ -4,6 +4,7 @@ mod avatar;
 mod bookmark;
 mod comment;
 mod enforcement;
+mod group;
 mod mail_token;
 mod notification;
 mod poll;
@@ -17,9 +18,9 @@ mod user;
 use crate::backend::Backend;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
-    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
+    PollRepository, ReactionRepository, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository, UserRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -59,6 +60,10 @@ impl Backend for MySqlBackend {
 
     fn topics(&self) -> Arc<dyn TopicRepository + Send + Sync> {
         Arc::new(topic::MySqlTopicRepository::new(self.pool.clone()))
+    }
+
+    fn groups(&self) -> Arc<dyn GroupRepository + Send + Sync> {
+        Arc::new(group::MySqlGroupRepository::new(self.pool.clone()))
     }
 
     fn comments(&self) -> Arc<dyn CommentRepository + Send + Sync> {

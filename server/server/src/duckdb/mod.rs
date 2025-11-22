@@ -6,6 +6,7 @@ mod bookmark;
 mod comment;
 mod conn;
 mod enforcement;
+mod group;
 mod mail_token;
 mod notification;
 mod poll;

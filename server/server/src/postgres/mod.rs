@@ -3,6 +3,7 @@ use crate::activity_repository::PgActivityRepository;
 use crate::avatar_repository::PgAvatarRepository;
 use crate::backend::Backend;
 use crate::bookmark_repository::PgBookmarkRepository;
+use crate::group_repository::PgGroupRepository;
 use crate::comment_repository::PgCommentRepository;
 use crate::enforcement_repository::PgEnforcementRepository;
 use crate::mail_token_repository::PgMailTokenRepository;
@@ -16,9 +17,9 @@ use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
-    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
+    PollRepository, ReactionRepository, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository, UserRepository,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -58,6 +59,10 @@ impl Backend for PostgresBackend {
 
     fn topics(&self) -> Arc<dyn TopicRepository + Send + Sync> {
         Arc::new(PgTopicRepository::new(self.pool.clone()))
+    }
+
+    fn groups(&self) -> Arc<dyn GroupRepository + Send + Sync> {
+        Arc::new(PgGroupRepository::new(self.pool.clone()))
     }
 
     fn comments(&self) -> Arc<dyn CommentRepository + Send + Sync> {

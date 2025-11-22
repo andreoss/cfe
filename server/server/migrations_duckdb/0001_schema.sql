@@ -24,6 +24,13 @@ CREATE TABLE sections (
     title VARCHAR NOT NULL,
     topics_score INTEGER NOT NULL DEFAULT -9999
 );
+CREATE TABLE groups (
+    id UUID PRIMARY KEY,
+    section_id UUID NOT NULL,
+    name VARCHAR NOT NULL,
+    slug VARCHAR NOT NULL,
+    UNIQUE (section_id, slug)
+);
 CREATE TABLE topics (
     id UUID PRIMARY KEY,
     section_id UUID NOT NULL,
@@ -36,7 +43,9 @@ CREATE TABLE topics (
     deleted_by UUID,
     deleted_at TIMESTAMPTZ,
     edited_by UUID,
-    edited_at TIMESTAMPTZ
+    edited_at TIMESTAMPTZ,
+    group_id UUID,
+    pending BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE topic_tags (

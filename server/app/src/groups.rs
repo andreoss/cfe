@@ -17,7 +17,7 @@ pub async fn create_group(
     name: Title,
     slug: Slug,
     moderator: &User,
-    now: OffsetDateTime,
+    _now: OffsetDateTime,
 ) -> Result<Group, CreateGroupError> {
     if !moderator.role().is_moderator() {
         return Err(CreateGroupError::NotAuthorized);
