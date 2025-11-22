@@ -81,6 +81,16 @@ impl UserRepository for FakeUserRepo {
     async fn count(&self) -> u64 {
         self.users.lock().unwrap().len() as u64
     }
+
+    async fn find_at_or_below_score(&self, score: i32) -> Vec<User> {
+        self.users
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| u.score().value() <= score)
+            .cloned()
+            .collect()
+    }
 }
 
 pub struct FakeHasher;

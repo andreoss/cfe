@@ -174,4 +174,13 @@ impl UserRepository for DuckUserRepository {
             .await;
         count as u64
     }
+
+    async fn find_at_or_below_score(&self, score: i32) -> Vec<User> {
+        load_users(
+            &self.db,
+            format!("SELECT {USER_COLUMNS} FROM users WHERE score <= ?"),
+            vec![Value::Int(score)],
+        )
+        .await
+    }
 }

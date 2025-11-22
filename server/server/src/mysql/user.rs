@@ -134,4 +134,17 @@ impl UserRepository for MySqlUserRepository {
             .expect("query count users");
         count as u64
     }
+
+    async fn find_at_or_below_score(&self, score: i32) -> Vec<User> {
+        sqlx::query_as::<_, UserRow>(&format!(
+            "SELECT {USER_COLUMNS} FROM users WHERE score <= ?"
+        ))
+        .bind(score)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query users at or below score")
+        .into_iter()
+        .map(to_user)
+        .collect()
+    }
 }

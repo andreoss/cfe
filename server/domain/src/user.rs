@@ -12,6 +12,14 @@ impl UserId {
     pub fn as_uuid(&self) -> uuid::Uuid {
         self.0
     }
+
+    pub fn scheduled_work() -> Self {
+        Self(uuid::Uuid::nil())
+    }
+
+    pub fn is_scheduled_work(&self) -> bool {
+        self.0.is_nil()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -17,6 +17,7 @@ pub trait UserRepository {
     async fn save(&self, user: &User);
     async fn update(&self, user: &User);
     async fn count(&self) -> u64;
+    async fn find_at_or_below_score(&self, score: i32) -> Vec<User>;
 }
 
 pub trait PasswordHasher {

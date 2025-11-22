@@ -135,4 +135,17 @@ impl UserRepository for PgUserRepository {
             .expect("query count users");
         count as u64
     }
+
+    async fn find_at_or_below_score(&self, score: i32) -> Vec<User> {
+        sqlx::query_as::<_, Row>(
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE score <= $1",
+        )
+        .bind(score)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query users at or below score")
+        .into_iter()
+        .map(to_user)
+        .collect()
+    }
 }
