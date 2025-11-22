@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -46,7 +46,6 @@ async function loadWarnings() {
 
 onMounted(() => {
   loadWarnings()
-  loadBlocks()
 })
 
 const blocks = ref<AddressBlock[]>([])
@@ -67,6 +66,14 @@ async function loadBlocks() {
   }
   blocks.value = result.value
 }
+
+watch(
+  () => auth.currentUser,
+  () => {
+    loadBlocks()
+  },
+  { immediate: true },
+)
 
 async function onBlock() {
   blockError.value = ''

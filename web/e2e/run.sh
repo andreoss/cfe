@@ -54,20 +54,33 @@ esac
 
 VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
 
-(cd "$ROOT/server" && \
-  DATABASE_URL="$DATABASE_URL" \
-  BIND_ADDR="127.0.0.1:$API_PORT" \
-  MAIL_TRANSPORT=log \
-  MAIL_LOG="$MAIL_LOG" \
-  RATE_LIMIT_MAX="${RATE_LIMIT_MAX:-100000}" \
-  SLOW_MODE_SCORE_FLOOR="${SLOW_MODE_SCORE_FLOOR:--1000}" \
-  cargo run -p server) &
-SERVER_PID=$!
+start_api() {
+  (cd "$ROOT/server" && \
+    DATABASE_URL="$DATABASE_URL" \
+    BIND_ADDR="127.0.0.1:$API_PORT" \
+    MAIL_TRANSPORT=log \
+    MAIL_LOG="$MAIL_LOG" \
+    RATE_LIMIT_MAX="${1:-100000}" \
+    SLOW_MODE_SCORE_FLOOR="${2:--1000}" \
+    SLOW_MODE_INTERVAL_SECONDS="${3:-120}" \
+    cargo run -p server) &
+  SERVER_PID=$!
+  until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" \
+    -X POST -H 'Content-Type: application/json' -d '{}'; do sleep 1; done
+}
+
+restart_api() {
+  kill "$SERVER_PID" 2>/dev/null || true
+  pkill -f "target/[d]ebug/server" 2>/dev/null || true
+  while curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sections"; do sleep 1; done
+  start_api "$@"
+}
+
+start_api "${RATE_LIMIT_MAX:-100000}" "${SLOW_MODE_SCORE_FLOOR:--1000}"
 
 npx serve -s -l "$WEB_PORT" dist &
 WEB_PID=$!
 
-until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" -X POST -H 'Content-Type: application/json' -d '{}'; do sleep 1; done
 until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
 
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
@@ -78,6 +91,10 @@ export E2E_ROOT_PASS="correcthorse"
 curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: application/json' \
   -d "{\"username\":\"$E2E_ROOT_USER\",\"email\":\"root@example.com\",\"password\":\"$E2E_ROOT_PASS\"}"
 if [ -n "$SPEC" ]; then
+  case "$SPEC" in
+    abuse-slow) restart_api 100000 1000 3600 ;;
+    abuse-rate) restart_api 2 -1000 120 ;;
+  esac
   node "e2e/$SPEC.mjs"
   exit 0
 fi
@@ -104,3 +121,10 @@ node e2e/paging.mjs
 node e2e/recovery.mjs
 node e2e/reputation.mjs
 node e2e/groups.mjs
+node e2e/permissions.mjs
+
+restart_api 100000 1000 3600
+node e2e/abuse-slow.mjs
+
+restart_api 2 -1000 120
+node e2e/abuse-rate.mjs
