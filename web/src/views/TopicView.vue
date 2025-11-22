@@ -17,11 +17,16 @@ import {
   createPoll,
   votePoll,
   setPostscore,
+  commitTopic,
+  uncommitTopic,
+  moveTopic,
+  getGroups,
   type Topic,
   type Comment,
   type PageInfo,
   type ReactionSummary,
   type Poll,
+  type Group,
 } from '@/api/client'
 import CommentThread from '@/components/CommentThread.vue'
 import PollPanel from '@/components/PollPanel.vue'
@@ -68,6 +73,37 @@ const bookmarkError = ref('')
 const reactions = ref<ReactionSummary | null>(null)
 const poll = ref<Poll | null>(null)
 const creatingPoll = ref(false)
+const groups = ref<Group[]>([])
+const moveTarget = ref('')
+const moderationError = ref('')
+
+async function loadGroups() {
+  if (!auth.currentUser) return
+  const result = await getGroups(topic.value?.sectionSlug ?? props.id)
+  if (result.ok) groups.value = result.value
+}
+
+async function onCommit() {
+  moderationError.value = ''
+  const result = await commitTopic(props.id)
+  if (result.ok) topic.value = result.value
+  else moderationError.value = result.error
+}
+
+async function onUncommit() {
+  moderationError.value = ''
+  const result = await uncommitTopic(props.id)
+  if (result.ok) topic.value = result.value
+  else moderationError.value = result.error
+}
+
+async function onMove() {
+  moderationError.value = ''
+  if (!moveTarget.value) return
+  const result = await moveTopic(props.id, moveTarget.value)
+  if (result.ok) topic.value = result.value
+  else moderationError.value = result.error
+}
 const pollQuestion = ref('')
 const pollOptions = ref(['', '', ''])
 const pollError = ref('')
@@ -182,6 +218,7 @@ async function load() {
   await loadBookmarkState()
   await loadReactions()
   await loadPoll()
+  if (auth.currentUser?.role === 'moderator') await loadGroups()
 }
 
 async function loadComments() {
@@ -285,6 +322,9 @@ async function onUnsave() {
         by <UserAvatar :username="topic.authorUsername" />
         <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
         in <RouterLink :to="`/s/${topic.sectionSlug}`">{{ topic.sectionSlug }}</RouterLink>
+        <template v-if="topic.groupSlug">
+          / <RouterLink :to="`/s/${topic.sectionSlug}/g/${topic.groupSlug}`">{{ topic.groupSlug }}</RouterLink>
+        </template>
       </p>
       <p v-if="topic.tags.length > 0">
         Tags:
@@ -367,6 +407,21 @@ async function onUnsave() {
             <option v-for="opt in postscoreOptions" :key="opt.value" :value="opt.value" :selected="topic.postscore === opt.value">{{ opt.label }}</option>
           </select>
           <p v-if="postscoreError" role="alert">{{ postscoreError }}</p>
+        </details>
+        <details v-if="!deleting && !editing">
+          <summary>Premoderation</summary>
+          <p v-if="topic.pending">Awaiting moderation.</p>
+          <button v-if="topic.pending" type="button" @click="onCommit">Commit topic</button>
+          <button v-else type="button" @click="onUncommit">Return to queue</button>
+          <label>
+            Move to group
+            <select v-model="moveTarget" name="move-group">
+              <option value="">— none —</option>
+              <option v-for="g in groups" :key="g.id" :value="g.slug">{{ g.name }}</option>
+            </select>
+          </label>
+          <button type="button" :disabled="!moveTarget" @click="onMove">Move</button>
+          <p v-if="moderationError" role="alert">{{ moderationError }}</p>
         </details>
       </template>
 

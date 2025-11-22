@@ -42,6 +42,18 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/s/:slug/groups',
+      name: 'groups',
+      component: () => import('../views/GroupsView.vue'),
+      props: true,
+    },
+    {
+      path: '/s/:slug/g/:group',
+      name: 'group',
+      component: () => import('../views/GroupView.vue'),
+      props: true,
+    },
+    {
       path: '/t/:id',
       name: 'topic',
       component: () => import('../views/TopicView.vue'),

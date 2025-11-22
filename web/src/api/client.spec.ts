@@ -60,6 +60,11 @@ import {
   listAddressBlocks,
   blockAddress,
   liftAddressBlock,
+  getGroups,
+  createGroup,
+  commitTopic,
+  uncommitTopic,
+  moveTopic,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -444,6 +449,105 @@ describe('createTopic', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await createTopic('general', 'Hello', 'World', [])
     expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('groups and premoderation', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('createTopic sends the group slug in the body', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust'], 'announcements')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({
+          title: 'Hello',
+          body: 'World',
+          tags: ['rust'],
+          group: 'announcements',
+        }),
+      }),
+    )
+  })
+
+  it('maps group_slug and pending from the topic response', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        rawTopic({ id: '7', group_slug: 'announcements', pending: true }),
+      ),
+    )
+    const result = await getTopic('7')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.groupSlug).toBe('announcements')
+    expect(result.ok && result.value.pending).toBe(true)
+  })
+
+  it('getGroups lists groups in a section', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { id: 'g1', section_slug: 'general', name: 'Announcements', slug: 'announcements' },
+      ]),
+    )
+    const result = await getGroups('general')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value[0]?.slug).toBe('announcements')
+  })
+
+  it('createGroup posts the name and slug', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Announcements',
+        slug: 'announcements',
+      }),
+    )
+    await createGroup('general', 'Announcements', 'announcements')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({ name: 'Announcements', slug: 'announcements' }),
+      }),
+    )
+  })
+
+  it('commitTopic posts to the commit endpoint', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', pending: false })))
+    const result = await commitTopic('7')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/commit',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok && result.value.pending).toBe(false)
+  })
+
+  it('uncommitTopic posts to the uncommit endpoint', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', pending: true })))
+    const result = await uncommitTopic('7')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/uncommit',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok && result.value.pending).toBe(true)
+  })
+
+  it('moveTopic posts the target group', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', group_slug: 'news' })))
+    const result = await moveTopic('7', 'news')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/move',
+      expect.objectContaining({ body: JSON.stringify({ group: 'news' }) }),
+    )
+    expect(result.ok && result.value.groupSlug).toBe('news')
   })
 })
 

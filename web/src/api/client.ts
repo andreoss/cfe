@@ -1,9 +1,16 @@
 export type User = { id: string; username: string; role: string }
 export type Profile = { id: string; username: string; bio: string | null; score: number }
 export type Section = { slug: string; title: string }
+export type Group = {
+  id: string
+  sectionSlug: string
+  name: string
+  slug: string
+}
 export type Topic = {
   id: string
   sectionSlug: string
+  groupSlug: string | null
   title: string
   body: string
   tags: string[]
@@ -13,6 +20,7 @@ export type Topic = {
   deletedReason: string | null
   edited: boolean
   postscore: number
+  pending: boolean
 }
 export type Comment = {
   id: string
@@ -206,6 +214,7 @@ export function updateBio(bio: string): Promise<ApiResult<Profile>> {
 type RawTopic = {
   id: string
   section_slug: string
+  group_slug: string | null
   title: string
   body: string
   tags: string[]
@@ -215,12 +224,14 @@ type RawTopic = {
   deleted_reason: string | null
   edited: boolean
   postscore: number
+  pending: boolean
 }
 
 function toTopic(raw: RawTopic): Topic {
   return {
     id: raw.id,
     sectionSlug: raw.section_slug,
+    groupSlug: raw.group_slug,
     title: raw.title,
     body: raw.body,
     tags: raw.tags,
@@ -230,6 +241,7 @@ function toTopic(raw: RawTopic): Topic {
     deletedReason: raw.deleted_reason,
     edited: raw.edited,
     postscore: raw.postscore,
+    pending: raw.pending,
   }
 }
 
@@ -253,11 +265,12 @@ export async function createTopic(
   title: string,
   body: string,
   tags: string[],
+  group?: string,
 ): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body, tags }),
+    body: JSON.stringify({ title, body, tags, group }),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
@@ -265,6 +278,45 @@ export async function createTopic(
 export async function getTopic(id: string): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}`, {
     method: 'GET',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export function getGroups(slug: string): Promise<ApiResult<Group[]>> {
+  return request<Group[]>(`/api/sections/${encodeURIComponent(slug)}/groups`, { method: 'GET' })
+}
+
+export async function createGroup(
+  slug: string,
+  name: string,
+  groupSlug: string,
+): Promise<ApiResult<Group>> {
+  return request<Group>(`/api/sections/${encodeURIComponent(slug)}/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, slug: groupSlug }),
+  })
+}
+
+export async function commitTopic(id: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/commit`, {
+    method: 'POST',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function uncommitTopic(id: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/uncommit`, {
+    method: 'POST',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function moveTopic(id: string, group: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group }),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
