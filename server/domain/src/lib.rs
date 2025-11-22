@@ -1,6 +1,7 @@
 mod avatar;
 mod address;
 mod bio;
+mod group;
 mod bookmark;
 mod body;
 mod comment;
@@ -36,6 +37,7 @@ pub use body::{Body, BodyError};
 pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use enforcement::{AddressBlock, Ban, Warning, WarningId};
+pub use group::{Group, GroupId};
 pub use mail_token::{MailToken, MailTokenId, TokenPurpose, TokenPurposeError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};

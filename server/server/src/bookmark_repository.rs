@@ -57,6 +57,8 @@ fn to_topic(row: TopicRow) -> Topic {
         row.created_at,
         deleted,
         edited,
+        None,
+        false,
     )
 }
 

@@ -69,6 +69,8 @@ fn to_topic(row: Row) -> Topic {
         row.created_at,
         deleted,
         edited,
+        None,
+        false,
     )
     .with_postscore(PostScore::from_db(row.postscore))
 }

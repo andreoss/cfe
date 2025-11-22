@@ -99,6 +99,8 @@ impl SearchRepository for PgSearchRepository {
                 row.created_at,
                 None,
                 revision(row.edited_by, row.edited_at),
+                None,
+                false,
             ));
             ranked.push((row.rank, hit));
         }

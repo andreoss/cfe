@@ -166,6 +166,8 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         row.created_at,
         deleted,
         edited,
+        None,
+        false,
     )
     .with_postscore(PostScore::from_db(row.postscore))
 }

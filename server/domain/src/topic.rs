@@ -1,4 +1,4 @@
-use crate::{Body, Deletion, PostScore, Revision, SectionId, TagSet, Title, UserId};
+use crate::{Body, Deletion, GroupId, PostScore, Revision, SectionId, TagSet, Title, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,6 +26,8 @@ pub struct Topic {
     deleted: Option<Deletion>,
     edited: Option<Revision>,
     postscore: PostScore,
+    group_id: Option<GroupId>,
+    pending: bool,
 }
 
 impl Topic {
@@ -49,6 +51,8 @@ impl Topic {
             deleted: None,
             edited: None,
             postscore: PostScore::default(),
+            group_id: None,
+            pending: false,
         }
     }
 
@@ -62,6 +66,8 @@ impl Topic {
         created_at: OffsetDateTime,
         deleted: Option<Deletion>,
         edited: Option<Revision>,
+        group_id: Option<GroupId>,
+        pending: bool,
     ) -> Self {
         Self {
             id,
@@ -74,6 +80,8 @@ impl Topic {
             deleted,
             edited,
             postscore: PostScore::default(),
+            group_id,
+            pending,
         }
     }
 
@@ -145,6 +153,32 @@ impl Topic {
     pub fn with_postscore(&self, postscore: PostScore) -> Self {
         Self {
             postscore,
+            ..self.clone()
+        }
+    }
+
+    pub fn group_id(&self) -> Option<GroupId> {
+        self.group_id
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.pending
+    }
+
+    pub fn is_committed(&self) -> bool {
+        !self.pending
+    }
+
+    pub fn with_group(&self, group_id: Option<GroupId>) -> Self {
+        Self {
+            group_id,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_pending(&self, pending: bool) -> Self {
+        Self {
+            pending,
             ..self.clone()
         }
     }
@@ -256,5 +290,42 @@ mod tests {
         assert_eq!(deleted.id(), topic.id());
         assert!(deleted.is_deleted());
         assert_eq!(deleted.deletion(), Some(&deletion));
+    }
+
+    #[test]
+    fn a_topic_starts_ungrouped_and_committed() {
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert_eq!(topic.group_id(), None);
+        assert!(topic.is_committed());
+        assert!(!topic.is_pending());
+    }
+
+    #[test]
+    fn with_group_and_with_pending_change_only_those_fields() {
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let group_id = GroupId::new(uuid::Uuid::max());
+        let grouped = topic.with_group(Some(group_id)).with_pending(true);
+        assert_eq!(grouped.group_id(), Some(group_id));
+        assert!(grouped.is_pending());
+        assert!(!grouped.is_committed());
+        assert_eq!(grouped.id(), topic.id());
+        assert_eq!(topic.group_id(), None);
+        assert!(topic.is_committed());
     }
 }
