@@ -36,6 +36,7 @@ mod tests {
     use super::*;
     use crate::test_support::FakeUserRepo;
     use domain::{Email, Score, User, Username};
+    use time::OffsetDateTime;
 
     fn author_id() -> UserId {
         UserId::new(uuid::Uuid::nil())
@@ -58,6 +59,7 @@ mod tests {
                 None,
                 None,
                 Score::initial(),
+                OffsetDateTime::UNIX_EPOCH,
             ))
             .await;
         users

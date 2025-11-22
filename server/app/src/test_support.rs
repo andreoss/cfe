@@ -91,6 +91,16 @@ impl UserRepository for FakeUserRepo {
             .cloned()
             .collect()
     }
+
+    async fn find_unconfirmed_before(&self, cutoff: OffsetDateTime) -> Vec<User> {
+        self.users
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| !u.is_confirmed() && u.registered_at() < cutoff)
+            .cloned()
+            .collect()
+    }
 }
 
 pub struct FakeHasher;

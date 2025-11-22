@@ -1,5 +1,7 @@
 use crate::duckdb::conn::Db;
-use crate::duckdb::topic::{opt_text, opt_time, read_opt_time, read_uuid, uuid_value};
+use crate::duckdb::topic::{
+    opt_text, opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
+};
 use app::UserRepository;
 use domain::{Bio, Email, Role, Score, User, UserId, Username};
 use duckdb::Row;
@@ -16,8 +18,8 @@ impl DuckUserRepository {
     }
 }
 
-const USER_COLUMNS: &str =
-    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score";
+const USER_COLUMNS: &str = "id, username, email, password_hash, bio, role, deregistered_at, \
+     confirmed_at, score, created_at";
 
 struct UserRow {
     id: uuid::Uuid,
@@ -29,6 +31,7 @@ struct UserRow {
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
     score: i32,
+    created_at: OffsetDateTime,
 }
 
 fn user_row(row: &Row) -> UserRow {
@@ -42,6 +45,7 @@ fn user_row(row: &Row) -> UserRow {
         deregistered_at: read_opt_time(row, 6),
         confirmed_at: read_opt_time(row, 7),
         score: row.get(8).expect("read score"),
+        created_at: read_time(row, 9),
     }
 }
 
@@ -74,6 +78,7 @@ fn to_user(row: UserRow) -> User {
         row.deregistered_at,
         row.confirmed_at,
         Score::of(row.score),
+        row.created_at,
     )
 }
 
@@ -180,6 +185,17 @@ impl UserRepository for DuckUserRepository {
             &self.db,
             format!("SELECT {USER_COLUMNS} FROM users WHERE score <= ?"),
             vec![Value::Int(score)],
+        )
+        .await
+    }
+
+    async fn find_unconfirmed_before(&self, cutoff: OffsetDateTime) -> Vec<User> {
+        load_users(
+            &self.db,
+            format!(
+                "SELECT {USER_COLUMNS} FROM users WHERE confirmed_at IS NULL AND created_at < ?"
+            ),
+            vec![time_to_value(cutoff)],
         )
         .await
     }

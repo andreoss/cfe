@@ -13,8 +13,8 @@ impl MySqlUserRepository {
     }
 }
 
-const USER_COLUMNS: &str =
-    "id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score";
+const USER_COLUMNS: &str = "id, username, email, password_hash, bio, role, deregistered_at, \
+     confirmed_at, score, created_at";
 
 #[derive(FromRow)]
 struct UserRow {
@@ -27,6 +27,7 @@ struct UserRow {
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
     score: i32,
+    created_at: OffsetDateTime,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -58,6 +59,7 @@ fn to_user(row: UserRow) -> User {
         row.deregistered_at,
         row.confirmed_at,
         Score::of(row.score),
+        row.created_at,
     )
 }
 
@@ -143,6 +145,19 @@ impl UserRepository for MySqlUserRepository {
         .fetch_all(&self.pool)
         .await
         .expect("query users at or below score")
+        .into_iter()
+        .map(to_user)
+        .collect()
+    }
+
+    async fn find_unconfirmed_before(&self, cutoff: OffsetDateTime) -> Vec<User> {
+        sqlx::query_as::<_, UserRow>(&format!(
+            "SELECT {USER_COLUMNS} FROM users WHERE confirmed_at IS NULL AND created_at < ?"
+        ))
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query unconfirmed users before cutoff")
         .into_iter()
         .map(to_user)
         .collect()

@@ -24,6 +24,7 @@ struct Row {
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
     score: i32,
+    created_at: OffsetDateTime,
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -55,6 +56,7 @@ fn to_user(row: Row) -> User {
         row.deregistered_at,
         row.confirmed_at,
         Score::of(row.score),
+        row.created_at,
     )
 }
 
@@ -62,7 +64,7 @@ fn to_user(row: Row) -> User {
 impl UserRepository for PgUserRepository {
     async fn find_by_username(&self, username: &Username) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE username = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score, created_at FROM users WHERE username = $1",
         )
         .bind(username.as_str())
         .fetch_optional(&self.pool)
@@ -73,7 +75,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_email(&self, email: &Email) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE email = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score, created_at FROM users WHERE email = $1",
         )
         .bind(email.as_str())
         .fetch_optional(&self.pool)
@@ -84,7 +86,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_id(&self, id: UserId) -> Option<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE id = $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score, created_at FROM users WHERE id = $1",
         )
         .bind(id.as_uuid())
         .fetch_optional(&self.pool)
@@ -138,12 +140,25 @@ impl UserRepository for PgUserRepository {
 
     async fn find_at_or_below_score(&self, score: i32) -> Vec<User> {
         sqlx::query_as::<_, Row>(
-            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score FROM users WHERE score <= $1",
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score, created_at FROM users WHERE score <= $1",
         )
         .bind(score)
         .fetch_all(&self.pool)
         .await
         .expect("query users at or below score")
+        .into_iter()
+        .map(to_user)
+        .collect()
+    }
+
+    async fn find_unconfirmed_before(&self, cutoff: OffsetDateTime) -> Vec<User> {
+        sqlx::query_as::<_, Row>(
+            "SELECT id, username, email, password_hash, bio, role, deregistered_at, confirmed_at, score, created_at FROM users WHERE confirmed_at IS NULL AND created_at < $1",
+        )
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query unconfirmed users before cutoff")
         .into_iter()
         .map(to_user)
         .collect()

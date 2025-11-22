@@ -33,6 +33,7 @@ pub struct User {
     deregistered_at: Option<OffsetDateTime>,
     confirmed_at: Option<OffsetDateTime>,
     score: Score,
+    registered_at: OffsetDateTime,
 }
 
 impl User {
@@ -47,6 +48,7 @@ impl User {
             deregistered_at: None,
             confirmed_at: None,
             score: Score::initial(),
+            registered_at: OffsetDateTime::UNIX_EPOCH,
         }
     }
 
@@ -60,6 +62,7 @@ impl User {
         deregistered_at: Option<OffsetDateTime>,
         confirmed_at: Option<OffsetDateTime>,
         score: Score,
+        registered_at: OffsetDateTime,
     ) -> Self {
         Self {
             id,
@@ -71,6 +74,18 @@ impl User {
             deregistered_at,
             confirmed_at,
             score,
+            registered_at,
+        }
+    }
+
+    pub fn registered_at(&self) -> OffsetDateTime {
+        self.registered_at
+    }
+
+    pub fn registered(&self, at: OffsetDateTime) -> Self {
+        Self {
+            registered_at: at,
+            ..self.clone()
         }
     }
 

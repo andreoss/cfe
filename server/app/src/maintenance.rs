@@ -1,6 +1,6 @@
 use crate::ports::{EnforcementRepository, UserRepository};
 use domain::{Ban, Reason, SCORE_MIN, UserId};
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
 pub const FALLEN_REASON: &str = "standing fell to the floor";
 
@@ -32,6 +32,25 @@ pub async fn settle_standing(
 
 pub fn default_floor() -> i32 {
     SCORE_MIN
+}
+
+pub const CONFIRMATION_WINDOW: Duration = Duration::days(7);
+
+pub async fn drop_unconfirmed(
+    users: &(impl UserRepository + ?Sized),
+    window: Duration,
+    now: OffsetDateTime,
+) -> Vec<UserId> {
+    let cutoff = now - window;
+    let mut dropped = Vec::new();
+    for user in users.find_unconfirmed_before(cutoff).await {
+        if !user.is_active() || user.is_confirmed() {
+            continue;
+        }
+        users.update(&user.deregistered(now)).await;
+        dropped.push(user.id());
+    }
+    dropped
 }
 
 #[cfg(test)]
@@ -119,5 +138,52 @@ mod tests {
     #[tokio::test]
     async fn the_default_floor_is_the_lowest_a_score_can_reach() {
         assert_eq!(default_floor(), SCORE_MIN);
+    }
+
+    fn day(n: i64) -> OffsetDateTime {
+        OffsetDateTime::UNIX_EPOCH + Duration::days(n)
+    }
+
+    #[tokio::test]
+    async fn drops_a_registration_never_confirmed_past_the_window() {
+        let stale = user(10, "stale_01", 0).registered(day(0));
+        let (users, _) = repos(vec![stale.clone()]).await;
+        let dropped = drop_unconfirmed(&users, Duration::days(7), day(8)).await;
+        assert_eq!(dropped, vec![stale.id()]);
+        let after = users.find_by_id(stale.id()).await.unwrap();
+        assert!(!after.is_active());
+    }
+
+    #[tokio::test]
+    async fn keeps_a_registration_still_inside_the_window() {
+        let fresh = user(11, "fresh_01", 0).registered(day(5));
+        let (users, _) = repos(vec![fresh.clone()]).await;
+        let dropped = drop_unconfirmed(&users, Duration::days(7), day(8)).await;
+        assert!(dropped.is_empty());
+        assert!(users.find_by_id(fresh.id()).await.unwrap().is_active());
+    }
+
+    #[tokio::test]
+    async fn keeps_a_confirmed_account_however_old() {
+        let confirmed = user(12, "conf_01", 0).registered(day(0)).confirmed(day(1));
+        let (users, _) = repos(vec![confirmed.clone()]).await;
+        let dropped = drop_unconfirmed(&users, Duration::days(7), day(90)).await;
+        assert!(dropped.is_empty());
+        assert!(users.find_by_id(confirmed.id()).await.unwrap().is_active());
+    }
+
+    #[tokio::test]
+    async fn dropping_twice_reports_once() {
+        let stale = user(13, "twice_02", 0).registered(day(0));
+        let (users, _) = repos(vec![stale]).await;
+        let first = drop_unconfirmed(&users, Duration::days(7), day(8)).await;
+        let second = drop_unconfirmed(&users, Duration::days(7), day(9)).await;
+        assert_eq!(first.len(), 1);
+        assert!(second.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_confirmation_window_is_a_week() {
+        assert_eq!(CONFIRMATION_WINDOW, Duration::days(7));
     }
 }
