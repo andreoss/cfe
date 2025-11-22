@@ -57,6 +57,9 @@ import {
   requestEmailChange,
   confirmEmailChange,
   activateAccount,
+  listAddressBlocks,
+  blockAddress,
+  liftAddressBlock,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -1859,6 +1862,121 @@ describe('promoteUser', () => {
     )
     const result = await promoteUser('alice_01')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('listAddressBlocks', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps raw blocks to camelCase', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, [
+        { addr: '203.0.113.7', reason: 'spam', blocked_at: '2026-09-03T00:00:00Z', until: null },
+      ]),
+    )
+    const result = await listAddressBlocks()
+    expect(result.ok && result.value[0]).toEqual({
+      addr: '203.0.113.7',
+      reason: 'spam',
+      blockedAt: '2026-09-03T00:00:00Z',
+      until: null,
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/address-blocks'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error when not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await listAddressBlocks()
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('blockAddress', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the block and returns the mapped block', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, {
+        addr: '203.0.113.7',
+        reason: 'spam',
+        blocked_at: '2026-09-03T00:00:00Z',
+        until: '2026-09-10T00:00:00Z',
+      }),
+    )
+    const result = await blockAddress('203.0.113.7', 'spam', 7)
+    expect(result.ok && result.value).toEqual({
+      addr: '203.0.113.7',
+      reason: 'spam',
+      blockedAt: '2026-09-03T00:00:00Z',
+      until: '2026-09-10T00:00:00Z',
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/address-blocks'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ addr: '203.0.113.7', reason: 'spam', days: 7 }),
+      }),
+    )
+  })
+
+  it('sends a null days when the block is for good', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, {
+        addr: '203.0.113.7',
+        reason: 'spam',
+        blocked_at: '2026-09-03T00:00:00Z',
+        until: null,
+      }),
+    )
+    await blockAddress('203.0.113.7', 'spam', null)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/address-blocks'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ addr: '203.0.113.7', reason: 'spam', days: null }),
+      }),
+    )
+  })
+
+  it('returns an error on a non-ok response', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'invalid address' }))
+    const result = await blockAddress('nope', 'spam', null)
+    expect(result).toEqual({ ok: false, error: 'invalid address' })
+  })
+})
+
+describe('liftAddressBlock', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('deletes the block and returns void', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await liftAddressBlock('203.0.113.7')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/address-blocks/203.0.113.7'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error on failure', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not found' }))
+    const result = await liftAddressBlock('203.0.113.7')
+    expect(result).toEqual({ ok: false, error: 'not found' })
   })
 })
 

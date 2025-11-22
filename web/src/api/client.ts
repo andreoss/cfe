@@ -51,6 +51,12 @@ export type Warning = {
   acknowledged: boolean
 }
 export type Ban = { reason: string; until: string | null }
+export type AddressBlock = {
+  addr: string
+  reason: string
+  blockedAt: string
+  until: string | null
+}
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 export type PageInfo = {
   number: number
@@ -733,4 +739,46 @@ export async function promoteUser(username: string): Promise<ApiResult<User>> {
   return request<User>(`/api/users/${encodeURIComponent(username)}/promote`, {
     method: 'POST',
   })
+}
+
+type RawAddressBlock = {
+  addr: string
+  reason: string
+  blocked_at: string
+  until: string | null
+}
+
+function toAddressBlock(raw: RawAddressBlock): AddressBlock {
+  return {
+    addr: raw.addr,
+    reason: raw.reason,
+    blockedAt: raw.blocked_at,
+    until: raw.until,
+  }
+}
+
+function blockPath(addr: string): string {
+  return `/api/address-blocks/${encodeURIComponent(addr)}`
+}
+
+export async function listAddressBlocks(): Promise<ApiResult<AddressBlock[]>> {
+  const result = await request<RawAddressBlock[]>('/api/address-blocks', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toAddressBlock) } : result
+}
+
+export async function blockAddress(
+  addr: string,
+  reason: string,
+  days: number | null,
+): Promise<ApiResult<AddressBlock>> {
+  const result = await request<RawAddressBlock>('/api/address-blocks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ addr, reason, days }),
+  })
+  return result.ok ? { ok: true, value: toAddressBlock(result.value) } : result
+}
+
+export async function liftAddressBlock(addr: string): Promise<ApiResult<void>> {
+  return request<void>(blockPath(addr), { method: 'DELETE' })
 }

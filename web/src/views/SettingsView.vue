@@ -9,7 +9,11 @@ import {
   acknowledgeWarnings,
   requestEmailChange,
   confirmEmailChange,
+  listAddressBlocks,
+  blockAddress,
+  liftAddressBlock,
   type Warning,
+  type AddressBlock,
 } from '@/api/client'
 
 const auth = useAuthStore()
@@ -40,7 +44,53 @@ async function loadWarnings() {
   warnings.value = result.value
 }
 
-onMounted(loadWarnings)
+onMounted(() => {
+  loadWarnings()
+  loadBlocks()
+})
+
+const blocks = ref<AddressBlock[]>([])
+const blockError = ref('')
+const blockAddr = ref('')
+const blockReason = ref('')
+const blockDays = ref('')
+
+const isModerator = () => auth.currentUser?.role === 'moderator'
+
+async function loadBlocks() {
+  if (!isModerator()) return
+  blockError.value = ''
+  const result = await listAddressBlocks()
+  if (!result.ok) {
+    blockError.value = result.error
+    return
+  }
+  blocks.value = result.value
+}
+
+async function onBlock() {
+  blockError.value = ''
+  const days = blockDays.value.trim() === '' ? null : Number(blockDays.value)
+  const result = await blockAddress(blockAddr.value.trim(), blockReason.value.trim(), days)
+  if (!result.ok) {
+    blockError.value = result.error
+    return
+  }
+  blockAddr.value = ''
+  blockReason.value = ''
+  blockDays.value = ''
+  await loadBlocks()
+}
+
+async function onLiftBlock(addr: string) {
+  blockError.value = ''
+  const result = await liftAddressBlock(addr)
+  if (!result.ok) {
+    blockError.value = result.error
+    return
+  }
+  await loadBlocks()
+}
 
 async function onAcknowledge() {
   warningsError.value = ''
@@ -116,6 +166,32 @@ async function onDeregister() {
           <button type="button" @click="onAcknowledge">Acknowledge warnings</button>
         </template>
         <p v-if="warningsError" role="alert">{{ warningsError }}</p>
+      </section>
+      <section v-if="isModerator()">
+        <h2>Blocked addresses</h2>
+        <ul>
+          <li v-for="block in blocks" :key="block.addr">
+            {{ block.addr }} – {{ block.reason }}
+            <button type="button" @click="onLiftBlock(block.addr)">Lift</button>
+          </li>
+        </ul>
+        <p v-if="blocks.length === 0">No blocked addresses.</p>
+        <p v-if="blockError" role="alert">{{ blockError }}</p>
+        <form @submit.prevent="onBlock">
+          <label>
+            Address
+            <input v-model="blockAddr" name="block-addr" type="text" />
+          </label>
+          <label>
+            Reason
+            <input v-model="blockReason" name="block-reason" type="text" />
+          </label>
+          <label>
+            Days
+            <input v-model="blockDays" name="block-days" type="number" min="0" />
+          </label>
+          <button type="submit">Block address</button>
+        </form>
       </section>
       <form @submit.prevent="onChangeEmail">
         <label>
