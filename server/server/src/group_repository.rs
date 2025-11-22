@@ -34,16 +34,14 @@ fn to_group(row: Row) -> Group {
 #[async_trait::async_trait]
 impl GroupRepository for PgGroupRepository {
     async fn save(&self, group: &Group) {
-        sqlx::query(
-            "INSERT INTO groups (id, section_id, name, slug) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(group.id().as_uuid())
-        .bind(group.section_id().as_uuid())
-        .bind(group.name().as_str())
-        .bind(group.slug().as_str())
-        .execute(&self.pool)
-        .await
-        .expect("insert group");
+        sqlx::query("INSERT INTO groups (id, section_id, name, slug) VALUES ($1, $2, $3, $4)")
+            .bind(group.id().as_uuid())
+            .bind(group.section_id().as_uuid())
+            .bind(group.name().as_str())
+            .bind(group.slug().as_str())
+            .execute(&self.pool)
+            .await
+            .expect("insert group");
     }
 
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {

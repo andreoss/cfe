@@ -6,6 +6,7 @@ use crate::duckdb::bookmark::DuckBookmarkRepository;
 use crate::duckdb::comment::DuckCommentRepository;
 use crate::duckdb::conn::{Db, path_from_url};
 use crate::duckdb::enforcement::DuckEnforcementRepository;
+use crate::duckdb::group::DuckGroupRepository;
 use crate::duckdb::mail_token::DuckMailTokenRepository;
 use crate::duckdb::notification::DuckNotificationRepository;
 use crate::duckdb::poll::DuckPollRepository;
@@ -21,7 +22,6 @@ use app::{
     PollRepository, ReactionRepository, SearchRepository, SectionRepository, SessionRepository,
     TopicRepository, UserRepository,
 };
-use crate::duckdb::group::DuckGroupRepository;
 use std::sync::Arc;
 
 pub struct DuckDbBackend {

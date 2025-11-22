@@ -32,25 +32,25 @@ fn to_group(row: GroupRow) -> Group {
 #[async_trait::async_trait]
 impl GroupRepository for MySqlGroupRepository {
     async fn save(&self, group: &Group) {
-        sqlx::query(
-            "INSERT INTO `groups` (id, section_id, name, slug) VALUES (?, ?, ?, ?)",
-        )
-        .bind(group.id().as_uuid())
-        .bind(group.section_id().as_uuid())
-        .bind(group.name().as_str())
-        .bind(group.slug().as_str())
-        .execute(&self.pool)
-        .await
-        .expect("insert group");
+        sqlx::query("INSERT INTO `groups` (id, section_id, name, slug) VALUES (?, ?, ?, ?)")
+            .bind(group.id().as_uuid())
+            .bind(group.section_id().as_uuid())
+            .bind(group.name().as_str())
+            .bind(group.slug().as_str())
+            .execute(&self.pool)
+            .await
+            .expect("insert group");
     }
 
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {
-        sqlx::query_as::<_, GroupRow>("SELECT id, section_id, name, slug FROM `groups` WHERE id = ?")
-            .bind(id.as_uuid())
-            .fetch_optional(&self.pool)
-            .await
-            .expect("query find group by id")
-            .map(to_group)
+        sqlx::query_as::<_, GroupRow>(
+            "SELECT id, section_id, name, slug FROM `groups` WHERE id = ?",
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .expect("query find group by id")
+        .map(to_group)
     }
 
     async fn find_by_slug(&self, section_id: SectionId, slug: &Slug) -> Option<Group> {

@@ -123,11 +123,7 @@ impl AbuseRepository for PgAbuseRepository {
     }
 
     async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("begin record post");
+        let mut tx = self.pool.begin().await.expect("begin record post");
         sqlx::query(
             "INSERT INTO post_events (subject, kind, user_id, created_at) VALUES ($1, $2, $3, $4)",
         )

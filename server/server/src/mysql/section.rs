@@ -32,30 +32,36 @@ fn to_section(row: SectionRow) -> Section {
 #[async_trait::async_trait]
 impl SectionRepository for MySqlSectionRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
-        sqlx::query_as::<_, SectionRow>("SELECT id, slug, title, topics_score FROM sections WHERE slug = ?")
-            .bind(slug.as_str())
-            .fetch_optional(&self.pool)
-            .await
-            .expect("query find_by_slug")
-            .map(to_section)
+        sqlx::query_as::<_, SectionRow>(
+            "SELECT id, slug, title, topics_score FROM sections WHERE slug = ?",
+        )
+        .bind(slug.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .expect("query find_by_slug")
+        .map(to_section)
     }
 
     async fn find_by_id(&self, id: SectionId) -> Option<Section> {
-        sqlx::query_as::<_, SectionRow>("SELECT id, slug, title, topics_score FROM sections WHERE id = ?")
-            .bind(id.as_uuid())
-            .fetch_optional(&self.pool)
-            .await
-            .expect("query find_by_id")
-            .map(to_section)
+        sqlx::query_as::<_, SectionRow>(
+            "SELECT id, slug, title, topics_score FROM sections WHERE id = ?",
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .expect("query find_by_id")
+        .map(to_section)
     }
 
     async fn list(&self) -> Vec<Section> {
-        sqlx::query_as::<_, SectionRow>("SELECT id, slug, title, topics_score FROM sections ORDER BY title")
-            .fetch_all(&self.pool)
-            .await
-            .expect("query list sections")
-            .into_iter()
-            .map(to_section)
-            .collect()
+        sqlx::query_as::<_, SectionRow>(
+            "SELECT id, slug, title, topics_score FROM sections ORDER BY title",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("query list sections")
+        .into_iter()
+        .map(to_section)
+        .collect()
     }
 }

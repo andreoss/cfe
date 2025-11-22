@@ -32,12 +32,14 @@ fn to_section(row: Row) -> Section {
 #[async_trait::async_trait]
 impl SectionRepository for PgSectionRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
-        sqlx::query_as::<_, Row>("SELECT id, slug, title, topics_score FROM sections WHERE slug = $1")
-            .bind(slug.as_str())
-            .fetch_optional(&self.pool)
-            .await
-            .expect("query find_by_slug")
-            .map(to_section)
+        sqlx::query_as::<_, Row>(
+            "SELECT id, slug, title, topics_score FROM sections WHERE slug = $1",
+        )
+        .bind(slug.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .expect("query find_by_slug")
+        .map(to_section)
     }
 
     async fn find_by_id(&self, id: SectionId) -> Option<Section> {
@@ -50,12 +52,14 @@ impl SectionRepository for PgSectionRepository {
     }
 
     async fn list(&self) -> Vec<Section> {
-        sqlx::query_as::<_, Row>("SELECT id, slug, title, topics_score FROM sections ORDER BY title")
-            .fetch_all(&self.pool)
-            .await
-            .expect("query list sections")
-            .into_iter()
-            .map(to_section)
-            .collect()
+        sqlx::query_as::<_, Row>(
+            "SELECT id, slug, title, topics_score FROM sections ORDER BY title",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("query list sections")
+        .into_iter()
+        .map(to_section)
+        .collect()
     }
 }

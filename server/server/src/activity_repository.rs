@@ -87,8 +87,8 @@ impl ActivityRepository for PgActivityRepository {
                     created_at,
                     None,
                     revision(row.edited_by, row.edited_at),
-                None,
-                false,
+                    None,
+                    false,
                 )),
             ));
         }

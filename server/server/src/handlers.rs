@@ -4,19 +4,20 @@ use crate::hasher::Argon2Hasher;
 use app::{
     AbuseError, AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError,
     CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
-    EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults, PostCommentError,
-    ReactionSummary, RegisterError, SetPostscoreError, SignInError, UpdateBioError, VoteError,
-    acknowledge_warnings, active_ban, add_bookmark, ban_user, block_address, cast_vote,
-    change_password, clear_avatar, clear_reaction, commit_topic, confirm_activation,
-    confirm_email_change, count_unread, create_group, create_poll, create_session, create_topic,
-    delete_comment, delete_topic, deregister, edit_comment, edit_topic, enforce_posting,
-    get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
-    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
-    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, move_topic,
-    poll_results, post_comment, promote_to_moderator, react, recent_activity, record_post, register,
-    remove_bookmark, request_activation, request_email_change, request_password_reset,
-    reset_password, search, set_avatar, set_postscore, sign_in, sign_out as end_session,
-    stop_ignoring, summarize_reactions, uncommit_topic, update_bio, warn_user,
+    EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
+    PostCommentError, ReactionSummary, RegisterError, SetPostscoreError, SignInError,
+    UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user,
+    block_address, cast_vote, change_password, clear_avatar, clear_reaction, commit_topic,
+    confirm_activation, confirm_email_change, count_unread, create_group, create_poll,
+    create_session, create_topic, delete_comment, delete_topic, deregister, edit_comment,
+    edit_topic, enforce_posting, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
+    lift_address_block, lift_ban, list_address_blocks, list_bookmarked_topics, list_comments,
+    list_groups, list_notifications, list_sections, list_topics, list_topics_by_tag, list_warnings,
+    mark_read, move_topic, poll_results, post_comment, promote_to_moderator, react,
+    recent_activity, record_post, register, remove_bookmark, request_activation,
+    request_email_change, request_password_reset, reset_password, search, set_avatar,
+    set_postscore, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions,
+    uncommit_topic, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -710,14 +711,22 @@ pub async fn move_topic_handler(
         .find_by_slug(topic.section_id(), &group_slug)
         .await
         .ok_or_else(|| error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"))?;
-    let topic = move_topic(&*topics, &*groups, &current, domain::TopicId::new(id), group.id())
-        .await
-        .map_err(|e| match e {
-            MoveTopicError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
-            MoveTopicError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
-            MoveTopicError::GroupNotFound => error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"),
-            MoveTopicError::WrongSection => error(StatusCode::UNPROCESSABLE_ENTITY, "group in another section"),
-        })?;
+    let topic = move_topic(
+        &*topics,
+        &*groups,
+        &current,
+        domain::TopicId::new(id),
+        group.id(),
+    )
+    .await
+    .map_err(|e| match e {
+        MoveTopicError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        MoveTopicError::NotAuthorized => error(StatusCode::FORBIDDEN, "not a moderator"),
+        MoveTopicError::GroupNotFound => error(StatusCode::UNPROCESSABLE_ENTITY, "group not found"),
+        MoveTopicError::WrongSection => {
+            error(StatusCode::UNPROCESSABLE_ENTITY, "group in another section")
+        }
+    })?;
     topic_response(&state, &topic).await
 }
 
@@ -1540,9 +1549,7 @@ pub async fn list_address_blocks_handler(
                 .blocked_at()
                 .format(&Rfc3339)
                 .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
-            until: block
-                .until()
-                .and_then(|u| u.format(&Rfc3339).ok()),
+            until: block.until().and_then(|u| u.format(&Rfc3339).ok()),
         });
     }
     Ok(Json(responses))
@@ -1570,9 +1577,7 @@ pub async fn block_address_handler(
             .blocked_at()
             .format(&Rfc3339)
             .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
-        until: block
-            .until()
-            .and_then(|u| u.format(&Rfc3339).ok()),
+        until: block.until().and_then(|u| u.format(&Rfc3339).ok()),
     }))
 }
 
@@ -1987,11 +1992,17 @@ pub async fn section_feed_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug, feed_page(), app::Visibility::anonymous())
-        .await
-        .map_err(|e| match e {
-            ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
-        })?;
+    let list = list_topics(
+        &*sections,
+        &*topics,
+        &slug,
+        feed_page(),
+        app::Visibility::anonymous(),
+    )
+    .await
+    .map_err(|e| match e {
+        ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
+    })?;
     let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         slug.as_str(),

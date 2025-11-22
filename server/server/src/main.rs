@@ -1,3 +1,4 @@
+mod abuse_repository;
 mod activity_repository;
 mod auth;
 mod avatar_repository;
@@ -6,9 +7,8 @@ mod bookmark_repository;
 mod comment_repository;
 mod duckdb;
 mod enforcement_repository;
-mod abuse_repository;
-mod group_repository;
 mod feed;
+mod group_repository;
 mod handlers;
 mod hasher;
 mod mail;

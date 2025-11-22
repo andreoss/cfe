@@ -1,6 +1,6 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    read_time, read_opt_time, read_uuid, time_to_value, opt_time, uuid_value,
+    opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
 };
 use app::AbuseRepository;
 use domain::{Address, AddressBlock, UserId};
@@ -157,9 +157,7 @@ impl AbuseRepository for DuckAbuseRepository {
         self.db
             .call(move |conn| {
                 let mut stmt = conn
-                    .prepare(
-                        "SELECT MAX(created_at) FROM post_events WHERE subject = ?",
-                    )
+                    .prepare("SELECT MAX(created_at) FROM post_events WHERE subject = ?")
                     .expect("prepare last post");
                 let at: Option<OffsetDateTime> = stmt
                     .query_row([Value::Text(subject)], |row| Ok(read_opt_time(row, 0)))
