@@ -6,6 +6,7 @@ mod bookmarks;
 mod comments;
 mod editing;
 mod enforcement;
+mod groups;
 mod lifecycle;
 mod moderation;
 mod notifications;
@@ -51,7 +52,7 @@ pub use polls::{
 pub use paging::Paged;
 pub use ports::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, MailTokenRepository, Mailer, Message,
+    EnforcementRepository, GroupRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TokenDigest,
     TopicRepository, UserRepository,
@@ -64,6 +65,8 @@ pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
 pub use sign_in::{SignInError, sign_in};
 pub use topics::{
-    CreateTopicError, ListTopicsError, SetPostscoreError, create_topic, get_topic,
-    list_sections, list_topics, list_topics_by_tag, set_postscore,
+    CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,
+    commit_topic, create_topic, get_topic, list_sections, list_topics, list_topics_by_tag,
+    move_topic, set_postscore, uncommit_topic,
 };
+pub use groups::{CreateGroupError, create_group, list_groups};

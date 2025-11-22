@@ -1,6 +1,6 @@
 use domain::{
-    Address, AddressBlock, Avatar, Ban, Bookmark, Comment, CommentId, Email, MailToken,
-    Notification, NotificationId, Page, Poll,
+    Address, AddressBlock, Avatar, Ban, Bookmark, Comment, CommentId, Email, Group, GroupId,
+    MailToken, Notification, NotificationId, Page, Poll,
     PollId,
     PollOptionId,
     Query, Reaction,
@@ -49,6 +49,14 @@ pub trait TopicRepository {
     async fn count_by_section(&self, section_id: SectionId) -> u64;
     async fn list_by_tag(&self, tag: &Slug, page: Page) -> Vec<Topic>;
     async fn count_by_tag(&self, tag: &Slug) -> u64;
+}
+
+#[async_trait::async_trait]
+pub trait GroupRepository {
+    async fn save(&self, group: &Group);
+    async fn find_by_id(&self, id: GroupId) -> Option<Group>;
+    async fn find_by_slug(&self, section_id: SectionId, slug: &Slug) -> Option<Group>;
+    async fn list_by_section(&self, section_id: SectionId) -> Vec<Group>;
 }
 
 #[async_trait::async_trait]

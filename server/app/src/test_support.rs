@@ -6,7 +6,7 @@ use crate::ports::{
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     TokenDigest,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
-    UserRepository,
+    UserRepository, GroupRepository,
 };
 use domain::{
     Address, AddressBlock, Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, MailToken,
@@ -15,6 +15,7 @@ use domain::{
     Reaction, Warning,
     ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
+    Group, GroupId,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -269,6 +270,59 @@ impl TopicRepository for FakeTopicRepo {
         if let Some(existing) = topics.iter_mut().find(|t| t.id() == topic.id()) {
             *existing = topic.clone();
         }
+    }
+}
+
+pub struct FakeGroupRepo {
+    groups: Mutex<Vec<Group>>,
+}
+
+impl FakeGroupRepo {
+    pub fn new() -> Self {
+        Self {
+            groups: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn with(group: Group) -> Self {
+        Self {
+            groups: Mutex::new(vec![group]),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl GroupRepository for FakeGroupRepo {
+    async fn save(&self, group: &Group) {
+        self.groups.lock().unwrap().push(group.clone());
+    }
+
+    async fn find_by_id(&self, id: GroupId) -> Option<Group> {
+        self.groups
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|g| g.id() == id)
+            .cloned()
+    }
+
+    async fn find_by_slug(&self, section_id: SectionId, slug: &Slug) -> Option<Group> {
+        self.groups
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|g| g.section_id() == section_id && g.slug() == slug)
+            .cloned()
+    }
+
+    async fn list_by_section(&self, section_id: SectionId) -> Vec<Group> {
+        self.groups
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|g| g.section_id() == section_id)
+            .cloned()
+            .collect()
     }
 }
 
