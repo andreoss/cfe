@@ -1,5 +1,6 @@
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
+import { publishPending } from './support.mjs'
 
 const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:58081'
 const apiUrl = process.env.API_URL ?? 'http://127.0.0.1:58080'
@@ -63,6 +64,7 @@ async function run() {
       marker,
     )
     assert(made.length === 27 && cookie, 'enough topics should be created to force paging')
+    await publishPending(27)
     const topicId = made[0]
 
     await driver.get(`${baseUrl}/s/general`)

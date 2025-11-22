@@ -16,7 +16,7 @@ cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
   [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
   pkill -f "target/[d]ebug/server" 2>/dev/null || true
-  pkill -f "serve -l $WEB_PORT" 2>/dev/null || true
+  pkill -f "serve -s -l $WEB_PORT" 2>/dev/null || true
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -36,7 +36,8 @@ case "$VENDOR" in
     docker run -d --name "$CONTAINER" \
       -e MYSQL_ROOT_PASSWORD=dev -e MYSQL_DATABASE=tcbs \
       -p "$DB_PORT:3306" mysql:8.0-debian >/dev/null
-    until docker exec "$CONTAINER" mysql -uroot -pdev -e 'select 1' tcbs >/dev/null 2>&1; do
+    until docker exec "$CONTAINER" \
+      mysql -h 127.0.0.1 --protocol=TCP -uroot -pdev -e 'select 1' tcbs >/dev/null 2>&1; do
       sleep 2
     done
     DATABASE_URL="mysql://root:dev@127.0.0.1:$DB_PORT/tcbs"
@@ -58,6 +59,8 @@ VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
   BIND_ADDR="127.0.0.1:$API_PORT" \
   MAIL_TRANSPORT=log \
   MAIL_LOG="$MAIL_LOG" \
+  RATE_LIMIT_MAX="${RATE_LIMIT_MAX:-100000}" \
+  SLOW_MODE_SCORE_FLOOR="${SLOW_MODE_SCORE_FLOOR:--1000}" \
   cargo run -p server) &
 SERVER_PID=$!
 
@@ -100,3 +103,4 @@ node e2e/activity.mjs
 node e2e/paging.mjs
 node e2e/recovery.mjs
 node e2e/reputation.mjs
+node e2e/groups.mjs

@@ -331,6 +331,8 @@ async function onUnsave() {
         <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
       </p>
 
+      <p v-if="topic.pending" role="status" class="queued">Awaiting moderation.</p>
+
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
@@ -410,7 +412,6 @@ async function onUnsave() {
         </details>
         <details v-if="!deleting && !editing">
           <summary>Premoderation</summary>
-          <p v-if="topic.pending">Awaiting moderation.</p>
           <button v-if="topic.pending" type="button" @click="onCommit">Commit topic</button>
           <button v-else type="button" @click="onUncommit">Return to queue</button>
           <label>

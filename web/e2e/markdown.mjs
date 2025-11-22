@@ -1,5 +1,6 @@
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
+import { publishTopic } from './support.mjs'
 
 const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:58081'
 const chromedriverPath = process.env.CHROMEDRIVER_PATH
@@ -46,6 +47,11 @@ async function run() {
       .findElement(By.name('body'))
       .sendKeys(`Check **bold** and a [link](https://example.com) here.`)
     await driver.findElement(By.xpath("//button[text()='Post']")).click()
+    await publishTopic(topicTitle)
+    await driver.findElement(By.linkText('Home')).click()
+    await driver.wait(until.urlIs(`${baseUrl}/`), 5000)
+    await driver.findElement(By.linkText('General')).click()
+    await driver.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
     await driver.wait(until.elementLocated(By.linkText(topicTitle)), 5000)
     await driver.findElement(By.linkText(topicTitle)).click()
     await driver.wait(until.elementLocated(By.css('.body')), 5000)

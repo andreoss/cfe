@@ -1,6 +1,6 @@
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
-import { promoteViaRoot } from './support.mjs'
+import { promoteViaRoot, publishTopic } from './support.mjs'
 
 const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:58081'
 const chromedriverPath = process.env.CHROMEDRIVER_PATH
@@ -100,6 +100,8 @@ async function run() {
     await driver.findElement(By.name('title')).sendKeys(`Reputation ${suffix}`)
     await driver.findElement(By.name('body')).sendKeys('A topic that will earn and lose.')
     await driver.findElement(By.xpath("//button[text()='Post']")).click()
+    await publishTopic(`Reputation ${suffix}`)
+    await driver.get(`${baseUrl}/s/general`)
     const link = await driver.wait(
       until.elementLocated(By.xpath(`//a[normalize-space(.)='Reputation ${suffix}']`)),
       10000,
