@@ -1,11 +1,12 @@
 use crate::handlers::{AppState, ErrorResponse};
 use app::{active_ban, current_user as resolve_current_user};
 use axum::Json;
-use axum::extract::FromRequestParts;
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum_extra::extract::cookie::CookieJar;
-use domain::{SessionToken, User};
+use domain::{Address, SessionToken, User};
+use std::net::SocketAddr;
 use time::OffsetDateTime;
 
 pub const SESSION_COOKIE: &str = "session";
@@ -60,5 +61,36 @@ impl FromRequestParts<AppState> for OptionalUser {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         Ok(OptionalUser(resolve(parts, state).await))
+    }
+}
+
+pub struct ClientIp(pub Option<Address>);
+
+fn forwarded_address(parts: &Parts) -> Option<Address> {
+    if let Some(value) = parts
+        .headers
+        .get("x-forwarded-for")
+        .or_else(|| parts.headers.get("x-real-ip"))
+    {
+        let first = value.to_str().ok()?.split(',').next()?.trim();
+        if let Ok(addr) = Address::parse(first) {
+            return Some(addr);
+        }
+    }
+    parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string())
+        .and_then(|ip| Address::parse(&ip).ok())
+}
+
+impl FromRequestParts<AppState> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(ClientIp(forwarded_address(parts)))
     }
 }

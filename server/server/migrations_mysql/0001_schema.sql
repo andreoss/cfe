@@ -195,3 +195,21 @@ CREATE TABLE mail_tokens (
 );
 
 CREATE INDEX mail_tokens_user_idx ON mail_tokens (user_id, purpose);
+
+CREATE TABLE address_blocks (
+    addr VARCHAR(64) PRIMARY KEY,
+    moderator_id BINARY(16) NOT NULL,
+    reason TEXT NOT NULL,
+    blocked_at TIMESTAMP(6) NOT NULL,
+    until TIMESTAMP(6) NULL,
+    FOREIGN KEY (moderator_id) REFERENCES users (id)
+);
+
+CREATE TABLE post_events (
+    subject VARCHAR(64) NOT NULL,
+    kind VARCHAR(16) NOT NULL,
+    user_id BINARY(16) NULL,
+    created_at TIMESTAMP(6) NOT NULL
+);
+
+CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);

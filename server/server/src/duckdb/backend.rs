@@ -1,4 +1,5 @@
 use crate::backend::Backend;
+use crate::duckdb::abuse::DuckAbuseRepository;
 use crate::duckdb::activity::DuckActivityRepository;
 use crate::duckdb::avatar::DuckAvatarRepository;
 use crate::duckdb::bookmark::DuckBookmarkRepository;
@@ -15,7 +16,7 @@ use crate::duckdb::session::DuckSessionRepository;
 use crate::duckdb::topic::DuckTopicRepository;
 use crate::duckdb::user::DuckUserRepository;
 use app::{
-    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
@@ -91,6 +92,10 @@ impl Backend for DuckDbBackend {
 
     fn enforcement(&self) -> Arc<dyn EnforcementRepository + Send + Sync> {
         Arc::new(DuckEnforcementRepository::new(self.db.clone()))
+    }
+
+    fn abuse(&self) -> Arc<dyn AbuseRepository + Send + Sync> {
+        Arc::new(DuckAbuseRepository::new(self.db.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

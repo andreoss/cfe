@@ -6,6 +6,7 @@ mod bookmark_repository;
 mod comment_repository;
 mod duckdb;
 mod enforcement_repository;
+mod abuse_repository;
 mod feed;
 mod handlers;
 mod hasher;
@@ -24,11 +25,12 @@ mod topic_repository;
 
 use axum::Router;
 use axum::http::{Method, header};
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use backend::{Backend, Vendor};
 use handlers::{
-    AppState, create_topic_handler, delete_comment_handler, delete_topic_handler,
-    get_profile_handler, get_topic_handler, list_comments_handler, list_sections_handler,
+    AppState, block_address_handler, create_topic_handler, delete_comment_handler,
+    delete_topic_handler, get_profile_handler, get_topic_handler, lift_address_block_handler,
+    list_address_blocks_handler, list_comments_handler, list_sections_handler,
     list_topics_by_tag_handler, list_topics_handler, post_comment_handler, register_handler,
     set_postscore_handler, sign_in_handler, sign_out_handler, update_bio_handler,
 };
@@ -134,6 +136,14 @@ async fn main() {
                 .post(handlers::ignore_user_handler)
                 .delete(handlers::stop_ignoring_handler),
         )
+        .route(
+            "/api/address-blocks",
+            get(list_address_blocks_handler).post(block_address_handler),
+        )
+        .route(
+            "/api/address-blocks/{addr}",
+            delete(lift_address_block_handler),
+        )
         .route("/api/me/deregister", post(handlers::deregister_handler))
         .route(
             "/api/me/avatar",
@@ -185,5 +195,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind listener");
-    axum::serve(listener, app).await.expect("serve");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("serve");
 }

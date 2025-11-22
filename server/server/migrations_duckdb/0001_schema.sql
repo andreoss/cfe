@@ -168,3 +168,20 @@ CREATE TABLE mail_tokens (
 );
 
 CREATE INDEX mail_tokens_user_idx ON mail_tokens (user_id, purpose);
+
+CREATE TABLE address_blocks (
+    addr VARCHAR PRIMARY KEY,
+    moderator_id UUID NOT NULL,
+    reason VARCHAR NOT NULL,
+    blocked_at TIMESTAMPTZ NOT NULL,
+    until TIMESTAMPTZ
+);
+
+CREATE TABLE post_events (
+    subject VARCHAR NOT NULL,
+    kind VARCHAR NOT NULL,
+    user_id UUID,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);

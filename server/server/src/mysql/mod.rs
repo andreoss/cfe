@@ -1,3 +1,4 @@
+mod abuse;
 mod activity;
 mod avatar;
 mod bookmark;
@@ -15,7 +16,7 @@ mod user;
 
 use crate::backend::Backend;
 use app::{
-    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
@@ -90,6 +91,10 @@ impl Backend for MySqlBackend {
         Arc::new(enforcement::MySqlEnforcementRepository::new(
             self.pool.clone(),
         ))
+    }
+
+    fn abuse(&self) -> Arc<dyn AbuseRepository + Send + Sync> {
+        Arc::new(abuse::MySqlAbuseRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

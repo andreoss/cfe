@@ -1,5 +1,5 @@
 use app::{
-    ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, MailTokenRepository, NotificationRepository, PollRepository,
     ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
     UserRepository,
@@ -18,6 +18,7 @@ pub trait Backend: Send + Sync {
     fn polls(&self) -> Arc<dyn PollRepository + Send + Sync>;
     fn avatars(&self) -> Arc<dyn AvatarRepository + Send + Sync>;
     fn enforcement(&self) -> Arc<dyn EnforcementRepository + Send + Sync>;
+    fn abuse(&self) -> Arc<dyn AbuseRepository + Send + Sync>;
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync>;
     fn activity(&self) -> Arc<dyn ActivityRepository + Send + Sync>;
     fn mail_tokens(&self) -> Arc<dyn MailTokenRepository + Send + Sync>;
