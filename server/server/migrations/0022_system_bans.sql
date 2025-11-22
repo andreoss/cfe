@@ -1,0 +1,1 @@
+ALTER TABLE bans ALTER COLUMN moderator_id DROP NOT NULL;

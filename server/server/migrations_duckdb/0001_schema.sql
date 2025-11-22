@@ -138,7 +138,7 @@ CREATE TABLE avatars (
 
 CREATE TABLE bans (
     user_id UUID PRIMARY KEY,
-    moderator_id UUID NOT NULL,
+    moderator_id UUID NULL,
     reason VARCHAR NOT NULL,
     banned_at TIMESTAMPTZ NOT NULL,
     until TIMESTAMPTZ

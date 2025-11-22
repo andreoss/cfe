@@ -41,6 +41,7 @@ pub struct AppState {
     pub backend: Arc<dyn Backend>,
     pub mailer: Arc<dyn app::Mailer + Send + Sync>,
     pub limits: app::Limits,
+    pub maintenance: app::MaintenanceSettings,
 }
 
 #[derive(Deserialize)]
@@ -1593,6 +1594,38 @@ pub async fn lift_address_block_handler(
         .await
         .map_err(abuse_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct MaintenanceResponse {
+    pub blocked: usize,
+    pub dropped: usize,
+}
+
+pub async fn run_maintenance_now(state: &AppState) -> MaintenanceResponse {
+    let users = state.backend.users();
+    let enforcement = state.backend.enforcement();
+    let report = app::run_maintenance(
+        &*users,
+        &*enforcement,
+        state.maintenance,
+        OffsetDateTime::now_utc(),
+    )
+    .await;
+    MaintenanceResponse {
+        blocked: report.blocked,
+        dropped: report.dropped,
+    }
+}
+
+pub async fn run_maintenance_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<MaintenanceResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !current.role().is_moderator() {
+        return Err(error(StatusCode::FORBIDDEN, "moderator role required"));
+    }
+    Ok(Json(run_maintenance_now(&state).await))
 }
 
 pub async fn promote_handler(

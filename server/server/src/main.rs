@@ -76,6 +76,33 @@ fn limits_from_env() -> app::Limits {
     limits
 }
 
+fn maintenance_from_env() -> app::MaintenanceSettings {
+    let mut settings = app::MaintenanceSettings::default();
+    if let Ok(raw) = std::env::var("MAINTENANCE_SCORE_FLOOR") {
+        if let Ok(value) = raw.parse() {
+            settings.floor = value;
+        }
+    }
+    if let Ok(raw) = std::env::var("CONFIRMATION_WINDOW_SECONDS") {
+        if let Ok(value) = raw.parse() {
+            settings.confirmation_window = time::Duration::seconds(value);
+        }
+    }
+    settings
+}
+
+fn maintenance_interval() -> Option<std::time::Duration> {
+    let seconds: u64 = std::env::var("MAINTENANCE_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(3600);
+    if seconds == 0 {
+        None
+    } else {
+        Some(std::time::Duration::from_secs(seconds))
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -83,7 +110,19 @@ async fn main() {
         backend: connect(&database_url).await,
         mailer: mail::build(),
         limits: limits_from_env(),
+        maintenance: maintenance_from_env(),
     };
+    if let Some(interval) = maintenance_interval() {
+        let scheduled = state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                handlers::run_maintenance_now(&scheduled).await;
+            }
+        });
+    }
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
@@ -179,6 +218,10 @@ async fn main() {
         .route(
             "/api/address-blocks/{addr}",
             delete(lift_address_block_handler),
+        )
+        .route(
+            "/api/maintenance/run",
+            post(handlers::run_maintenance_handler),
         )
         .route("/api/me/deregister", post(handlers::deregister_handler))
         .route(

@@ -15,10 +15,18 @@ impl PgEnforcementRepository {
 
 #[derive(FromRow)]
 struct BanRow {
-    moderator_id: uuid::Uuid,
+    moderator_id: Option<uuid::Uuid>,
     reason: String,
     banned_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+}
+
+fn stored_moderator(id: UserId) -> Option<uuid::Uuid> {
+    if id.is_scheduled_work() {
+        None
+    } else {
+        Some(id.as_uuid())
+    }
 }
 
 #[derive(FromRow)]
@@ -41,7 +49,7 @@ impl EnforcementRepository for PgEnforcementRepository {
              reason = EXCLUDED.reason, banned_at = EXCLUDED.banned_at, until = EXCLUDED.until",
         )
         .bind(user_id.as_uuid())
-        .bind(ban.moderator_id().as_uuid())
+        .bind(stored_moderator(ban.moderator_id()))
         .bind(ban.reason().as_str())
         .bind(ban.banned_at())
         .bind(ban.until())
@@ -59,7 +67,9 @@ impl EnforcementRepository for PgEnforcementRepository {
         .await
         .expect("query ban")?;
         Some(Ban::new(
-            UserId::new(row.moderator_id),
+            row.moderator_id
+                .map(UserId::new)
+                .unwrap_or_else(UserId::scheduled_work),
             Reason::parse(&row.reason).expect("stored reason is valid"),
             row.banned_at,
             row.until,

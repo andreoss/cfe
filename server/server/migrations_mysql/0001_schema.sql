@@ -161,7 +161,7 @@ CREATE TABLE avatars (
 
 CREATE TABLE bans (
     user_id BINARY(16) PRIMARY KEY,
-    moderator_id BINARY(16) NOT NULL,
+    moderator_id BINARY(16) NULL,
     reason TEXT NOT NULL,
     banned_at TIMESTAMP(6) NOT NULL,
     until TIMESTAMP(6) NULL,

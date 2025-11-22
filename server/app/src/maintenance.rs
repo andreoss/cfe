@@ -36,6 +36,41 @@ pub fn default_floor() -> i32 {
 
 pub const CONFIRMATION_WINDOW: Duration = Duration::days(7);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaintenanceSettings {
+    pub floor: i32,
+    pub confirmation_window: Duration,
+}
+
+impl Default for MaintenanceSettings {
+    fn default() -> Self {
+        Self {
+            floor: SCORE_MIN,
+            confirmation_window: CONFIRMATION_WINDOW,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MaintenanceReport {
+    pub blocked: usize,
+    pub dropped: usize,
+}
+
+pub async fn run_maintenance(
+    users: &(impl UserRepository + ?Sized),
+    enforcement: &(impl EnforcementRepository + ?Sized),
+    settings: MaintenanceSettings,
+    now: OffsetDateTime,
+) -> MaintenanceReport {
+    let blocked = settle_standing(users, enforcement, settings.floor, now).await;
+    let dropped = drop_unconfirmed(users, settings.confirmation_window, now).await;
+    MaintenanceReport {
+        blocked: blocked.len(),
+        dropped: dropped.len(),
+    }
+}
+
 pub async fn drop_unconfirmed(
     users: &(impl UserRepository + ?Sized),
     window: Duration,
@@ -44,7 +79,7 @@ pub async fn drop_unconfirmed(
     let cutoff = now - window;
     let mut dropped = Vec::new();
     for user in users.find_unconfirmed_before(cutoff).await {
-        if !user.is_active() || user.is_confirmed() {
+        if !user.is_active() || user.is_confirmed() || user.role().is_moderator() {
             continue;
         }
         users.update(&user.deregistered(now)).await;
@@ -183,7 +218,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn never_drops_a_moderator_who_has_not_confirmed() {
+        let keeper = user(14, "keeper_02", 0)
+            .registered(day(0))
+            .promoted_to_moderator();
+        let (users, _) = repos(vec![keeper.clone()]).await;
+        let dropped = drop_unconfirmed(&users, Duration::days(7), day(90)).await;
+        assert!(dropped.is_empty());
+        assert!(users.find_by_id(keeper.id()).await.unwrap().is_active());
+    }
+
+    #[tokio::test]
     async fn the_confirmation_window_is_a_week() {
         assert_eq!(CONFIRMATION_WINDOW, Duration::days(7));
+    }
+
+    #[tokio::test]
+    async fn one_run_does_both_jobs_and_reports_what_it_did() {
+        let fallen = user(20, "both_01", SCORE_MIN).registered(day(0)).confirmed(day(0));
+        let stale = user(21, "both_02", 0).registered(day(0));
+        let (users, bans) = repos(vec![fallen.clone(), stale.clone()]).await;
+        let report = run_maintenance(
+            &users,
+            &bans,
+            MaintenanceSettings {
+                floor: SCORE_MIN,
+                confirmation_window: Duration::days(7),
+            },
+            day(8),
+        )
+        .await;
+        assert_eq!(report.blocked, 1);
+        assert_eq!(report.dropped, 1);
+        assert!(bans.find_ban(fallen.id()).await.is_some());
+        assert!(!users.find_by_id(stale.id()).await.unwrap().is_active());
+    }
+
+    #[tokio::test]
+    async fn a_second_run_over_settled_data_reports_nothing() {
+        let fallen = user(22, "again_02", SCORE_MIN).registered(day(0)).confirmed(day(0));
+        let (users, bans) = repos(vec![fallen]).await;
+        let settings = MaintenanceSettings::default();
+        run_maintenance(&users, &bans, settings, day(8)).await;
+        let second = run_maintenance(&users, &bans, settings, day(9)).await;
+        assert_eq!(second, MaintenanceReport::default());
     }
 }

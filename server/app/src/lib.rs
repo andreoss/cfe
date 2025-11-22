@@ -47,7 +47,8 @@ pub use lifecycle::{
     request_email_change, request_password_reset, reset_password,
 };
 pub use maintenance::{
-    CONFIRMATION_WINDOW, FALLEN_REASON, default_floor, drop_unconfirmed, settle_standing,
+    CONFIRMATION_WINDOW, FALLEN_REASON, MaintenanceReport, MaintenanceSettings, default_floor,
+    drop_unconfirmed, run_maintenance, settle_standing,
 };
 pub use moderation::{DeleteError, delete_comment, delete_topic};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};

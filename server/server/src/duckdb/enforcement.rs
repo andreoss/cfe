@@ -1,6 +1,7 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
+    opt_time, opt_uuid, read_opt_time, read_opt_uuid, read_time, read_uuid, time_to_value,
+    uuid_value,
 };
 use app::EnforcementRepository;
 use domain::{Ban, Reason, UserId, Warning, WarningId};
@@ -18,10 +19,18 @@ impl DuckEnforcementRepository {
 }
 
 struct BanRow {
-    moderator_id: uuid::Uuid,
+    moderator_id: Option<uuid::Uuid>,
     reason: String,
     banned_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+}
+
+fn stored_moderator(id: UserId) -> Value {
+    if id.is_scheduled_work() {
+        opt_uuid(None)
+    } else {
+        opt_uuid(Some(id.as_uuid()))
+    }
 }
 
 struct WarningRow {
@@ -38,7 +47,7 @@ impl EnforcementRepository for DuckEnforcementRepository {
     async fn save_ban(&self, user_id: UserId, ban: &Ban) {
         let params = vec![
             uuid_value(user_id.as_uuid()),
-            uuid_value(ban.moderator_id().as_uuid()),
+            stored_moderator(ban.moderator_id()),
             Value::Text(ban.reason().as_str().to_owned()),
             time_to_value(ban.banned_at()),
             opt_time(ban.until()),
@@ -67,7 +76,7 @@ impl EnforcementRepository for DuckEnforcementRepository {
                 let mapped = stmt
                     .query_map([uuid_value(id)], |row| {
                         Ok(BanRow {
-                            moderator_id: read_uuid(row, 0),
+                            moderator_id: read_opt_uuid(row, 0),
                             reason: row.get(1).expect("read reason"),
                             banned_at: read_time(row, 2),
                             until: read_opt_time(row, 3),
@@ -79,7 +88,9 @@ impl EnforcementRepository for DuckEnforcementRepository {
             .await;
         let row = rows.into_iter().next()?;
         Some(Ban::new(
-            UserId::new(row.moderator_id),
+            row.moderator_id
+                .map(UserId::new)
+                .unwrap_or_else(UserId::scheduled_work),
             Reason::parse(&row.reason).expect("stored reason is valid"),
             row.banned_at,
             row.until,
