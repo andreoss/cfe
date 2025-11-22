@@ -63,6 +63,7 @@ start_api() {
     RATE_LIMIT_MAX="${1:-100000}" \
     SLOW_MODE_SCORE_FLOOR="${2:--1000}" \
     SLOW_MODE_INTERVAL_SECONDS="${3:-120}" \
+    RATE_LIMIT_WINDOW_SECONDS="${4:-60}" \
     cargo run -p server) &
   SERVER_PID=$!
   until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" \
@@ -93,7 +94,7 @@ curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: applicati
 if [ -n "$SPEC" ]; then
   case "$SPEC" in
     abuse-slow) restart_api 100000 1000 3600 ;;
-    abuse-rate) restart_api 2 -1000 120 ;;
+    abuse-rate) restart_api 2 -1000 120 5 ;;
   esac
   node "e2e/$SPEC.mjs"
   exit 0
@@ -126,5 +127,5 @@ node e2e/permissions.mjs
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs
 
-restart_api 2 -1000 120
+restart_api 2 -1000 120 5
 node e2e/abuse-rate.mjs

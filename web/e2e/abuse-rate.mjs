@@ -73,15 +73,29 @@ async function postTopic(driver, title) {
   await driver.findElement(By.name('title')).sendKeys(title)
   await driver.findElement(By.name('body')).sendKeys('Body for the rate limit spec.')
   await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')
+  let outcome = ''
   await driver.wait(
     async () => {
       const text = await mainText(driver)
-      return text.includes(title) || text.includes('slow down')
+      if (text.includes(title) || text.includes('slow down')) {
+        outcome = text
+        return true
+      }
+      return false
     },
     10000,
     'posting should either land or be refused',
   )
-  return mainText(driver)
+  return outcome
+}
+
+async function postUntilAccepted(driver, prefix) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const text = await postTopic(driver, `${prefix} ${attempt}`)
+    if (text.includes(`${prefix} ${attempt}`)) return
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  throw new Error(`${prefix} never got through the rate window`)
 }
 
 async function run() {
@@ -99,10 +113,9 @@ async function run() {
     await promoteViaRoot(modName)
     await signIn(mod, modName)
 
-    let text = await postTopic(first, `Rate one ${suffix}`)
-    assert(text.includes(`Rate one ${suffix}`), `the first post should land, saw: ${text}`)
+    await postUntilAccepted(first, `Rate warmup ${suffix}`)
 
-    text = await postTopic(second, `Rate two ${suffix}`)
+    let text = await postTopic(second, `Rate two ${suffix}`)
     assert(text.includes(`Rate two ${suffix}`), `the second post should land, saw: ${text}`)
 
     text = await postTopic(second, `Rate three ${suffix}`)

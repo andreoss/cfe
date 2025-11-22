@@ -47,6 +47,11 @@ async function run() {
 
     await plainDriver.get(`${baseUrl}/s/general`)
     await plainDriver.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
+    await plainDriver.wait(
+      until.elementLocated(By.xpath("//button[text()='New topic']")),
+      10000,
+      'the new topic control should appear in the section',
+    )
     await plainDriver.findElement(By.xpath("//button[text()='New topic']")).click()
     await plainDriver.findElement(By.name('title')).sendKeys(topicTitle)
     await plainDriver.findElement(By.name('body')).sendKeys('Please moderate me.')
