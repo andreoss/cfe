@@ -39,6 +39,7 @@ use time::{Duration, OffsetDateTime};
 pub struct AppState {
     pub backend: Arc<dyn Backend>,
     pub mailer: Arc<dyn app::Mailer + Send + Sync>,
+    pub limits: app::Limits,
 }
 
 #[derive(Deserialize)]
@@ -117,6 +118,7 @@ pub struct TopicResponse {
     pub deleted_reason: Option<String>,
     pub edited: bool,
     pub postscore: i32,
+    pub pending: bool,
 }
 
 #[derive(Deserialize)]
@@ -447,6 +449,7 @@ async fn topic_response(
         deleted_reason: topic.deletion().map(|d| d.reason().as_str().to_owned()),
         edited: topic.is_edited(),
         postscore: topic.postscore().to_db(),
+        pending: topic.is_pending(),
     }))
 }
 
@@ -475,8 +478,8 @@ pub async fn list_topics_handler(
     let page = to_page(&params)?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let include_pending = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
-    let list = list_topics(&*sections, &*topics, &slug, page, include_pending)
+    let visibility = app::Visibility::of(current.as_ref());
+    let list = list_topics(&*sections, &*topics, &slug, page, visibility)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
@@ -506,7 +509,7 @@ pub async fn create_topic_handler(
     let now = OffsetDateTime::now_utc();
     let abuse = state.backend.abuse();
     if let Some(addr) = &ip {
-        enforce_posting(&*abuse, &current, addr, now)
+        enforce_posting(&*abuse, &current, addr, now, state.limits)
             .await
             .map_err(abuse_error)?;
     }
@@ -560,23 +563,9 @@ pub async fn get_topic_handler(
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
     let topic_id = domain::TopicId::new(id);
     let topics = state.backend.topics();
-    let is_moderator = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
-    let mut topic = get_topic(&*topics, topic_id, is_moderator)
+    let topic = get_topic(&*topics, topic_id, app::Visibility::of(current.as_ref()))
         .await
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
-    if topic.is_pending() && !is_moderator {
-        if let Some(user) = current.as_ref() {
-            if topic.author_id() == user.id() {
-                topic = get_topic(&*topics, topic_id, true)
-                    .await
-                    .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
-            } else {
-                return Err(error(StatusCode::NOT_FOUND, "topic not found"));
-            }
-        } else {
-            return Err(error(StatusCode::NOT_FOUND, "topic not found"));
-        }
-    }
     topic_response(&state, &topic).await
 }
 
@@ -590,8 +579,8 @@ pub async fn list_topics_by_tag_handler(
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let page = to_page(&params)?;
     let topics = state.backend.topics();
-    let include_pending = current.as_ref().map(|u| u.role().is_moderator()).unwrap_or(false);
-    let list = list_topics_by_tag(&*topics, &tag, page, include_pending).await;
+    let visibility = app::Visibility::of(current.as_ref());
+    let list = list_topics_by_tag(&*topics, &tag, page, visibility).await;
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
@@ -807,7 +796,7 @@ pub async fn post_comment_handler(
     let now = OffsetDateTime::now_utc();
     let abuse = state.backend.abuse();
     if let Some(addr) = &ip {
-        enforce_posting(&*abuse, &current, addr, now)
+        enforce_posting(&*abuse, &current, addr, now, state.limits)
             .await
             .map_err(abuse_error)?;
     }
@@ -1998,7 +1987,7 @@ pub async fn section_feed_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(&*sections, &*topics, &slug, feed_page(), false)
+    let list = list_topics(&*sections, &*topics, &slug, feed_page(), app::Visibility::anonymous())
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
@@ -2018,7 +2007,7 @@ pub async fn tag_feed_handler(
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag, feed_page(), false).await;
+    let list = list_topics_by_tag(&*topics, &tag, feed_page(), app::Visibility::anonymous()).await;
     let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         tag.as_str(),

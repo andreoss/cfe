@@ -7,6 +7,25 @@ pub const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
 pub const SLOW_MODE_SCORE_FLOOR: i32 = 50;
 pub const SLOW_MODE_INTERVAL: Duration = Duration::minutes(2);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    pub rate_limit_max: u64,
+    pub rate_limit_window: Duration,
+    pub slow_mode_score_floor: i32,
+    pub slow_mode_interval: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            rate_limit_max: RATE_LIMIT_MAX,
+            rate_limit_window: RATE_LIMIT_WINDOW,
+            slow_mode_score_floor: SLOW_MODE_SCORE_FLOOR,
+            slow_mode_interval: SLOW_MODE_INTERVAL,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum AbuseError {
     NotAuthorized,
@@ -20,6 +39,7 @@ pub async fn enforce_posting(
     user: &User,
     addr: &Address,
     now: OffsetDateTime,
+    limits: Limits,
 ) -> Result<(), AbuseError> {
     if let Some(block) = abuse.find_address_block(addr).await {
         if block.is_active_at(now) {
@@ -28,17 +48,17 @@ pub async fn enforce_posting(
     }
     let moderator = user.role().is_moderator();
     if !moderator {
-        if user.score().value() < SLOW_MODE_SCORE_FLOOR {
+        if user.score().value() < limits.slow_mode_score_floor {
             if let Some(last) = abuse.last_post_by_user(user.id()).await {
-                if last > now - SLOW_MODE_INTERVAL {
+                if last > now - limits.slow_mode_interval {
                     return Err(AbuseError::SlowMode);
                 }
             }
         }
     }
     if !moderator {
-        let since = now - RATE_LIMIT_WINDOW;
-        if abuse.count_posts_by_address(addr, since).await >= RATE_LIMIT_MAX {
+        let since = now - limits.rate_limit_window;
+        if abuse.count_posts_by_address(addr, since).await >= limits.rate_limit_max {
             return Err(AbuseError::RateLimited);
         }
     }
@@ -127,14 +147,14 @@ mod tests {
         let abuse = FakeAbuseRepo::new();
         let now = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
-            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now).await,
+            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
             Ok(())
         );
     }
 
     #[tokio::test]
     async fn an_active_address_block_refuses_everyone() {
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.insert_block(AddressBlock::new(
             addr(),
             UserId::new(uuid::Uuid::nil()),
@@ -145,7 +165,7 @@ mod tests {
         let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
         let now = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
-            enforce_posting(&abuse, &moderator, &addr(), now).await,
+            enforce_posting(&abuse, &moderator, &addr(), now, Limits::default()).await,
             Err(AbuseError::AddressBlocked)
         );
     }
@@ -153,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn a_lapsed_address_block_allows_posting() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.insert_block(AddressBlock::new(
             addr(),
             UserId::new(uuid::Uuid::nil()),
@@ -162,7 +182,7 @@ mod tests {
             Some(now + Duration::hours(1)),
         ));
         assert_eq!(
-            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now + Duration::hours(2)).await,
+            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now + Duration::hours(2), Limits::default()).await,
             Ok(())
         );
     }
@@ -170,11 +190,11 @@ mod tests {
     #[tokio::test]
     async fn a_low_standing_author_must_wait_out_slow_mode() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let user = plain_user(uuid::Uuid::nil());
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(30)).await,
+            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(30), Limits::default()).await,
             Err(AbuseError::SlowMode)
         );
     }
@@ -182,11 +202,11 @@ mod tests {
     #[tokio::test]
     async fn slow_mode_clears_after_the_interval() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let user = plain_user(uuid::Uuid::nil());
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + SLOW_MODE_INTERVAL + Duration::seconds(1)).await,
+            enforce_posting(&abuse, &user, &addr(), now + SLOW_MODE_INTERVAL + Duration::seconds(1), Limits::default()).await,
             Ok(())
         );
     }
@@ -194,11 +214,11 @@ mod tests {
     #[tokio::test]
     async fn an_established_author_is_not_slowed() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let established = plain_user(uuid::Uuid::nil()).with_score(Score::of(60));
         assert_eq!(
-            enforce_posting(&abuse, &established, &addr(), now + Duration::seconds(1)).await,
+            enforce_posting(&abuse, &established, &addr(), now + Duration::seconds(1), Limits::default()).await,
             Ok(())
         );
     }
@@ -206,12 +226,12 @@ mod tests {
     #[tokio::test]
     async fn a_moderator_is_not_slowed_or_rated() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_last_post(UserId::new(uuid::Uuid::max()), now);
         abuse.set_address_posts(&addr(), now, RATE_LIMIT_MAX + 5);
         let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
         assert_eq!(
-            enforce_posting(&abuse, &moderator, &addr(), now + Duration::seconds(1)).await,
+            enforce_posting(&abuse, &moderator, &addr(), now + Duration::seconds(1), Limits::default()).await,
             Ok(())
         );
     }
@@ -219,10 +239,10 @@ mod tests {
     #[tokio::test]
     async fn an_address_over_the_rate_is_refused() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_address_posts(&addr(), now, RATE_LIMIT_MAX);
         assert_eq!(
-            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now).await,
+            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
             Err(AbuseError::RateLimited)
         );
     }
@@ -230,10 +250,10 @@ mod tests {
     #[tokio::test]
     async fn a_rate_under_the_limit_passes() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut abuse = FakeAbuseRepo::new();
+        let abuse = FakeAbuseRepo::new();
         abuse.set_address_posts(&addr(), now - RATE_LIMIT_WINDOW - Duration::seconds(1), RATE_LIMIT_MAX);
         assert_eq!(
-            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now).await,
+            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
             Ok(())
         );
     }
@@ -288,7 +308,7 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         record_post(&abuse, user.id(), &addr(), now).await;
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(1)).await,
+            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(1), Limits::default()).await,
             Ok(())
         );
         assert_eq!(

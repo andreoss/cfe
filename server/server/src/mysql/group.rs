@@ -33,7 +33,7 @@ fn to_group(row: GroupRow) -> Group {
 impl GroupRepository for MySqlGroupRepository {
     async fn save(&self, group: &Group) {
         sqlx::query(
-            "INSERT INTO groups (id, section_id, name, slug) VALUES (?, ?, ?, ?)",
+            "INSERT INTO `groups` (id, section_id, name, slug) VALUES (?, ?, ?, ?)",
         )
         .bind(group.id().as_uuid())
         .bind(group.section_id().as_uuid())
@@ -45,7 +45,7 @@ impl GroupRepository for MySqlGroupRepository {
     }
 
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {
-        sqlx::query_as::<_, GroupRow>("SELECT id, section_id, name, slug FROM groups WHERE id = ?")
+        sqlx::query_as::<_, GroupRow>("SELECT id, section_id, name, slug FROM `groups` WHERE id = ?")
             .bind(id.as_uuid())
             .fetch_optional(&self.pool)
             .await
@@ -55,7 +55,7 @@ impl GroupRepository for MySqlGroupRepository {
 
     async fn find_by_slug(&self, section_id: SectionId, slug: &Slug) -> Option<Group> {
         sqlx::query_as::<_, GroupRow>(
-            "SELECT id, section_id, name, slug FROM groups WHERE section_id = ? AND slug = ?",
+            "SELECT id, section_id, name, slug FROM `groups` WHERE section_id = ? AND slug = ?",
         )
         .bind(section_id.as_uuid())
         .bind(slug.as_str())
@@ -67,7 +67,7 @@ impl GroupRepository for MySqlGroupRepository {
 
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Group> {
         sqlx::query_as::<_, GroupRow>(
-            "SELECT id, section_id, name, slug FROM groups WHERE section_id = ? ORDER BY name",
+            "SELECT id, section_id, name, slug FROM `groups` WHERE section_id = ? ORDER BY name",
         )
         .bind(section_id.as_uuid())
         .fetch_all(&self.pool)

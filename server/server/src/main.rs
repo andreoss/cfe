@@ -51,12 +51,38 @@ async fn connect(url: &str) -> Arc<dyn Backend> {
     }
 }
 
+fn limits_from_env() -> app::Limits {
+    let mut limits = app::Limits::default();
+    if let Ok(raw) = std::env::var("RATE_LIMIT_MAX") {
+        if let Ok(value) = raw.parse() {
+            limits.rate_limit_max = value;
+        }
+    }
+    if let Ok(raw) = std::env::var("RATE_LIMIT_WINDOW_SECONDS") {
+        if let Ok(value) = raw.parse() {
+            limits.rate_limit_window = time::Duration::seconds(value);
+        }
+    }
+    if let Ok(raw) = std::env::var("SLOW_MODE_SCORE_FLOOR") {
+        if let Ok(value) = raw.parse() {
+            limits.slow_mode_score_floor = value;
+        }
+    }
+    if let Ok(raw) = std::env::var("SLOW_MODE_INTERVAL_SECONDS") {
+        if let Ok(value) = raw.parse() {
+            limits.slow_mode_interval = time::Duration::seconds(value);
+        }
+    }
+    limits
+}
+
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let state = AppState {
         backend: connect(&database_url).await,
         mailer: mail::build(),
+        limits: limits_from_env(),
     };
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|_origin, _parts| true))

@@ -26,7 +26,7 @@ CREATE TABLE sections (
     topics_score INT NOT NULL DEFAULT -9999
 );
 
-CREATE TABLE groups (
+CREATE TABLE `groups` (
     id BINARY(16) PRIMARY KEY,
     section_id BINARY(16) NOT NULL,
     name VARCHAR(255) NOT NULL,
@@ -51,7 +51,7 @@ CREATE TABLE topics (
     edited_by BINARY(16),
     edited_at TIMESTAMP(6) NULL,
     FOREIGN KEY (section_id) REFERENCES sections (id),
-    FOREIGN KEY (group_id) REFERENCES groups (id),
+    FOREIGN KEY (group_id) REFERENCES `groups` (id),
     FOREIGN KEY (author_id) REFERENCES users (id),
     FULLTEXT KEY topics_search_idx (title, body)
 );

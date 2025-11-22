@@ -1,7 +1,40 @@
 use crate::ports::{GroupRepository, SectionRepository, TopicRepository};
 use crate::paging::Paged;
-use domain::{Body, GroupId, Page, Section, Slug, TagSet, Title, Topic, TopicId, User};
+use domain::{Body, GroupId, Page, Section, Slug, TagSet, Title, Topic, TopicId, User, UserId};
 use time::OffsetDateTime;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Visibility {
+    viewer: Option<UserId>,
+    is_moderator: bool,
+}
+
+impl Visibility {
+    pub fn anonymous() -> Self {
+        Self {
+            viewer: None,
+            is_moderator: false,
+        }
+    }
+
+    pub fn moderator() -> Self {
+        Self {
+            viewer: None,
+            is_moderator: true,
+        }
+    }
+
+    pub fn of(viewer: Option<&User>) -> Self {
+        Self {
+            viewer: viewer.map(|u| u.id()),
+            is_moderator: viewer.map(|u| u.role().is_moderator()).unwrap_or(false),
+        }
+    }
+
+    pub fn allows(&self, topic: &Topic) -> bool {
+        !topic.is_pending() || self.is_moderator || Some(topic.author_id()) == self.viewer
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CreateTopicError {
@@ -53,16 +86,14 @@ pub async fn list_topics(
     topics: &(impl TopicRepository + ?Sized),
     slug: &Slug,
     page: Page,
-    include_pending: bool,
+    visibility: Visibility,
 ) -> Result<Paged<Topic>, ListTopicsError> {
     let section = sections
         .find_by_slug(slug)
         .await
         .ok_or(ListTopicsError::SectionNotFound)?;
     let mut items = topics.list_by_section(section.id(), page).await;
-    if !include_pending {
-        items.retain(|t| t.is_committed());
-    }
+    items.retain(|t| visibility.allows(t));
     let total = topics.count_by_section(section.id()).await;
     Ok(Paged::new(items, page, total))
 }
@@ -71,12 +102,10 @@ pub async fn list_topics_by_tag(
     topics: &(impl TopicRepository + ?Sized),
     tag: &Slug,
     page: Page,
-    include_pending: bool,
+    visibility: Visibility,
 ) -> Paged<Topic> {
     let mut items = topics.list_by_tag(tag, page).await;
-    if !include_pending {
-        items.retain(|t| t.is_committed());
-    }
+    items.retain(|t| visibility.allows(t));
     let total = topics.count_by_tag(tag).await;
     Paged::new(items, page, total)
 }
@@ -84,10 +113,10 @@ pub async fn list_topics_by_tag(
 pub async fn get_topic(
     topics: &(impl TopicRepository + ?Sized),
     id: TopicId,
-    include_pending: bool,
+    visibility: Visibility,
 ) -> Option<Topic> {
     let topic = topics.find_by_id(id).await?;
-    if !include_pending && topic.is_pending() {
+    if !visibility.allows(&topic) {
         return None;
     }
     Some(topic)
@@ -280,7 +309,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics(&sections, &topics, &Slug::parse("general").unwrap(), Page::first(), true)
+        let listed = list_topics(&sections, &topics, &Slug::parse("general").unwrap(), Page::first(), Visibility::moderator())
             .await
             .unwrap();
         assert_eq!(listed.items.len(), 1);
@@ -290,7 +319,7 @@ mod tests {
     async fn rejects_listing_an_unknown_section() {
         let sections = FakeSectionRepo::new();
         let topics = FakeTopicRepo::new();
-        let result = list_topics(&sections, &topics, &Slug::parse("ghost").unwrap(), Page::first(), true).await;
+        let result = list_topics(&sections, &topics, &Slug::parse("ghost").unwrap(), Page::first(), Visibility::moderator()).await;
         assert!(matches!(result, Err(ListTopicsError::SectionNotFound)));
     }
 
@@ -298,7 +327,7 @@ mod tests {
     async fn get_topic_returns_none_for_unknown_id() {
         let topics = FakeTopicRepo::new();
         assert!(
-            get_topic(&topics, TopicId::new(uuid::Uuid::nil()), true)
+            get_topic(&topics, TopicId::new(uuid::Uuid::nil()), Visibility::moderator())
                 .await
                 .is_none()
         );
@@ -322,9 +351,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap(), Page::first(), true).await;
+        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap(), Page::first(), Visibility::moderator()).await;
         assert_eq!(listed.items.len(), 1);
-        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap(), Page::first(), true).await;
+        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap(), Page::first(), Visibility::moderator()).await;
         assert_eq!(empty.items.len(), 0);
     }
 
@@ -421,7 +450,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(updated.postscore(), domain::PostScore::NoComments);
-        let stored = get_topic(&topics, TopicId::new(uuid::Uuid::nil()), true).await.unwrap();
+        let stored = get_topic(&topics, TopicId::new(uuid::Uuid::nil()), Visibility::moderator()).await.unwrap();
         assert_eq!(stored.postscore(), domain::PostScore::NoComments);
     }
 
@@ -486,7 +515,7 @@ mod tests {
             &topics,
             &Slug::parse("general").unwrap(),
             Page::first(),
-            false,
+            Visibility::anonymous(),
         )
         .await
         .unwrap();
@@ -496,11 +525,60 @@ mod tests {
             &topics,
             &Slug::parse("general").unwrap(),
             Page::first(),
-            true,
+            Visibility::moderator(),
         )
         .await
         .unwrap();
         assert_eq!(visible.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_author_sees_their_own_queued_topic_but_a_stranger_does_not() {
+        let sections = FakeSectionRepo::with(section());
+        let topics = FakeTopicRepo::new();
+        let author = plain_user(uuid::Uuid::nil());
+        let stranger = plain_user(uuid::Uuid::max());
+        let topic = create_topic(
+            &sections,
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            &Slug::parse("general").unwrap(),
+            &author,
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            tags(&[]),
+            None,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert!(topic.is_pending());
+
+        let mine = list_topics(
+            &sections,
+            &topics,
+            &Slug::parse("general").unwrap(),
+            Page::first(),
+            Visibility::of(Some(&author)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(mine.items.len(), 1);
+
+        let theirs = list_topics(
+            &sections,
+            &topics,
+            &Slug::parse("general").unwrap(),
+            Page::first(),
+            Visibility::of(Some(&stranger)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(theirs.items.len(), 0);
+
+        assert!(get_topic(&topics, topic.id(), Visibility::of(Some(&author))).await.is_some());
+        assert!(get_topic(&topics, topic.id(), Visibility::of(Some(&stranger))).await.is_none());
+        assert!(get_topic(&topics, topic.id(), Visibility::anonymous()).await.is_none());
     }
 
     #[tokio::test]

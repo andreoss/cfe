@@ -26,6 +26,7 @@ mod topics;
 pub use activity::recent_activity;
 pub use abuse::{
     RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, SLOW_MODE_INTERVAL, SLOW_MODE_SCORE_FLOOR, AbuseError,
+    Limits,
     block_address, enforce_posting, is_address_blocked, lift_address_block, list_address_blocks,
     record_post,
 };
@@ -66,6 +67,7 @@ pub use session::{create_session, current_user, sign_out, touch_session};
 pub use sign_in::{SignInError, sign_in};
 pub use topics::{
     CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,
+    Visibility,
     commit_topic, create_topic, get_topic, list_sections, list_topics, list_topics_by_tag,
     move_topic, set_postscore, uncommit_topic,
 };

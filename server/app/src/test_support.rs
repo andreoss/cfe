@@ -284,11 +284,6 @@ impl FakeGroupRepo {
         }
     }
 
-    pub fn with(group: Group) -> Self {
-        Self {
-            groups: Mutex::new(vec![group]),
-        }
-    }
 }
 
 #[async_trait::async_trait]
