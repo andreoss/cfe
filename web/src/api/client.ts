@@ -834,3 +834,9 @@ export async function blockAddress(
 export async function liftAddressBlock(addr: string): Promise<ApiResult<void>> {
   return request<void>(blockPath(addr), { method: 'DELETE' })
 }
+
+export type MaintenanceReport = { blocked: number; dropped: number }
+
+export function runMaintenance(): Promise<ApiResult<MaintenanceReport>> {
+  return request<MaintenanceReport>('/api/maintenance/run', { method: 'POST' })
+}

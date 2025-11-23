@@ -125,6 +125,7 @@ async function run() {
 
     await author.get(`${baseUrl}/s/general`)
     await clickWhenReady(author, By.xpath("//button[text()='New topic']"), 'new topic control')
+    await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)
     await author.findElement(By.name('body')).sendKeys('A topic whose comments get restricted.')
     await clickWhenReady(author, By.xpath("//button[text()='Post']"), 'post control')

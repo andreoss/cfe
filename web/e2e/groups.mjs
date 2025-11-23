@@ -101,6 +101,7 @@ async function run() {
     await author.get(`${baseUrl}/s/general`)
     await author.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 10000)
     await clickWhenReady(author, By.xpath("//button[text()='New topic']"), 'the new topic control should be present')
+    await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)
     await author.findElement(By.name('body')).sendKeys('This one waits for a moderator.')
     const picker = await author.findElement(By.name('group'))

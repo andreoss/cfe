@@ -64,88 +64,87 @@ async function signIn(driver, username) {
   await driver.findElement(By.name('username')).sendKeys(username)
   await driver.findElement(By.name('password')).sendKeys('correcthorse')
   await driver.findElement(By.css('button[type="submit"]')).click()
-  await driver.wait(until.urlIs(`${baseUrl}/`), 10000)
-}
-
-async function postTopic(driver, title) {
-  await driver.get(`${baseUrl}/s/general`)
-  await clickWhenReady(driver, By.xpath("//button[text()='New topic']"), 'new topic control')
-  await driver.wait(until.elementLocated(By.name('title')), 10000)
-  await driver.findElement(By.name('title')).sendKeys(title)
-  await driver.findElement(By.name('body')).sendKeys('Body for the rate limit spec.')
-  await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')
-  let outcome = ''
   await driver.wait(
     async () => {
-      const text = await mainText(driver)
-      if (text.includes(title) || text.includes('slow down')) {
-        outcome = text
-        return true
-      }
-      return false
+      if ((await driver.getCurrentUrl()) === `${baseUrl}/`) return true
+      return (await driver.findElements(By.css('[role="alert"]'))).length > 0
     },
     10000,
-    'posting should either land or be refused',
+    'sign-in should either succeed or report an error',
   )
-  return outcome
+  return driver.getCurrentUrl()
 }
 
-async function postUntilAccepted(driver, prefix) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const text = await postTopic(driver, `${prefix} ${attempt}`)
-    if (text.includes(`${prefix} ${attempt}`)) return
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
-  throw new Error(`${prefix} never got through the rate window`)
+async function runMaintenance(driver) {
+  await driver.get(`${baseUrl}/settings`)
+  await clickWhenReady(
+    driver,
+    By.xpath("//button[text()='Run maintenance']"),
+    'a moderator should be offered the maintenance control',
+  )
+  let report = null
+  await driver.wait(
+    async () => {
+      const match = (await mainText(driver)).match(/Blocked (\d+), dropped (\d+)\./)
+      if (match === null) return false
+      report = { blocked: Number(match[1]), dropped: Number(match[2]) }
+      return true
+    },
+    10000,
+    'running maintenance should report what it did',
+  )
+  return report
 }
 
 async function run() {
-  const first = await buildDriver()
-  const second = await buildDriver()
   const mod = await buildDriver()
+  const doomed = await buildDriver()
   const suffix = Date.now().toString(36)
-  const firstName = `e2e_rt_a_${suffix}`
-  const secondName = `e2e_rt_b_${suffix}`
-  const modName = `e2e_rt_m_${suffix}`
+  const modName = `e2e_mt_m_${suffix}`
+  const doomedName = `e2e_mt_d_${suffix}`
   try {
-    await register(first, firstName)
-    await register(second, secondName)
     await register(mod, modName)
     await promoteViaRoot(modName)
     await signIn(mod, modName)
+    await register(doomed, doomedName)
 
-    await postUntilAccepted(first, `Rate warmup ${suffix}`)
+    await doomed.get(`${baseUrl}/settings`)
+    await doomed.wait(until.elementLocated(By.css('main')), 10000)
+    const noControl = await doomed.findElements(
+      By.xpath("//button[text()='Run maintenance']"),
+    )
+    assert(noControl.length === 0, 'a plain user must not be offered the maintenance control')
 
-    let text = await postTopic(second, `Rate two ${suffix}`)
-    assert(text.includes(`Rate two ${suffix}`), `the second post should land, saw: ${text}`)
-
-    text = await postTopic(second, `Rate three ${suffix}`)
+    let refusedAt = ''
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await runMaintenance(mod)
+      const landed = await signIn(doomed, doomedName)
+      if (landed !== `${baseUrl}/`) {
+        refusedAt = await mainText(doomed)
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
     assert(
-      text.includes('slow down'),
-      `a third post from the same address should be refused, saw: ${text}`,
+      refusedAt !== '',
+      'the run should eventually drop the unconfirmed account so it cannot sign in',
     )
     assert(
-      !text.includes(`Rate three ${suffix}`),
-      'the refused topic must not appear',
+      refusedAt.toLowerCase().includes('invalid credentials'),
+      `a dropped account should be refused, saw: ${refusedAt}`,
     )
 
-    text = await postTopic(first, `Rate four ${suffix}`)
-    assert(
-      text.includes('slow down'),
-      `the limit counts the address, not the account, so another user is refused too, saw: ${text}`,
+    await mod.get(`${baseUrl}/settings`)
+    await mod.wait(
+      until.elementLocated(By.xpath("//button[text()='Run maintenance']")),
+      10000,
+      'the moderator should still be signed in after the run',
     )
 
-    text = await postTopic(mod, `Rate moderator ${suffix}`)
-    assert(
-      text.includes(`Rate moderator ${suffix}`),
-      `a moderator must not be rate limited, saw: ${text}`,
-    )
-
-    console.log('e2e: abuse rate limit flow passed')
+    console.log('e2e: maintenance flow passed')
   } finally {
-    await first.quit()
-    await second.quit()
     await mod.quit()
+    await doomed.quit()
   }
 }
 

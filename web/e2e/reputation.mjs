@@ -97,6 +97,7 @@ async function run() {
     await driver.get(`${baseUrl}/s/general`)
     await driver.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 10000)
     await driver.findElement(By.xpath("//button[text()='New topic']")).click()
+    await driver.wait(until.elementLocated(By.name('title')), 10000)
     await driver.findElement(By.name('title')).sendKeys(`Reputation ${suffix}`)
     await driver.findElement(By.name('body')).sendKeys('A topic that will earn and lose.')
     await driver.findElement(By.xpath("//button[text()='Post']")).click()

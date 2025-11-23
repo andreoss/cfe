@@ -70,6 +70,7 @@ async function signIn(driver, username) {
 async function postTopic(driver, title) {
   await driver.get(`${baseUrl}/s/general`)
   await clickWhenReady(driver, By.xpath("//button[text()='New topic']"), 'new topic control')
+  await driver.wait(until.elementLocated(By.name('title')), 10000)
   await driver.findElement(By.name('title')).sendKeys(title)
   await driver.findElement(By.name('body')).sendKeys('Body for the abuse defence spec.')
   await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')
