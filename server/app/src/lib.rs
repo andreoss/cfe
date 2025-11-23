@@ -21,6 +21,7 @@ mod reports;
 mod reputation;
 mod search;
 mod session;
+mod sessions_security;
 mod sign_in;
 mod test_support;
 mod topics;
@@ -76,6 +77,11 @@ pub use reports::{
 pub use reputation::{apply_deletion, apply_reaction};
 pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
+pub use sessions_security::{
+    SIGN_IN_ATTEMPT_MAX, SIGN_IN_ATTEMPT_WINDOW, SignInLimits, TooManyAttempts,
+    clear_sign_in_failures, end_every_session, enforce_sign_in_attempts, notice_of_new_network,
+    record_sign_in_failure,
+};
 pub use sign_in::{SignInError, sign_in};
 pub use topics::{
     CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,

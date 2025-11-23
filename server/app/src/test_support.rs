@@ -926,6 +926,8 @@ pub struct FakeAbuseRepo {
     blocks: Mutex<Vec<AddressBlock>>,
     posts: Mutex<Vec<(UserId, Address, Option<ClientString>, OffsetDateTime)>>,
     refs: Mutex<Vec<(Address, PostRef, OffsetDateTime)>>,
+    failures: Mutex<Vec<(String, Address, OffsetDateTime)>>,
+    seen: Mutex<Vec<(UserId, Address)>>,
 }
 
 impl FakeAbuseRepo {
@@ -934,6 +936,8 @@ impl FakeAbuseRepo {
             blocks: Mutex::new(Vec::new()),
             posts: Mutex::new(Vec::new()),
             refs: Mutex::new(Vec::new()),
+            failures: Mutex::new(Vec::new()),
+            seen: Mutex::new(Vec::new()),
         }
     }
 
@@ -1042,6 +1046,43 @@ impl AbuseRepository for FakeAbuseRepo {
             .filter(|(a, _, at)| a == addr && *at >= since)
             .map(|(_, r, _)| *r)
             .collect()
+    }
+
+    async fn record_sign_in_failure(&self, username: &str, addr: &Address, at: OffsetDateTime) {
+        self.failures
+            .lock()
+            .unwrap()
+            .push((username.to_owned(), addr.clone(), at));
+    }
+
+    async fn count_sign_in_failures(
+        &self,
+        username: &str,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> u64 {
+        self.failures
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(u, a, at)| u == username && a == addr && *at >= since)
+            .count() as u64
+    }
+
+    async fn clear_sign_in_failures(&self, username: &str) {
+        self.failures.lock().unwrap().retain(|(u, _, _)| u != username);
+    }
+
+    async fn has_seen_address(&self, user_id: UserId, addr: &Address) -> bool {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(u, a)| *u == user_id && a == addr)
+    }
+
+    async fn remember_address(&self, user_id: UserId, addr: &Address, _at: OffsetDateTime) {
+        self.seen.lock().unwrap().push((user_id, addr.clone()));
     }
 
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {

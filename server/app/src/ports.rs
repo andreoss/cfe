@@ -102,6 +102,16 @@ pub trait AbuseRepository {
         addr: &Address,
         since: OffsetDateTime,
     ) -> Vec<PostRef>;
+    async fn record_sign_in_failure(&self, username: &str, addr: &Address, at: OffsetDateTime);
+    async fn count_sign_in_failures(
+        &self,
+        username: &str,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> u64;
+    async fn clear_sign_in_failures(&self, username: &str);
+    async fn has_seen_address(&self, user_id: UserId, addr: &Address) -> bool;
+    async fn remember_address(&self, user_id: UserId, addr: &Address, at: OffsetDateTime);
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost>;
     async fn count_posts_from_address(&self, addr: &Address) -> u64;
 }
