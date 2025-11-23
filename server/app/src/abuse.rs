@@ -4,7 +4,7 @@ use time::{Duration, OffsetDateTime};
 
 pub const RATE_LIMIT_MAX: u64 = 5;
 pub const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
-pub const SLOW_MODE_SCORE_FLOOR: i32 = 50;
+pub const SLOW_MODE_SCORE_FLOOR: i32 = 5;
 pub const SLOW_MODE_INTERVAL: Duration = Duration::minutes(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
