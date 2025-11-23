@@ -21,6 +21,8 @@ import {
   uncommitTopic,
   moveTopic,
   getGroups,
+  reportTopic,
+  type ReportKind,
   type Topic,
   type Comment,
   type PageInfo,
@@ -76,6 +78,38 @@ const creatingPoll = ref(false)
 const groups = ref<Group[]>([])
 const moveTarget = ref('')
 const moderationError = ref('')
+const reporting = ref(false)
+const reportKind = ref<ReportKind>('rule')
+const reportReason = ref('')
+const reportError = ref('')
+const reportSent = ref(false)
+
+const reportKinds: { value: ReportKind; label: string }[] = [
+  { value: 'rule', label: 'Rule' },
+  { value: 'spelling', label: 'Spelling' },
+  { value: 'tag', label: 'Tag' },
+  { value: 'group', label: 'Group' },
+]
+
+function startReport() {
+  reportKind.value = 'rule'
+  reportReason.value = ''
+  reportError.value = ''
+  reportSent.value = false
+  reporting.value = true
+}
+
+async function onReport() {
+  reportError.value = ''
+  const result = await reportTopic(props.id, reportKind.value, reportReason.value)
+  if (!result.ok) {
+    reportError.value = result.error
+    return
+  }
+  reportReason.value = ''
+  reporting.value = false
+  reportSent.value = true
+}
 
 async function loadGroups() {
   if (!auth.currentUser) return
@@ -207,6 +241,9 @@ async function load() {
   notFound.value = false
   topic.value = null
   currentCommentPage.value = 1
+  reporting.value = false
+  reportSent.value = false
+  reportError.value = ''
   const result = await getTopic(props.id)
   if (result.ok) {
     topic.value = result.value
@@ -392,6 +429,8 @@ async function onUnsave() {
         </form>
       </template>
 
+      <p v-if="auth.currentUser?.role === 'moderator'">Open reports: {{ topic.openReports }}</p>
+
       <template v-if="auth.currentUser?.role === 'moderator' && !topic.deleted">
         <button v-if="!deleting" type="button" @click="deleting = true">Delete topic</button>
         <form v-else @submit.prevent="onDelete">
@@ -430,6 +469,26 @@ async function onUnsave() {
         <button v-if="!bookmarked" type="button" @click="onSave">Save topic</button>
         <button v-else type="button" @click="onUnsave">Unsave topic</button>
         <p v-if="bookmarkError" role="alert">{{ bookmarkError }}</p>
+      </template>
+
+      <template v-if="auth.currentUser">
+        <button v-if="!reporting" type="button" @click="startReport">Report</button>
+        <form v-else @submit.prevent="onReport">
+          <label>
+            Kind
+            <select v-model="reportKind" name="report-kind">
+              <option v-for="k in reportKinds" :key="k.value" :value="k.value">{{ k.label }}</option>
+            </select>
+          </label>
+          <label>
+            Reason
+            <input v-model="reportReason" name="report-reason" type="text" />
+          </label>
+          <p v-if="reportError" role="alert">{{ reportError }}</p>
+          <button type="submit">Send report</button>
+          <button type="button" @click="reporting = false">Cancel</button>
+        </form>
+        <p v-if="reportSent" role="status">Report sent.</p>
       </template>
 
       <h2>Comments</h2>

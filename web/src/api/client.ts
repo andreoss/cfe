@@ -21,6 +21,7 @@ export type Topic = {
   edited: boolean
   postscore: number
   pending: boolean
+  openReports: number
 }
 export type Comment = {
   id: string
@@ -64,6 +65,16 @@ export type AddressBlock = {
   reason: string
   blockedAt: string
   until: string | null
+}
+export type ReportKind = 'rule' | 'spelling' | 'tag' | 'group'
+export type Report = {
+  id: string
+  topicId: string
+  commentId: string | null
+  reporterUsername: string
+  kind: ReportKind
+  reason: string
+  createdAt: string
 }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 export type PageInfo = {
@@ -225,6 +236,7 @@ type RawTopic = {
   edited: boolean
   postscore: number
   pending: boolean
+  open_reports: number
 }
 
 function toTopic(raw: RawTopic): Topic {
@@ -242,6 +254,7 @@ function toTopic(raw: RawTopic): Topic {
     edited: raw.edited,
     postscore: raw.postscore,
     pending: raw.pending,
+    openReports: raw.open_reports,
   }
 }
 
@@ -833,6 +846,58 @@ export async function blockAddress(
 
 export async function liftAddressBlock(addr: string): Promise<ApiResult<void>> {
   return request<void>(blockPath(addr), { method: 'DELETE' })
+}
+
+type RawReport = {
+  id: string
+  topic_id: string
+  comment_id: string | null
+  reporter_username: string
+  kind: ReportKind
+  reason: string
+  created_at: string
+}
+
+function toReport(raw: RawReport): Report {
+  return {
+    id: raw.id,
+    topicId: raw.topic_id,
+    commentId: raw.comment_id,
+    reporterUsername: raw.reporter_username,
+    kind: raw.kind,
+    reason: raw.reason,
+    createdAt: raw.created_at,
+  }
+}
+
+export function reportTopic(
+  topicId: string,
+  kind: ReportKind,
+  reason: string,
+): Promise<ApiResult<void>> {
+  return post<void>(`/api/topics/${encodeURIComponent(topicId)}/report`, { kind, reason })
+}
+
+export function reportComment(
+  topicId: string,
+  commentId: string,
+  kind: ReportKind,
+  reason: string,
+): Promise<ApiResult<void>> {
+  return post<void>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(
+      commentId,
+    )}/report`,
+    { kind, reason },
+  )
+}
+
+export function listReports(page?: number, size?: number): Promise<ApiResult<Paged<Report>>> {
+  return requestPage<RawReport, Report>(`/api/reports${pageQuery(page, size)}`, toReport)
+}
+
+export function closeReport(id: string): Promise<ApiResult<void>> {
+  return request<void>(`/api/reports/${encodeURIComponent(id)}/close`, { method: 'POST' })
 }
 
 export type MaintenanceReport = { blocked: number; dropped: number }

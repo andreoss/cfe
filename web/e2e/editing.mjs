@@ -32,6 +32,7 @@ async function registerAndPost(driver, username, title, body) {
   await driver.findElement(By.linkText('General')).click()
   await driver.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
   await driver.findElement(By.xpath("//button[text()='New topic']")).click()
+  await driver.wait(until.elementLocated(By.name('title')), 10000)
   await driver.findElement(By.name('title')).sendKeys(title)
   await driver.findElement(By.name('body')).sendKeys(body)
   await driver.findElement(By.xpath("//button[text()='Post']")).click()

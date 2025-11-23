@@ -65,6 +65,10 @@ import {
   commitTopic,
   uncommitTopic,
   moveTopic,
+  reportTopic,
+  reportComment,
+  listReports,
+  closeReport,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -120,6 +124,19 @@ function rawPoll(overrides: Partial<Record<string, unknown>> = {}) {
     ],
     mine: null,
     total_votes: 2,
+    ...overrides,
+  }
+}
+
+function rawReport(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'r1',
+    topic_id: 't1',
+    comment_id: null,
+    reporter_username: 'bob_02',
+    kind: 'rule',
+    reason: 'off topic',
+    created_at: '2026-09-03T00:00:00Z',
     ...overrides,
   }
 }
@@ -2247,5 +2264,182 @@ describe('activateAccount', () => {
     )
     const result = await activateAccount('f'.repeat(64))
     expect(result).toEqual({ ok: false, error: 'invalid or expired code' })
+  })
+})
+
+describe('reportTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the kind and reason to the topic report path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await reportTopic('t1', 'rule', 'off topic')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/report'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ kind: 'rule', reason: 'off topic' }),
+      }),
+    )
+  })
+
+  it('url-encodes the topic id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await reportTopic('t/1', 'tag', 'wrong tag')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/report'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns the server error when the topic was already reported', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'already reported' }))
+    const result = await reportTopic('t1', 'rule', 'off topic')
+    expect(result).toEqual({ ok: false, error: 'already reported' })
+  })
+
+  it('returns the server error when the topic is missing', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'topic not found' }))
+    const result = await reportTopic('t9', 'rule', 'off topic')
+    expect(result).toEqual({ ok: false, error: 'topic not found' })
+  })
+})
+
+describe('reportComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the kind and reason to the comment report path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await reportComment('t1', 'c1', 'spelling', 'typo in the title')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/report'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ kind: 'spelling', reason: 'typo in the title' }),
+      }),
+    )
+  })
+
+  it('returns the server error when the comment was already reported', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'already reported' }))
+    const result = await reportComment('t1', 'c1', 'group', 'wrong group')
+    expect(result).toEqual({ ok: false, error: 'already reported' })
+  })
+})
+
+describe('listReports', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Report type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawReport()])))
+    const result = await listReports()
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: 'r1',
+        topicId: 't1',
+        commentId: null,
+        reporterUsername: 'bob_02',
+        kind: 'rule',
+        reason: 'off topic',
+        createdAt: '2026-09-03T00:00:00Z',
+      },
+    ])
+  })
+
+  it('keeps the comment id of a comment report', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, pagedBody([rawReport({ comment_id: 'c1', kind: 'tag' })])),
+    )
+    const result = await listReports()
+    expect(result.ok && result.value.items[0]?.commentId).toEqual('c1')
+    expect(result.ok && result.value.items[0]?.kind).toEqual('tag')
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawReport()], {
+          number: 2,
+          size: 10,
+          total: 7,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await listReports(2, 10)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 10,
+      total: 7,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await listReports(2, 25)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/reports?page=2&size=25'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns the server error for a non-moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await listReports()
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('closeReport', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the close path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await closeReport('r1')
+    expect(result).toEqual({ ok: true, value: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/reports/r1/close'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('returns the server error when the report is already closed', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'already closed' }))
+    const result = await closeReport('r1')
+    expect(result).toEqual({ ok: false, error: 'already closed' })
+  })
+})
+
+describe('open report counts', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps open_reports on a topic', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTopic({ open_reports: 3 })))
+    const result = await getTopic('1')
+    expect(result.ok && result.value.openReports).toEqual(3)
   })
 })

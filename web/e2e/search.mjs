@@ -53,6 +53,7 @@ async function run() {
     await driver.get(`${baseUrl}/s/general`)
     await driver.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
     await driver.findElement(By.xpath("//button[text()='New topic']")).click()
+    await driver.wait(until.elementLocated(By.name('title')), 10000)
     await driver.findElement(By.name('title')).sendKeys(topicTitle)
     await driver.findElement(By.name('body')).sendKeys('Body text for the search e2e spec.')
     await driver.findElement(By.xpath("//button[text()='Post']")).click()

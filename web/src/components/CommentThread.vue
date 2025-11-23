@@ -8,8 +8,10 @@ import {
   getCommentReactions,
   reactToComment,
   clearCommentReaction,
+  reportComment,
   type Comment,
   type ReactionSummary,
+  type ReportKind,
 } from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
 import ReactionBar from '@/components/ReactionBar.vue'
@@ -32,6 +34,43 @@ const deleteError = ref('')
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
 const editError = ref('')
+const reportingId = ref<string | null>(null)
+const reportKind = ref<ReportKind>('rule')
+const reportReason = ref('')
+const reportError = ref('')
+const reportedIds = ref<string[]>([])
+
+const reportKinds: { value: ReportKind; label: string }[] = [
+  { value: 'rule', label: 'Rule' },
+  { value: 'spelling', label: 'Spelling' },
+  { value: 'tag', label: 'Tag' },
+  { value: 'group', label: 'Group' },
+]
+
+function startReport(commentId: string) {
+  reportingId.value = commentId
+  reportKind.value = 'rule'
+  reportReason.value = ''
+  reportError.value = ''
+  reportedIds.value = reportedIds.value.filter((id) => id !== commentId)
+}
+
+async function onReport(commentId: string) {
+  reportError.value = ''
+  const result = await reportComment(
+    props.topicId,
+    commentId,
+    reportKind.value,
+    reportReason.value,
+  )
+  if (!result.ok) {
+    reportError.value = result.error
+    return
+  }
+  reportingId.value = null
+  reportReason.value = ''
+  reportedIds.value = [...reportedIds.value, commentId]
+}
 
 const summaries = ref<Record<string, ReactionSummary>>({})
 const requested = new Set<string>()
@@ -177,6 +216,34 @@ async function onEdit(commentId: string) {
           <p v-if="formError" role="alert">{{ formError }}</p>
           <button type="submit">Post reply</button>
         </form>
+
+        <template v-if="auth.currentUser">
+          <button
+            v-if="reportingId !== comment.id"
+            type="button"
+            @click="startReport(comment.id)"
+          >
+            Report comment
+          </button>
+          <form v-else @submit.prevent="onReport(comment.id)">
+            <label>
+              Kind
+              <select v-model="reportKind" name="comment-report-kind">
+                <option v-for="k in reportKinds" :key="k.value" :value="k.value">
+                  {{ k.label }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Reason
+              <input v-model="reportReason" name="comment-report-reason" type="text" />
+            </label>
+            <p v-if="reportError" role="alert">{{ reportError }}</p>
+            <button type="submit">Send comment report</button>
+            <button type="button" @click="reportingId = null">Cancel</button>
+          </form>
+          <p v-if="reportedIds.includes(comment.id)" role="status">Report sent.</p>
+        </template>
 
         <template v-if="auth.currentUser?.role === 'moderator'">
           <button

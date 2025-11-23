@@ -53,6 +53,7 @@ async function run() {
     await owner.get(`${baseUrl}/s/general`)
     await owner.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
     await owner.findElement(By.xpath("//button[text()='New topic']")).click()
+    await owner.wait(until.elementLocated(By.name('title')), 10000)
     await owner.findElement(By.name('title')).sendKeys(topicTitle)
     await owner.findElement(By.name('body')).sendKeys('Body for the bookmarks e2e spec.')
     await owner.findElement(By.xpath("//button[text()='Post']")).click()

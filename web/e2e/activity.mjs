@@ -34,6 +34,7 @@ async function postTopic(driver, section, title, body) {
   await driver.get(`${baseUrl}/s/${section}`)
   await driver.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
   await driver.findElement(By.xpath("//button[text()='New topic']")).click()
+  await driver.wait(until.elementLocated(By.name('title')), 10000)
   await driver.findElement(By.name('title')).sendKeys(title)
   await driver.findElement(By.name('body')).sendKeys(body)
   await driver.findElement(By.xpath("//button[text()='Post']")).click()

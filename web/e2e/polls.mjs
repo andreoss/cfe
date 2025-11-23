@@ -57,6 +57,7 @@ async function run() {
     await author.get(`${baseUrl}/s/general`)
     await author.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
     await author.findElement(By.xpath("//button[text()='New topic']")).click()
+    await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)
     await author.findElement(By.name('body')).sendKeys('Body for the polls e2e spec.')
     await author.findElement(By.xpath("//button[text()='Post']")).click()

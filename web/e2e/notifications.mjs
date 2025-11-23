@@ -50,6 +50,7 @@ async function run() {
     await author.findElement(By.linkText('General')).click()
     await author.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
     await author.findElement(By.xpath("//button[text()='New topic']")).click()
+    await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)
     await author.findElement(By.name('body')).sendKeys('Body for the notifications e2e spec.')
     await author.findElement(By.xpath("//button[text()='Post']")).click()

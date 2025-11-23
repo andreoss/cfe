@@ -64,6 +64,7 @@ async function run() {
     await mod.get(`${baseUrl}/s/general`)
     await mod.wait(until.elementLocated(button('New topic')), 5000)
     await mod.findElement(button('New topic')).click()
+    await mod.wait(until.elementLocated(By.name('title')), 10000)
     await mod.findElement(By.name('title')).sendKeys(topicTitle)
     await mod.findElement(By.name('body')).sendKeys('Body for the enforcement e2e spec.')
     await mod.findElement(button('Post')).click()

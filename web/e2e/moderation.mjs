@@ -53,6 +53,7 @@ async function run() {
       'the new topic control should appear in the section',
     )
     await plainDriver.findElement(By.xpath("//button[text()='New topic']")).click()
+    await plainDriver.wait(until.elementLocated(By.name('title')), 10000)
     await plainDriver.findElement(By.name('title')).sendKeys(topicTitle)
     await plainDriver.findElement(By.name('body')).sendKeys('Please moderate me.')
     await plainDriver.findElement(By.xpath("//button[text()='Post']")).click()
