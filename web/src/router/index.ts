@@ -95,6 +95,11 @@ const router = createRouter({
       name: 'reports',
       component: () => import('../views/ReportsView.vue'),
     },
+    {
+      path: '/addresses',
+      name: 'addresses',
+      component: () => import('../views/AddressView.vue'),
+    },
   ],
 })
 

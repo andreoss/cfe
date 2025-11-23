@@ -61,6 +61,7 @@ start_api() {
     MAIL_TRANSPORT=log \
     MAIL_LOG="$MAIL_LOG" \
     RATE_LIMIT_MAX="${1:-100000}" \
+    ACCOUNT_RATE_LIMIT_MAX="${ACCOUNT_RATE_LIMIT_MAX:-100000}" \
     SLOW_MODE_SCORE_FLOOR="${2:--1000}" \
     SLOW_MODE_INTERVAL_SECONDS="${3:-120}" \
     RATE_LIMIT_WINDOW_SECONDS="${4:-60}" \
@@ -97,7 +98,7 @@ curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: applicati
 if [ -n "$SPEC" ]; then
   case "$SPEC" in
     abuse-slow) restart_api 100000 1000 3600 ;;
-    abuse-rate) restart_api 2 -1000 120 5 ;;
+    abuse-rate) ACCOUNT_RATE_LIMIT_MAX=2 restart_api 100 -1000 120 5 ;;
     maintenance) CONFIRMATION_WINDOW_SECONDS=1 restart_api ;;
   esac
   node "e2e/$SPEC.mjs"
@@ -132,8 +133,10 @@ node e2e/reports.mjs
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs
 
-restart_api 2 -1000 120 5
+ACCOUNT_RATE_LIMIT_MAX=2 restart_api 100 -1000 120 5
 node e2e/abuse-rate.mjs
 
 CONFIRMATION_WINDOW_SECONDS=1 restart_api
 node e2e/maintenance.mjs
+
+node e2e/addresses.mjs

@@ -69,6 +69,8 @@ import {
   reportComment,
   listReports,
   closeReport,
+  listAddressPosts,
+  removeAddressPosts,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -137,6 +139,16 @@ function rawReport(overrides: Partial<Record<string, unknown>> = {}) {
     kind: 'rule',
     reason: 'off topic',
     created_at: '2026-09-03T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function rawAddressPost(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    username: 'bob_02',
+    addr: '203.0.113.7',
+    client: 'some-browser/1.0',
+    at: '2026-09-03T00:00:00Z',
     ...overrides,
   }
 }
@@ -2429,6 +2441,98 @@ describe('closeReport', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'already closed' }))
     const result = await closeReport('r1')
     expect(result).toEqual({ ok: false, error: 'already closed' })
+  })
+})
+
+describe('listAddressPosts', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('encodes the address and carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await listAddressPosts('2001:db8::1', 2, 25)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/addresses/2001%3Adb8%3A%3A1/posts?page=2&size=25'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('maps an item with no client', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, pagedBody([rawAddressPost({ username: 'unknown', client: null })])),
+    )
+    const result = await listAddressPosts('203.0.113.7')
+    expect(result.ok && result.value.items).toEqual([
+      {
+        username: 'unknown',
+        addr: '203.0.113.7',
+        client: null,
+        at: '2026-09-03T00:00:00Z',
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawAddressPost()], {
+          number: 2,
+          size: 10,
+          total: 7,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await listAddressPosts('203.0.113.7', 2, 10)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 10,
+      total: 7,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('returns the server error for a non-moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await listAddressPosts('203.0.113.7')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('removeAddressPosts', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the hours and the reason to the removal path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { removed: 4 }))
+    const result = await removeAddressPosts('203.0.113.7', 12, 'flooding')
+    expect(result).toEqual({ ok: true, value: { removed: 4 } })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/addresses/203.0.113.7/remove-posts'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ hours: 12, reason: 'flooding' }),
+      }),
+    )
+  })
+
+  it('returns the server error for a non-moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(false, { error: 'moderator role required' }),
+    )
+    const result = await removeAddressPosts('203.0.113.7', 12, 'flooding')
+    expect(result).toEqual({ ok: false, error: 'moderator role required' })
   })
 })
 

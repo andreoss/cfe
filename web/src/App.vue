@@ -42,6 +42,9 @@ onMounted(() => {
           auth.currentUser.username
         }}</RouterLink>
         <RouterLink v-if="auth.currentUser.role === 'moderator'" to="/reports">Reports</RouterLink>
+        <RouterLink v-if="auth.currentUser.role === 'moderator'" to="/addresses"
+          >Addresses</RouterLink
+        >
         <RouterLink to="/settings">Settings</RouterLink>
         <button type="button" @click="auth.doSignOut()">Sign out</button>
       </template>

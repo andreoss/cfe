@@ -67,10 +67,27 @@ async function signIn(driver, username) {
   await driver.wait(until.urlIs(`${baseUrl}/`), 10000)
 }
 
+async function openNewTopic(driver) {
+  let last
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await clickWhenReady(
+        driver,
+        By.xpath("//button[text()='New topic']"),
+        'the new topic control should be present',
+      )
+      await driver.wait(until.elementLocated(By.name('title')), 2000)
+      return
+    } catch (err) {
+      last = err
+    }
+  }
+  throw last
+}
+
 async function postTopic(driver, title) {
   await driver.get(`${baseUrl}/s/general`)
-  await clickWhenReady(driver, By.xpath("//button[text()='New topic']"), 'new topic control')
-  await driver.wait(until.elementLocated(By.name('title')), 10000)
+  await openNewTopic(driver)
   await driver.findElement(By.name('title')).sendKeys(title)
   await driver.findElement(By.name('body')).sendKeys('Body for the abuse defence spec.')
   await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')

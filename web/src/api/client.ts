@@ -66,6 +66,12 @@ export type AddressBlock = {
   blockedAt: string
   until: string | null
 }
+export type AddressPost = {
+  username: string
+  addr: string
+  client: string | null
+  at: string
+}
 export type ReportKind = 'rule' | 'spelling' | 'tag' | 'group'
 export type Report = {
   id: string
@@ -846,6 +852,45 @@ export async function blockAddress(
 
 export async function liftAddressBlock(addr: string): Promise<ApiResult<void>> {
   return request<void>(blockPath(addr), { method: 'DELETE' })
+}
+
+type RawAddressPost = {
+  username: string
+  addr: string
+  client: string | null
+  at: string
+}
+
+function toAddressPost(raw: RawAddressPost): AddressPost {
+  return {
+    username: raw.username,
+    addr: raw.addr,
+    client: raw.client,
+    at: raw.at,
+  }
+}
+
+function addressPath(addr: string): string {
+  return `/api/addresses/${encodeURIComponent(addr)}`
+}
+
+export function listAddressPosts(
+  addr: string,
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<AddressPost>>> {
+  return requestPage<RawAddressPost, AddressPost>(
+    `${addressPath(addr)}/posts${pageQuery(page, size)}`,
+    toAddressPost,
+  )
+}
+
+export function removeAddressPosts(
+  addr: string,
+  hours: number,
+  reason: string,
+): Promise<ApiResult<{ removed: number }>> {
+  return post<{ removed: number }>(`${addressPath(addr)}/remove-posts`, { hours, reason })
 }
 
 type RawReport = {

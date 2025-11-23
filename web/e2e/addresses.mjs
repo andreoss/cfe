@@ -1,6 +1,6 @@
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
-import { promoteViaRoot } from './support.mjs'
+import { promoteViaRoot, publishTopic } from './support.mjs'
 
 const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:58081'
 const chromedriverPath = process.env.CHROMEDRIVER_PATH
@@ -89,80 +89,87 @@ async function postTopic(driver, title) {
   await driver.get(`${baseUrl}/s/general`)
   await openNewTopic(driver)
   await driver.findElement(By.name('title')).sendKeys(title)
-  await driver.findElement(By.name('body')).sendKeys('Body for the rate limit spec.')
+  await driver.findElement(By.name('body')).sendKeys('A body for the address spec.')
   await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')
-  let outcome = ''
+  await driver.wait(
+    async () => (await mainText(driver)).includes(title),
+    10000,
+    'the topic should be created',
+  )
+}
+
+async function investigate(driver) {
+  await driver.get(`${baseUrl}/addresses`)
+  const input = await driver.wait(until.elementLocated(By.name('investigate-addr')), 10000)
+  await input.clear()
+  await input.sendKeys('127.0.0.1')
+  await clickWhenReady(driver, By.xpath("//button[text()='Investigate']"), 'investigate control')
   await driver.wait(
     async () => {
       const text = await mainText(driver)
-      if (text.includes(title) || text.includes('slow down')) {
-        outcome = text
-        return true
-      }
-      return false
+      return text.includes('Remove posts') || text.includes('No posts from that address.')
     },
     10000,
-    'posting should either land or be refused',
+    'the listing should come back',
   )
-  return outcome
-}
-
-async function postUntilAccepted(driver, prefix) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const text = await postTopic(driver, `${prefix} ${attempt}`)
-    if (text.includes(`${prefix} ${attempt}`)) return
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
-  throw new Error(`${prefix} never got through the rate window`)
+  return mainText(driver)
 }
 
 async function run() {
-  const first = await buildDriver()
-  const second = await buildDriver()
   const mod = await buildDriver()
+  const author = await buildDriver()
   const suffix = Date.now().toString(36)
-  const firstName = `e2e_rt_a_${suffix}`
-  const secondName = `e2e_rt_b_${suffix}`
-  const modName = `e2e_rt_m_${suffix}`
+  const modName = `e2e_ad_m_${suffix}`
+  const authorName = `e2e_ad_a_${suffix}`
+  const title = `Address topic ${suffix}`
   try {
-    await register(first, firstName)
-    await register(second, secondName)
     await register(mod, modName)
     await promoteViaRoot(modName)
     await signIn(mod, modName)
+    await register(author, authorName)
 
-    await postUntilAccepted(second, `Rate warmup ${suffix}`)
+    await postTopic(author, title)
+    await publishTopic(title)
 
-    let text = await postTopic(second, `Rate two ${suffix}`)
-    assert(text.includes(`Rate two ${suffix}`), `the second post should land, saw: ${text}`)
-
-    text = await postTopic(second, `Rate three ${suffix}`)
-    assert(
-      text.includes('slow down'),
-      `a third post from the same account should be refused, saw: ${text}`,
+    await author.get(`${baseUrl}/addresses`)
+    await author.wait(
+      async () => (await mainText(author)).includes('Only a moderator can investigate an address.'),
+      10000,
+      'a plain user must not investigate',
     )
-    assert(
-      !text.includes(`Rate three ${suffix}`),
-      'the refused topic must not appear',
-    )
+    const noLink = await author.findElements(By.linkText('Addresses'))
+    assert(noLink.length === 0, 'a plain user must not see the addresses link')
 
-    text = await postTopic(first, `Rate four ${suffix}`)
+    const listing = await investigate(mod)
     assert(
-      text.includes(`Rate four ${suffix}`),
-      `another account on the same address must not be punished, saw: ${text}`,
+      listing.includes(authorName),
+      `the listing should name who posted from the address, saw: ${listing}`,
     )
 
-    text = await postTopic(mod, `Rate moderator ${suffix}`)
-    assert(
-      text.includes(`Rate moderator ${suffix}`),
-      `a moderator must not be rate limited, saw: ${text}`,
+    const hours = await mod.findElement(By.name('remove-hours'))
+    await hours.clear()
+    await hours.sendKeys('1')
+    const reason = await mod.findElement(By.name('remove-reason'))
+    await reason.clear()
+    await reason.sendKeys('a flood')
+    await clickWhenReady(mod, By.xpath("//button[text()='Remove posts']"), 'remove control')
+    await mod.wait(
+      async () => /Removed \d+ posts\./.test(await mainText(mod)),
+      10000,
+      'removal should report how many it took',
     )
 
-    console.log('e2e: abuse rate limit flow passed')
+    await author.get(`${baseUrl}/s/general`)
+    await author.wait(until.elementLocated(By.css('main')), 10000)
+    assert(
+      !(await mainText(author)).includes(title),
+      'a removed topic must not stay in the section listing',
+    )
+
+    console.log('e2e: address investigation flow passed')
   } finally {
-    await first.quit()
-    await second.quit()
     await mod.quit()
+    await author.quit()
   }
 }
 
