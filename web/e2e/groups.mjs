@@ -20,6 +20,24 @@ async function buildDriver() {
   return builder.build()
 }
 
+async function openNewTopic(driver) {
+  let last
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await clickWhenReady(
+        driver,
+        By.xpath("//button[text()='New topic']"),
+        'the new topic control should be present',
+      )
+      await driver.wait(until.elementLocated(By.name('title')), 2000)
+      return
+    } catch (err) {
+      last = err
+    }
+  }
+  throw last
+}
+
 async function register(driver, username) {
   await driver.get(`${baseUrl}/register`)
   await driver.wait(until.elementLocated(By.name('username')), 5000)
@@ -100,8 +118,7 @@ async function run() {
 
     await author.get(`${baseUrl}/s/general`)
     await author.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 10000)
-    await clickWhenReady(author, By.xpath("//button[text()='New topic']"), 'the new topic control should be present')
-    await author.wait(until.elementLocated(By.name('title')), 10000)
+    await openNewTopic(author)
     await author.findElement(By.name('title')).sendKeys(topicTitle)
     await author.findElement(By.name('body')).sendKeys('This one waits for a moderator.')
     const picker = await author.findElement(By.name('group'))

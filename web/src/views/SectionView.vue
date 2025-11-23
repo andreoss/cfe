@@ -28,6 +28,8 @@ const groupDraft = ref('')
 const groups = ref<Group[]>([])
 const moderationError = ref('')
 const formError = ref('')
+const challengeNeeded = ref(false)
+const challengeAnswer = ref('')
 
 function parseTags(raw: string): string[] {
   return raw
@@ -97,8 +99,14 @@ async function onCreate() {
     bodyDraft.value,
     parseTags(tagsDraft.value),
     groupDraft.value || undefined,
+    challengeAnswer.value,
   )
   if (!result.ok) {
+    if (result.status === 428 && !challengeNeeded.value) {
+      challengeNeeded.value = true
+      challengeAnswer.value = ''
+      return
+    }
     formError.value = result.error
     return
   }
@@ -106,6 +114,8 @@ async function onCreate() {
   bodyDraft.value = ''
   tagsDraft.value = ''
   groupDraft.value = ''
+  challengeNeeded.value = false
+  challengeAnswer.value = ''
   creating.value = false
   await load()
 }
@@ -175,6 +185,13 @@ async function onCreate() {
             <option v-for="g in groups" :key="g.id" :value="g.slug">{{ g.name }}</option>
           </select>
         </label>
+        <template v-if="challengeNeeded">
+          <p role="status">Answer the challenge to continue.</p>
+          <label>
+            Challenge
+            <input v-model="challengeAnswer" name="topic-challenge-answer" type="text" />
+          </label>
+        </template>
         <p v-if="formError" role="alert">{{ formError }}</p>
         <button type="submit">Post</button>
         <button type="button" @click="creating = false">Cancel</button>

@@ -61,6 +61,10 @@ start_api() {
     MAIL_TRANSPORT=log \
     MAIL_LOG="$MAIL_LOG" \
     RATE_LIMIT_MAX="${1:-100000}" \
+    CHALLENGE_TRANSPORT="${CHALLENGE_TRANSPORT:-off}" \
+    CHALLENGE_SECRET="${CHALLENGE_SECRET:-}" \
+    CHALLENGE_ON_REGISTER="${CHALLENGE_ON_REGISTER:-0}" \
+    CHALLENGE_BELOW_FLOOR="${CHALLENGE_BELOW_FLOOR:-0}" \
     ACCOUNT_RATE_LIMIT_MAX="${ACCOUNT_RATE_LIMIT_MAX:-100000}" \
     SLOW_MODE_SCORE_FLOOR="${2:--1000}" \
     SLOW_MODE_INTERVAL_SECONDS="${3:-120}" \
@@ -100,6 +104,10 @@ if [ -n "$SPEC" ]; then
     abuse-slow) restart_api 100000 1000 3600 ;;
     abuse-rate) ACCOUNT_RATE_LIMIT_MAX=2 restart_api 100 -1000 120 5 ;;
     maintenance) CONFIRMATION_WINDOW_SECONDS=1 restart_api ;;
+    challenge)
+      CHALLENGE_TRANSPORT=secret CHALLENGE_SECRET="open sesame" \
+        CHALLENGE_ON_REGISTER=1 CHALLENGE_BELOW_FLOOR=1 restart_api 100000 5 1
+      ;;
   esac
   node "e2e/$SPEC.mjs"
   exit 0
@@ -140,3 +148,7 @@ CONFIRMATION_WINDOW_SECONDS=1 restart_api
 node e2e/maintenance.mjs
 
 node e2e/addresses.mjs
+
+CHALLENGE_TRANSPORT=secret CHALLENGE_SECRET="open sesame" \
+  CHALLENGE_ON_REGISTER=1 CHALLENGE_BELOW_FLOOR=1 restart_api 100000 5 1
+node e2e/challenge.mjs

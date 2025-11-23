@@ -8,6 +8,8 @@ const username = ref('')
 const email = ref('')
 const password = ref('')
 const formError = ref('')
+const challengeNeeded = ref(false)
+const challengeAnswer = ref('')
 const auth = useAuthStore()
 const router = useRouter()
 
@@ -28,8 +30,18 @@ async function onSubmit() {
     formError.value = passwordCheck.error
     return
   }
-  const result = await auth.doRegister(username.value, email.value, password.value)
+  const result = await auth.doRegister(
+    username.value,
+    email.value,
+    password.value,
+    challengeAnswer.value,
+  )
   if (!result.ok) {
+    if (result.status === 428 && !challengeNeeded.value) {
+      challengeNeeded.value = true
+      challengeAnswer.value = ''
+      return
+    }
     formError.value = result.error
     return
   }
@@ -53,6 +65,13 @@ async function onSubmit() {
         Password
         <input v-model="password" name="password" type="password" />
       </label>
+      <template v-if="challengeNeeded">
+        <p role="status">Answer the challenge to continue.</p>
+        <label>
+          Challenge
+          <input v-model="challengeAnswer" name="challenge-answer" type="text" />
+        </label>
+      </template>
       <p v-if="formError" role="alert">{{ formError }}</p>
       <button type="submit">Create account</button>
     </form>

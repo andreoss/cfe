@@ -82,7 +82,9 @@ export type Report = {
   reason: string
   createdAt: string
 }
-export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string }
+export type ApiResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string; status?: number }
 export type PageInfo = {
   number: number
   size: number
@@ -103,9 +105,17 @@ async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>
   const text = await response.text()
   const data = text.length > 0 ? JSON.parse(text) : undefined
   if (!response.ok) {
-    return { ok: false, error: data?.error ?? 'request failed' }
+    return { ok: false, error: data?.error ?? 'request failed', status: response.status }
   }
   return { ok: true, value: data as T }
+}
+
+function withChallenge(
+  body: Record<string, unknown>,
+  challenge?: string,
+): Record<string, unknown> {
+  if (typeof challenge !== 'string' || challenge.length === 0) return body
+  return { ...body, challenge }
 }
 
 function post<T>(path: string, body: unknown): Promise<ApiResult<T>> {
@@ -162,8 +172,9 @@ export function register(
   username: string,
   email: string,
   password: string,
+  challenge?: string,
 ): Promise<ApiResult<User>> {
-  return post<User>('/api/register', { username, email, password })
+  return post<User>('/api/register', withChallenge({ username, email, password }, challenge))
 }
 
 export function signIn(username: string, password: string): Promise<ApiResult<User>> {
@@ -285,11 +296,12 @@ export async function createTopic(
   body: string,
   tags: string[],
   group?: string,
+  challenge?: string,
 ): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body, tags, group }),
+    body: JSON.stringify(withChallenge({ title, body, tags, group }, challenge)),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
@@ -394,13 +406,14 @@ export async function postComment(
   topicId: string,
   body: string,
   parentId: string | null,
+  challenge?: string,
 ): Promise<ApiResult<Comment>> {
   const result = await request<RawComment>(
     `/api/topics/${encodeURIComponent(topicId)}/comments`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, parent_id: parentId }),
+      body: JSON.stringify(withChallenge({ body, parent_id: parentId }, challenge)),
     },
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result

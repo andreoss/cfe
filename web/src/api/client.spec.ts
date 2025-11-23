@@ -2547,3 +2547,167 @@ describe('open report counts', () => {
     expect(result.ok && result.value.openReports).toEqual(3)
   })
 })
+
+function statusResponse(status: number, body: unknown) {
+  return { ok: false, status, text: async () => JSON.stringify(body) } as Response
+}
+
+describe('challenge', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('register sends the challenge when one is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse', 'a blue moon')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+          challenge: 'a blue moon',
+        }),
+      }),
+    )
+  })
+
+  it('register omits the challenge when none is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+        }),
+      }),
+    )
+  })
+
+  it('register omits the challenge when it is empty', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse', '')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+        }),
+      }),
+    )
+  })
+
+  it('createTopic sends the challenge when one is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust'], undefined, 'a blue moon')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          title: 'Hello',
+          body: 'World',
+          tags: ['rust'],
+          challenge: 'a blue moon',
+        }),
+      }),
+    )
+  })
+
+  it('createTopic omits the challenge when none is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust'])
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({ title: 'Hello', body: 'World', tags: ['rust'] }),
+      }),
+    )
+  })
+
+  it('createTopic omits the challenge when it is empty', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust'], undefined, '')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({ title: 'Hello', body: 'World', tags: ['rust'] }),
+      }),
+    )
+  })
+
+  it('postComment sends the challenge when one is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment()))
+    await postComment('t1', 'Nice topic!', null, 'a blue moon')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          body: 'Nice topic!',
+          parent_id: null,
+          challenge: 'a blue moon',
+        }),
+      }),
+    )
+  })
+
+  it('postComment omits the challenge when none is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment()))
+    await postComment('t1', 'Nice topic!', null)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments'),
+      expect.objectContaining({
+        body: JSON.stringify({ body: 'Nice topic!', parent_id: null }),
+      }),
+    )
+  })
+
+  it('postComment omits the challenge when it is empty', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment()))
+    await postComment('t1', 'Nice topic!', null, '')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments'),
+      expect.objectContaining({
+        body: JSON.stringify({ body: 'Nice topic!', parent_id: null }),
+      }),
+    )
+  })
+
+  it('reports the status when register is refused with 428', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(428, { error: 'challenge required' }),
+    )
+    const result = await register('alice_01', 'alice@example.com', 'correcthorse')
+    expect(result).toEqual({ ok: false, error: 'challenge required', status: 428 })
+  })
+
+  it('reports the status when createTopic is refused with 428', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(428, { error: 'challenge required' }),
+    )
+    const result = await createTopic('general', 'Hello', 'World', ['rust'])
+    expect(result).toEqual({ ok: false, error: 'challenge required', status: 428 })
+  })
+
+  it('reports the status when postComment is refused with 428', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(428, { error: 'challenge required' }),
+    )
+    const result = await postComment('t1', 'Nice topic!', null)
+    expect(result).toEqual({ ok: false, error: 'challenge required', status: 428 })
+  })
+})

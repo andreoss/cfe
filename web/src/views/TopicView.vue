@@ -46,6 +46,8 @@ const commentPage = ref<PageInfo | null>(null)
 const currentCommentPage = ref(1)
 const newCommentDraft = ref('')
 const formError = ref('')
+const challengeNeeded = ref(false)
+const challengeAnswer = ref('')
 const deleting = ref(false)
 const deleteReason = ref('')
 const deleteError = ref('')
@@ -283,12 +285,19 @@ watch(() => props.id, load, { immediate: true })
 
 async function onPostComment() {
   formError.value = ''
-  const result = await postComment(props.id, newCommentDraft.value, null)
+  const result = await postComment(props.id, newCommentDraft.value, null, challengeAnswer.value)
   if (!result.ok) {
+    if (result.status === 428 && !challengeNeeded.value) {
+      challengeNeeded.value = true
+      challengeAnswer.value = ''
+      return
+    }
     formError.value = result.error
     return
   }
   newCommentDraft.value = ''
+  challengeNeeded.value = false
+  challengeAnswer.value = ''
   await loadComments()
 }
 
@@ -506,6 +515,13 @@ async function onUnsave() {
           Add a comment
           <textarea v-model="newCommentDraft" name="comment-body" rows="4"></textarea>
         </label>
+        <template v-if="challengeNeeded">
+          <p role="status">Answer the challenge to continue.</p>
+          <label>
+            Challenge
+            <input v-model="challengeAnswer" name="comment-challenge-answer" type="text" />
+          </label>
+        </template>
         <p v-if="formError" role="alert">{{ formError }}</p>
         <button type="submit">Post comment</button>
       </form>

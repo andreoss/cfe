@@ -6,8 +6,13 @@ export const useAuthStore = defineStore('auth', () => {
   const currentUser = ref<User | null>(null)
   const checked = ref(false)
 
-  async function doRegister(username: string, email: string, password: string) {
-    const result = await register(username, email, password)
+  async function doRegister(
+    username: string,
+    email: string,
+    password: string,
+    challenge?: string,
+  ) {
+    const result = await register(username, email, password, challenge)
     if (result.ok) currentUser.value = result.value
     return result
   }
