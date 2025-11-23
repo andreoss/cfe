@@ -1,5 +1,7 @@
-use crate::ports::AbuseRepository;
-use domain::{Address, AddressBlock, ClientString, Reason, User, UserId};
+use crate::ports::{AbuseRepository, CommentRepository, TopicRepository};
+use domain::{
+    Address, AddressBlock, ClientString, Deletion, PostRef, Reason, User, UserId,
+};
 use time::{Duration, OffsetDateTime};
 
 pub const RATE_LIMIT_MAX: u64 = 120;
@@ -76,9 +78,52 @@ pub async fn record_post(
     user_id: UserId,
     addr: &Address,
     client: Option<&ClientString>,
+    target: Option<PostRef>,
     at: OffsetDateTime,
 ) {
-    abuse.record_post(user_id, addr, client, at).await;
+    abuse.record_post(user_id, addr, client, target, at).await;
+}
+
+pub async fn remove_posts_from_address(
+    abuse: &(impl AbuseRepository + ?Sized),
+    topics: &(impl TopicRepository + ?Sized),
+    comments: &(impl CommentRepository + ?Sized),
+    moderator: &User,
+    addr: &Address,
+    since: OffsetDateTime,
+    reason: Reason,
+    now: OffsetDateTime,
+) -> Result<usize, AbuseError> {
+    if !moderator.role().is_moderator() {
+        return Err(AbuseError::NotAuthorized);
+    }
+    let deletion = Deletion::new(moderator.id(), reason, now);
+    let mut removed = 0;
+    for reference in abuse.refs_from_address_since(addr, since).await {
+        match reference {
+            PostRef::Topic(id) => {
+                if let Some(topic) = topics.find_by_id(id).await {
+                    if topic.is_deleted() {
+                        continue;
+                    }
+                    topics.update(&topic.with_deletion(deletion.clone())).await;
+                    removed += 1;
+                }
+            }
+            PostRef::Comment(id) => {
+                if let Some(comment) = comments.find_by_id(id).await {
+                    if comment.is_deleted() {
+                        continue;
+                    }
+                    comments
+                        .update(&comment.with_deletion(deletion.clone()))
+                        .await;
+                    removed += 1;
+                }
+            }
+        }
+    }
+    Ok(removed)
 }
 
 pub async fn block_address(
@@ -314,7 +359,7 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         let user = established_user(uuid::Uuid::nil());
         for _ in 0..ACCOUNT_RATE_LIMIT_MAX {
-            record_post(&abuse, user.id(), &addr(), None, now).await;
+            record_post(&abuse, user.id(), &addr(), None, None, now).await;
         }
         assert_eq!(
             enforce_posting(&abuse, &user, &addr(), now, Limits::default()).await,
@@ -329,7 +374,7 @@ mod tests {
         let noisy = established_user(uuid::Uuid::from_u128(1));
         let quiet = established_user(uuid::Uuid::from_u128(2));
         for _ in 0..ACCOUNT_RATE_LIMIT_MAX {
-            record_post(&abuse, noisy.id(), &addr(), None, now).await;
+            record_post(&abuse, noisy.id(), &addr(), None, None, now).await;
         }
         assert_eq!(
             enforce_posting(&abuse, &noisy, &addr(), now, Limits::default()).await,
@@ -364,7 +409,7 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         let user = established_user(uuid::Uuid::nil());
         let client = ClientString::parse("agent/1.0").unwrap();
-        record_post(&abuse, user.id(), &addr(), Some(&client), now).await;
+        record_post(&abuse, user.id(), &addr(), Some(&client), None, now).await;
         let found = abuse.posts_from_address(&addr(), domain::Page::first()).await;
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].user_id(), user.id());
@@ -373,11 +418,199 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_moderator_removes_a_run_of_posts_from_one_address() {
+        use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+        use domain::{Body, Comment, CommentId, SectionId, TagSet, Title, Topic, TopicId};
+
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let author = established_user(uuid::Uuid::from_u128(3));
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::from_u128(11)),
+            SectionId::new(uuid::Uuid::nil()),
+            author.id(),
+            Title::parse("Flood").unwrap(),
+            Body::parse("A flooded topic").unwrap(),
+            TagSet::empty(),
+            now,
+        );
+        let comment = Comment::new(
+            CommentId::new(uuid::Uuid::from_u128(12)),
+            topic.id(),
+            author.id(),
+            None,
+            Body::parse("A flooded comment").unwrap(),
+            now,
+        );
+        let topics = FakeTopicRepo::with(topic.clone());
+        let comments = FakeCommentRepo::new();
+        comments.save(&comment).await;
+
+        record_post(
+            &abuse,
+            author.id(),
+            &addr(),
+            None,
+            Some(PostRef::Topic(topic.id())),
+            now,
+        )
+        .await;
+        record_post(
+            &abuse,
+            author.id(),
+            &addr(),
+            None,
+            Some(PostRef::Comment(comment.id())),
+            now,
+        )
+        .await;
+
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let removed = remove_posts_from_address(
+            &abuse,
+            &topics,
+            &comments,
+            &moderator,
+            &addr(),
+            now - Duration::hours(1),
+            Reason::parse("a flood").unwrap(),
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(removed, 2);
+        assert!(topics.find_by_id(topic.id()).await.unwrap().is_deleted());
+        assert!(comments.find_by_id(comment.id()).await.unwrap().is_deleted());
+    }
+
+    #[tokio::test]
+    async fn removing_again_takes_nothing_more() {
+        use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+        use domain::{Body, SectionId, TagSet, Title, Topic, TopicId};
+
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let author = established_user(uuid::Uuid::from_u128(4));
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::from_u128(13)),
+            SectionId::new(uuid::Uuid::nil()),
+            author.id(),
+            Title::parse("Once").unwrap(),
+            Body::parse("Removed only once").unwrap(),
+            TagSet::empty(),
+            now,
+        );
+        let topics = FakeTopicRepo::with(topic.clone());
+        let comments = FakeCommentRepo::new();
+        record_post(
+            &abuse,
+            author.id(),
+            &addr(),
+            None,
+            Some(PostRef::Topic(topic.id())),
+            now,
+        )
+        .await;
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let reason = Reason::parse("a flood").unwrap();
+        let first = remove_posts_from_address(
+            &abuse,
+            &topics,
+            &comments,
+            &moderator,
+            &addr(),
+            now - Duration::hours(1),
+            reason.clone(),
+            now,
+        )
+        .await
+        .unwrap();
+        let second = remove_posts_from_address(
+            &abuse,
+            &topics,
+            &comments,
+            &moderator,
+            &addr(),
+            now - Duration::hours(1),
+            reason,
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(first, 1);
+        assert_eq!(second, 0);
+    }
+
+    #[tokio::test]
+    async fn removal_leaves_posts_outside_the_window_alone() {
+        use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+        use domain::{Body, SectionId, TagSet, Title, Topic, TopicId};
+
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let author = established_user(uuid::Uuid::from_u128(5));
+        let old = Topic::new(
+            TopicId::new(uuid::Uuid::from_u128(14)),
+            SectionId::new(uuid::Uuid::nil()),
+            author.id(),
+            Title::parse("Older").unwrap(),
+            Body::parse("Posted long before").unwrap(),
+            TagSet::empty(),
+            now - Duration::days(2),
+        );
+        let topics = FakeTopicRepo::with(old.clone());
+        let comments = FakeCommentRepo::new();
+        record_post(
+            &abuse,
+            author.id(),
+            &addr(),
+            None,
+            Some(PostRef::Topic(old.id())),
+            now - Duration::days(2),
+        )
+        .await;
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        let removed = remove_posts_from_address(
+            &abuse,
+            &topics,
+            &comments,
+            &moderator,
+            &addr(),
+            now - Duration::hours(1),
+            Reason::parse("a flood").unwrap(),
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(removed, 0);
+        assert!(!topics.find_by_id(old.id()).await.unwrap().is_deleted());
+    }
+
+    #[tokio::test]
+    async fn a_plain_user_cannot_remove_a_run_of_posts() {
+        use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+
+        let abuse = FakeAbuseRepo::new();
+        let result = remove_posts_from_address(
+            &abuse,
+            &FakeTopicRepo::new(),
+            &FakeCommentRepo::new(),
+            &plain_user(uuid::Uuid::nil()),
+            &addr(),
+            OffsetDateTime::UNIX_EPOCH,
+            Reason::parse("a flood").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await;
+        assert_eq!(result, Err(AbuseError::NotAuthorized));
+    }
+
+    #[tokio::test]
     async fn recording_a_post_is_visible_to_the_limits() {
         let abuse = FakeAbuseRepo::new();
         let user = established_user(uuid::Uuid::nil());
         let now = OffsetDateTime::UNIX_EPOCH;
-        record_post(&abuse, user.id(), &addr(), None, now).await;
+        record_post(&abuse, user.id(), &addr(), None, None, now).await;
         assert_eq!(
             enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(1), Limits::default()).await,
             Ok(())

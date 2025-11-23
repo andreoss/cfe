@@ -15,10 +15,10 @@ use app::{
     list_bookmarked_topics, list_comments, list_groups, list_notifications, list_open_reports,
     list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, move_topic,
     poll_results, post_comment, promote_to_moderator, react, recent_activity, record_post,
-    register, remove_bookmark, report_content, reporter_of, request_activation,
-    request_email_change, request_password_reset, reset_password, search, set_avatar,
-    set_postscore, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions,
-    uncommit_topic, update_bio, warn_user,
+    register, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
+    request_activation, request_email_change, request_password_reset, reset_password, search,
+    set_avatar, set_postscore, sign_in, sign_out as end_session, stop_ignoring,
+    summarize_reactions, uncommit_topic, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -558,7 +558,15 @@ pub async fn create_topic_handler(
         CreateTopicError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to post here"),
     })?;
     if let Some(addr) = &ip {
-        record_post(&*abuse, author, addr, client.as_ref(), now).await;
+        record_post(
+            &*abuse,
+            author,
+            addr,
+            client.as_ref(),
+            Some(domain::PostRef::Topic(topic.id())),
+            now,
+        )
+        .await;
     }
     topic_response(&state, &topic).await
 }
@@ -845,7 +853,15 @@ pub async fn post_comment_handler(
         PostCommentError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to comment"),
     })?;
     if let Some(addr) = &ip {
-        record_post(&*abuse, author, addr, client.as_ref(), now).await;
+        record_post(
+            &*abuse,
+            author,
+            addr,
+            client.as_ref(),
+            Some(domain::PostRef::Comment(comment.id())),
+            now,
+        )
+        .await;
     }
     Ok(Json(comment_response(&state, &comment).await?))
 }
@@ -1462,6 +1478,17 @@ pub struct AddressPostResponse {
     pub at: String,
 }
 
+#[derive(Deserialize)]
+pub struct RemovePostsRequest {
+    pub hours: i64,
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct RemovePostsResponse {
+    pub removed: usize,
+}
+
 #[derive(Serialize)]
 pub struct WarningResponse {
     pub id: String,
@@ -1644,6 +1671,35 @@ pub async fn list_address_posts_handler(
     }
     let list = app::Paged::new(posts, page, total);
     Ok(Json(paged(&list, responses)))
+}
+
+pub async fn remove_address_posts_handler(
+    State(state): State<AppState>,
+    Path(addr): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<RemovePostsRequest>,
+) -> Result<Json<RemovePostsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !current.role().is_moderator() {
+        return Err(error(StatusCode::FORBIDDEN, "moderator role required"));
+    }
+    let addr = Address::parse(&addr)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid address"))?;
+    if !(1..=168).contains(&body.hours) {
+        return Err(error(StatusCode::UNPROCESSABLE_ENTITY, "invalid hours"));
+    }
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let now = OffsetDateTime::now_utc();
+    let since = now - Duration::hours(body.hours);
+    let abuse = state.backend.abuse();
+    let topics = state.backend.topics();
+    let comments = state.backend.comments();
+    let removed = remove_posts_from_address(
+        &*abuse, &*topics, &*comments, &current, &addr, since, reason, now,
+    )
+    .await
+    .map_err(abuse_error)?;
+    Ok(Json(RemovePostsResponse { removed }))
 }
 
 #[derive(Serialize)]

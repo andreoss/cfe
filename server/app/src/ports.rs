@@ -1,6 +1,6 @@
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Bookmark, ClientString, Comment, CommentId,
-    Email, Group, GroupId,
+    Email, Group, GroupId, PostRef,
     MailToken, Notification, NotificationId, Page, Poll,
     PollId,
     PollOptionId,
@@ -94,8 +94,14 @@ pub trait AbuseRepository {
         user_id: UserId,
         addr: &Address,
         client: Option<&ClientString>,
+        target: Option<PostRef>,
         at: OffsetDateTime,
     );
+    async fn refs_from_address_since(
+        &self,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> Vec<PostRef>;
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost>;
     async fn count_posts_from_address(&self, addr: &Address) -> u64;
 }

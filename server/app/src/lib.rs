@@ -28,7 +28,7 @@ mod topics;
 pub use activity::recent_activity;
 pub use abuse::{
     ACCOUNT_RATE_LIMIT_MAX, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, SLOW_MODE_INTERVAL,
-    SLOW_MODE_SCORE_FLOOR, AbuseError, Limits,
+    SLOW_MODE_SCORE_FLOOR, AbuseError, Limits, remove_posts_from_address,
     block_address, enforce_posting, is_address_blocked, lift_address_block, list_address_blocks,
     record_post,
 };

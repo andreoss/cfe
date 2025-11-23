@@ -243,6 +243,10 @@ async fn main() {
             get(list_address_posts_handler),
         )
         .route(
+            "/api/addresses/{addr}/remove-posts",
+            post(handlers::remove_address_posts_handler),
+        )
+        .route(
             "/api/maintenance/run",
             post(handlers::run_maintenance_handler),
         )

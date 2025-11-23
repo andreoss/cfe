@@ -1,5 +1,8 @@
 use app::AbuseRepository;
-use domain::{Address, AddressBlock, AddressPost, ClientString, Page, Reason, UserId};
+use domain::{
+    Address, AddressBlock, AddressPost, ClientString, CommentId, Page, PostRef, Reason, TopicId,
+    UserId,
+};
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
 
@@ -35,6 +38,12 @@ struct AddressPostRow {
     user_id: uuid::Uuid,
     client: Option<String>,
     created_at: OffsetDateTime,
+}
+
+#[derive(FromRow)]
+struct TargetRow {
+    topic_id: Option<uuid::Uuid>,
+    comment_id: Option<uuid::Uuid>,
 }
 
 fn rate_subject(addr: &Address) -> String {
@@ -146,35 +155,66 @@ impl AbuseRepository for MySqlAbuseRepository {
         user_id: UserId,
         addr: &Address,
         client: Option<&ClientString>,
+        target: Option<PostRef>,
         at: OffsetDateTime,
     ) {
         let client = client.map(|c| c.as_str().to_owned());
+        let topic_id = target.and_then(|t| t.topic_id()).map(|id| id.as_uuid());
+        let comment_id = target.and_then(|t| t.comment_id()).map(|id| id.as_uuid());
         let mut tx = self.pool.begin().await.expect("begin record post");
         sqlx::query(
-            "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO post_events \
+             (subject, kind, user_id, client, topic_id, comment_id, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(rate_subject(addr))
         .bind("rate")
         .bind(user_id.as_uuid())
         .bind(client.as_deref())
+        .bind(topic_id)
+        .bind(comment_id)
         .bind(at)
         .execute(&mut *tx)
         .await
         .expect("insert rate event");
         sqlx::query(
-            "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO post_events \
+             (subject, kind, user_id, client, topic_id, comment_id, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(slow_subject(user_id))
         .bind("slow")
         .bind(user_id.as_uuid())
         .bind(client.as_deref())
+        .bind(topic_id)
+        .bind(comment_id)
         .bind(at)
         .execute(&mut *tx)
         .await
         .expect("insert slow event");
         tx.commit().await.expect("commit record post");
+    }
+
+    async fn refs_from_address_since(&self, addr: &Address, since: OffsetDateTime) -> Vec<PostRef> {
+        let rows = sqlx::query_as::<_, TargetRow>(
+            "SELECT topic_id, comment_id FROM post_events \
+             WHERE subject = ? AND created_at >= ? \
+             AND (topic_id IS NOT NULL OR comment_id IS NOT NULL) \
+             ORDER BY created_at DESC",
+        )
+        .bind(rate_subject(addr))
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query address refs");
+        rows.into_iter()
+            .filter_map(|row| {
+                PostRef::from_parts(
+                    row.topic_id.map(TopicId::new),
+                    row.comment_id.map(CommentId::new),
+                )
+            })
+            .collect()
     }
 
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {

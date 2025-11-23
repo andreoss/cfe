@@ -1,10 +1,12 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    count, limit_value, offset_value, opt_text, opt_time, read_opt_time, read_time, read_uuid,
-    time_to_value, uuid_value,
+    count, limit_value, offset_value, opt_text, opt_time, opt_uuid, read_opt_time, read_opt_uuid,
+    read_time, read_uuid, time_to_value, uuid_value,
 };
 use app::AbuseRepository;
-use domain::{Address, AddressBlock, AddressPost, ClientString, Page, UserId};
+use domain::{
+    Address, AddressBlock, AddressPost, ClientString, CommentId, Page, PostRef, TopicId, UserId,
+};
 use duckdb::types::Value;
 use time::OffsetDateTime;
 
@@ -37,6 +39,11 @@ struct PostRow {
     user_id: uuid::Uuid,
     client: Option<String>,
     created_at: OffsetDateTime,
+}
+
+struct TargetRow {
+    topic_id: Option<uuid::Uuid>,
+    comment_id: Option<uuid::Uuid>,
 }
 
 #[async_trait::async_trait]
@@ -188,35 +195,78 @@ impl AbuseRepository for DuckAbuseRepository {
         user_id: UserId,
         addr: &Address,
         client: Option<&ClientString>,
+        target: Option<PostRef>,
         at: OffsetDateTime,
     ) {
         let client = client.map(|c| c.as_str());
+        let topic_id = target.and_then(|t| t.topic_id()).map(|id| id.as_uuid());
+        let comment_id = target.and_then(|t| t.comment_id()).map(|id| id.as_uuid());
         self.db
             .execute(
-                "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO post_events \
+                 (subject, kind, user_id, client, topic_id, comment_id, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
                 vec![
                     Value::Text(rate_subject(addr)),
                     Value::Text("rate".to_owned()),
                     uuid_value(user_id.as_uuid()),
                     opt_text(client),
+                    opt_uuid(topic_id),
+                    opt_uuid(comment_id),
                     time_to_value(at),
                 ],
             )
             .await;
         self.db
             .execute(
-                "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO post_events \
+                 (subject, kind, user_id, client, topic_id, comment_id, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
                 vec![
                     Value::Text(slow_subject(user_id)),
                     Value::Text("slow".to_owned()),
                     uuid_value(user_id.as_uuid()),
                     opt_text(client),
+                    opt_uuid(topic_id),
+                    opt_uuid(comment_id),
                     time_to_value(at),
                 ],
             )
             .await;
+    }
+
+    async fn refs_from_address_since(&self, addr: &Address, since: OffsetDateTime) -> Vec<PostRef> {
+        let params = vec![Value::Text(rate_subject(addr)), time_to_value(since)];
+        let rows: Vec<TargetRow> = self
+            .db
+            .call(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT topic_id, comment_id FROM post_events \
+                         WHERE subject = ? AND created_at >= ? \
+                         AND (topic_id IS NOT NULL OR comment_id IS NOT NULL) \
+                         ORDER BY created_at DESC",
+                    )
+                    .expect("prepare address refs");
+                let mapped = stmt
+                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                        Ok(TargetRow {
+                            topic_id: read_opt_uuid(row, 0),
+                            comment_id: read_opt_uuid(row, 1),
+                        })
+                    })
+                    .expect("query address refs");
+                mapped.map(|r| r.expect("read address ref")).collect()
+            })
+            .await;
+        rows.into_iter()
+            .filter_map(|row| {
+                PostRef::from_parts(
+                    row.topic_id.map(TopicId::new),
+                    row.comment_id.map(CommentId::new),
+                )
+            })
+            .collect()
     }
 
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {

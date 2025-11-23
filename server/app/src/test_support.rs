@@ -18,7 +18,7 @@ use domain::{
     ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
     Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
-    Group, GroupId,
+    Group, GroupId, PostRef,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -924,6 +924,7 @@ impl MailTokenRepository for FakeMailTokenRepo {
 pub struct FakeAbuseRepo {
     blocks: Mutex<Vec<AddressBlock>>,
     posts: Mutex<Vec<(UserId, Address, Option<ClientString>, OffsetDateTime)>>,
+    refs: Mutex<Vec<(Address, PostRef, OffsetDateTime)>>,
 }
 
 impl FakeAbuseRepo {
@@ -931,6 +932,7 @@ impl FakeAbuseRepo {
         Self {
             blocks: Mutex::new(Vec::new()),
             posts: Mutex::new(Vec::new()),
+            refs: Mutex::new(Vec::new()),
         }
     }
 
@@ -1015,12 +1017,30 @@ impl AbuseRepository for FakeAbuseRepo {
         user_id: UserId,
         addr: &Address,
         client: Option<&ClientString>,
+        target: Option<PostRef>,
         at: OffsetDateTime,
     ) {
         self.posts
             .lock()
             .unwrap()
             .push((user_id, addr.clone(), client.cloned(), at));
+        if let Some(target) = target {
+            self.refs.lock().unwrap().push((addr.clone(), target, at));
+        }
+    }
+
+    async fn refs_from_address_since(
+        &self,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> Vec<PostRef> {
+        self.refs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(a, _, at)| a == addr && *at >= since)
+            .map(|(_, r, _)| *r)
+            .collect()
     }
 
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
