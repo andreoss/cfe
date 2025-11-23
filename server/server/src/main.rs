@@ -18,6 +18,7 @@ mod notification_repository;
 mod poll_repository;
 mod postgres;
 mod reaction_repository;
+mod report_repository;
 mod repository;
 mod search_repository;
 mod section_repository;
@@ -153,6 +154,19 @@ async fn main() {
         .route("/api/topics/{id}/commit", post(commit_topic_handler))
         .route("/api/topics/{id}/uncommit", post(uncommit_topic_handler))
         .route("/api/topics/{id}/move", post(move_topic_handler))
+        .route(
+            "/api/topics/{id}/report",
+            post(handlers::report_topic_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/comments/{id}/report",
+            post(handlers::report_comment_handler),
+        )
+        .route("/api/reports", get(handlers::list_reports_handler))
+        .route(
+            "/api/reports/{id}/close",
+            post(handlers::close_report_handler),
+        )
         .route(
             "/api/topics/{id}/comments",
             get(list_comments_handler).post(post_comment_handler),

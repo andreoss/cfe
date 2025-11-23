@@ -5,16 +5,17 @@ use app::{
     AbuseError, AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError,
     CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
     EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
-    PostCommentError, ReactionSummary, RegisterError, SetPostscoreError, SignInError,
+    PostCommentError, ReactionSummary, RegisterError, ReportError, SetPostscoreError, SignInError,
     UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user,
-    block_address, cast_vote, change_password, clear_avatar, clear_reaction, commit_topic,
-    confirm_activation, confirm_email_change, count_unread, create_group, create_poll,
-    create_session, create_topic, delete_comment, delete_topic, deregister, edit_comment,
-    edit_topic, enforce_posting, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
-    lift_address_block, lift_ban, list_address_blocks, list_bookmarked_topics, list_comments,
-    list_groups, list_notifications, list_sections, list_topics, list_topics_by_tag, list_warnings,
-    mark_read, move_topic, poll_results, post_comment, promote_to_moderator, react,
-    recent_activity, record_post, register, remove_bookmark, request_activation,
+    block_address, cast_vote, change_password, clear_avatar, clear_reaction, close_report,
+    commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
+    create_group, create_poll, create_session, create_topic, delete_comment, delete_topic,
+    deregister, edit_comment, edit_topic, enforce_posting, get_avatar, get_topic, ignore_user,
+    ignored_by, is_bookmarked, lift_address_block, lift_ban, list_address_blocks,
+    list_bookmarked_topics, list_comments, list_groups, list_notifications, list_open_reports,
+    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, move_topic,
+    poll_results, post_comment, promote_to_moderator, react, recent_activity, record_post,
+    register, remove_bookmark, report_content, reporter_of, request_activation,
     request_email_change, request_password_reset, reset_password, search, set_avatar,
     set_postscore, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions,
     uncommit_topic, update_bio, warn_user,
@@ -28,8 +29,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
     Address, Avatar, AvatarError, Bio, Body, CommentId, ContentItem, Email, GroupId, Page,
-    Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, Session,
-    SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
+    Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, ReportId,
+    ReportKind, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -121,6 +122,7 @@ pub struct TopicResponse {
     pub edited: bool,
     pub postscore: i32,
     pub pending: bool,
+    pub open_reports: u64,
 }
 
 #[derive(Deserialize)]
@@ -411,6 +413,7 @@ async fn topic_response(
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
     let sections = state.backend.sections();
     let users = state.backend.users();
+    let reports = state.backend.reports();
     let section = sections
         .find_by_id(topic.section_id())
         .await
@@ -452,6 +455,7 @@ async fn topic_response(
         edited: topic.is_edited(),
         postscore: topic.postscore().to_db(),
         pending: topic.is_pending(),
+        open_reports: count_open_for_topic(&*reports, topic.id()).await,
     }))
 }
 
@@ -2101,6 +2105,150 @@ pub async fn search_handler(
         }
     }
     Ok(Json(responses))
+}
+
+#[derive(Deserialize)]
+pub struct ReportRequest {
+    pub kind: String,
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct ReportResponse {
+    pub id: String,
+    pub topic_id: String,
+    pub comment_id: Option<String>,
+    pub reporter_username: String,
+    pub kind: String,
+    pub reason: String,
+    pub created_at: String,
+}
+
+fn report_error(e: ReportError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        ReportError::TargetNotFound => error(StatusCode::NOT_FOUND, "target not found"),
+        ReportError::AlreadyReported => error(StatusCode::CONFLICT, "already reported"),
+        ReportError::TooMany => error(StatusCode::TOO_MANY_REQUESTS, "slow down"),
+        ReportError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
+        ReportError::NotFound => error(StatusCode::NOT_FOUND, "report not found"),
+        ReportError::AlreadyClosed => error(StatusCode::CONFLICT, "report already closed"),
+    }
+}
+
+async fn report_response(
+    state: &AppState,
+    report: &domain::Report,
+) -> Result<ReportResponse, (StatusCode, Json<ErrorResponse>)> {
+    let users = state.backend.users();
+    let reporter = reporter_of(&*users, report.reporter_id())
+        .await
+        .ok_or_else(|| error(StatusCode::INTERNAL_SERVER_ERROR, "reporter missing"))?;
+    let created_at = report
+        .created_at()
+        .format(&Rfc3339)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?;
+    Ok(ReportResponse {
+        id: report.id().as_uuid().to_string(),
+        topic_id: report.target().topic_id().as_uuid().to_string(),
+        comment_id: report
+            .target()
+            .comment_id()
+            .map(|c| c.as_uuid().to_string()),
+        reporter_username: reporter.username().as_str().to_owned(),
+        kind: report.kind().as_str().to_owned(),
+        reason: report.reason().as_str().to_owned(),
+        created_at,
+    })
+}
+
+async fn create_report(
+    state: &AppState,
+    reporter: &domain::User,
+    topic_id: TopicId,
+    comment_id: Option<CommentId>,
+    body: ReportRequest,
+) -> Result<Json<ReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let kind = ReportKind::parse(&body.kind)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid kind"))?;
+    let reason = Reason::parse(&body.reason)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let reports = state.backend.reports();
+    let topics = state.backend.topics();
+    let comments = state.backend.comments();
+    let report = report_content(
+        &*reports,
+        &*topics,
+        &*comments,
+        ReportId::new(uuid::Uuid::new_v4()),
+        reporter,
+        topic_id,
+        comment_id,
+        kind,
+        reason,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(report_error)?;
+    Ok(Json(report_response(state, &report).await?))
+}
+
+pub async fn report_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ReportRequest>,
+) -> Result<Json<ReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    create_report(&state, &current, TopicId::new(id), None, body).await
+}
+
+pub async fn report_comment_handler(
+    State(state): State<AppState>,
+    Path((topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<ReportRequest>,
+) -> Result<Json<ReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    create_report(
+        &state,
+        &current,
+        TopicId::new(topic_id),
+        Some(CommentId::new(id)),
+        body,
+    )
+    .await
+}
+
+pub async fn list_reports_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<PagedResponse<ReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
+    let reports = state.backend.reports();
+    let list = list_open_reports(&*reports, &current, page)
+        .await
+        .map_err(report_error)?;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for report in &list.items {
+        responses.push(report_response(&state, report).await?);
+    }
+    Ok(Json(paged(&list, responses)))
+}
+
+pub async fn close_report_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<ReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let reports = state.backend.reports();
+    let report = close_report(
+        &*reports,
+        &current,
+        ReportId::new(id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(report_error)?;
+    Ok(Json(report_response(&state, &report).await?))
 }
 
 #[cfg(test)]

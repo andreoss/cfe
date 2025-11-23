@@ -194,3 +194,19 @@ CREATE TABLE post_events (
 );
 
 CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);
+
+CREATE TABLE reports (
+    id UUID PRIMARY KEY,
+    topic_id UUID NOT NULL,
+    comment_id UUID,
+    reporter_id UUID NOT NULL,
+    kind VARCHAR NOT NULL,
+    reason VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    closed_by UUID,
+    closed_at TIMESTAMPTZ
+);
+
+CREATE INDEX reports_open_idx ON reports (closed_at, created_at);
+
+CREATE INDEX reports_topic_idx ON reports (topic_id, closed_at);

@@ -225,3 +225,23 @@ CREATE TABLE post_events (
 );
 
 CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);
+
+CREATE TABLE reports (
+    id BINARY(16) PRIMARY KEY,
+    topic_id BINARY(16) NOT NULL,
+    comment_id BINARY(16),
+    reporter_id BINARY(16) NOT NULL,
+    kind VARCHAR(16) NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    closed_by BINARY(16),
+    closed_at TIMESTAMP(6) NULL,
+    FOREIGN KEY (topic_id) REFERENCES topics (id),
+    FOREIGN KEY (comment_id) REFERENCES comments (id),
+    FOREIGN KEY (reporter_id) REFERENCES users (id),
+    FOREIGN KEY (closed_by) REFERENCES users (id)
+);
+
+CREATE INDEX reports_open_idx ON reports (closed_at, created_at);
+
+CREATE INDEX reports_topic_idx ON reports (topic_id, closed_at);

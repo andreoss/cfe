@@ -1,8 +1,8 @@
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
-    PollRepository, ReactionRepository, SearchRepository, SectionRepository, SessionRepository,
-    TopicRepository, UserRepository,
+    PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
+    SessionRepository, TopicRepository, UserRepository,
 };
 use std::sync::Arc;
 
@@ -20,6 +20,7 @@ pub trait Backend: Send + Sync {
     fn avatars(&self) -> Arc<dyn AvatarRepository + Send + Sync>;
     fn enforcement(&self) -> Arc<dyn EnforcementRepository + Send + Sync>;
     fn abuse(&self) -> Arc<dyn AbuseRepository + Send + Sync>;
+    fn reports(&self) -> Arc<dyn ReportRepository + Send + Sync>;
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync>;
     fn activity(&self) -> Arc<dyn ActivityRepository + Send + Sync>;
     fn mail_tokens(&self) -> Arc<dyn MailTokenRepository + Send + Sync>;
