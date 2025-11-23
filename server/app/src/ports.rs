@@ -1,5 +1,6 @@
 use domain::{
-    Address, AddressBlock, Avatar, Ban, Bookmark, Comment, CommentId, Email, Group, GroupId,
+    Address, AddressBlock, AddressPost, Avatar, Ban, Bookmark, ClientString, Comment, CommentId,
+    Email, Group, GroupId,
     MailToken, Notification, NotificationId, Page, Poll,
     PollId,
     PollOptionId,
@@ -86,8 +87,17 @@ pub trait AbuseRepository {
     async fn delete_address_block(&self, addr: &Address);
     async fn list_address_blocks(&self) -> Vec<AddressBlock>;
     async fn count_posts_by_address(&self, addr: &Address, since: OffsetDateTime) -> u64;
+    async fn count_posts_by_user(&self, user_id: UserId, since: OffsetDateTime) -> u64;
     async fn last_post_by_user(&self, user_id: UserId) -> Option<OffsetDateTime>;
-    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime);
+    async fn record_post(
+        &self,
+        user_id: UserId,
+        addr: &Address,
+        client: Option<&ClientString>,
+        at: OffsetDateTime,
+    );
+    async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost>;
+    async fn count_posts_from_address(&self, addr: &Address) -> u64;
 }
 
 #[async_trait::async_trait]

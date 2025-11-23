@@ -1,3 +1,4 @@
+mod address_post;
 mod avatar;
 mod address;
 mod bio;
@@ -31,6 +32,7 @@ mod topic;
 mod user;
 mod username;
 
+pub use address_post::AddressPost;
 pub use avatar::{Avatar, AvatarError, ImageFormat, MAX_BYTES as AVATAR_MAX_BYTES};
 pub use address::{Address, AddressError};
 pub use bio::{Bio, BioError};

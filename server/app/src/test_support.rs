@@ -10,7 +10,8 @@ use crate::ports::{
     UserRepository, GroupRepository,
 };
 use domain::{
-    Address, AddressBlock, Avatar, Ban, Body, Bookmark, Comment, CommentId, Email, MailToken,
+    Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
+    CommentId, Email, MailToken,
     Notification, NotificationId, Page,
     Query,
     Reaction, Warning,
@@ -922,7 +923,7 @@ impl MailTokenRepository for FakeMailTokenRepo {
 
 pub struct FakeAbuseRepo {
     blocks: Mutex<Vec<AddressBlock>>,
-    posts: Mutex<Vec<(UserId, Address, OffsetDateTime)>>,
+    posts: Mutex<Vec<(UserId, Address, Option<ClientString>, OffsetDateTime)>>,
 }
 
 impl FakeAbuseRepo {
@@ -940,13 +941,18 @@ impl FakeAbuseRepo {
     }
 
     pub fn set_last_post(&self, user_id: UserId, at: OffsetDateTime) {
-        self.posts.lock().unwrap().push((user_id, Address::parse("0.0.0.0").unwrap(), at));
+        self.posts.lock().unwrap().push((
+            user_id,
+            Address::parse("0.0.0.0").unwrap(),
+            None,
+            at,
+        ));
     }
 
     pub fn set_address_posts(&self, addr: &Address, at: OffsetDateTime, count: u64) {
         let mut posts = self.posts.lock().unwrap();
         for _ in 0..count {
-            posts.push((UserId::new(uuid::Uuid::nil()), addr.clone(), at));
+            posts.push((UserId::new(uuid::Uuid::nil()), addr.clone(), None, at));
         }
     }
 }
@@ -981,7 +987,7 @@ impl AbuseRepository for FakeAbuseRepo {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, a, at)| a == addr && *at >= since)
+            .filter(|(_, a, _, at)| a == addr && *at >= since)
             .count() as u64
     }
 
@@ -990,13 +996,52 @@ impl AbuseRepository for FakeAbuseRepo {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(u, _, _)| *u == user_id)
-            .map(|(_, _, at)| *at)
+            .filter(|(u, _, _, _)| *u == user_id)
+            .map(|(_, _, _, at)| *at)
             .max()
     }
 
-    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
-        self.posts.lock().unwrap().push((user_id, addr.clone(), at));
+    async fn count_posts_by_user(&self, user_id: UserId, since: OffsetDateTime) -> u64 {
+        self.posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(u, _, _, at)| *u == user_id && *at >= since)
+            .count() as u64
+    }
+
+    async fn record_post(
+        &self,
+        user_id: UserId,
+        addr: &Address,
+        client: Option<&ClientString>,
+        at: OffsetDateTime,
+    ) {
+        self.posts
+            .lock()
+            .unwrap()
+            .push((user_id, addr.clone(), client.cloned(), at));
+    }
+
+    async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
+        self.posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, a, _, _)| a == addr)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .map(|(u, a, c, at)| AddressPost::new(*u, a.clone(), c.clone(), *at))
+            .collect()
+    }
+
+    async fn count_posts_from_address(&self, addr: &Address) -> u64 {
+        self.posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, a, _, _)| a == addr)
+            .count() as u64
     }
 }
 
