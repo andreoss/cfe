@@ -4,6 +4,7 @@ mod auth;
 mod avatar_repository;
 mod backend;
 mod bookmark_repository;
+mod challenge;
 mod comment_repository;
 mod duckdb;
 mod enforcement_repository;
@@ -115,6 +116,8 @@ async fn main() {
     let state = AppState {
         backend: connect(&database_url).await,
         mailer: mail::build(),
+        challenge: challenge::build(),
+        challenge_rules: challenge::rules_from_env(),
         limits: limits_from_env(),
         maintenance: maintenance_from_env(),
     };

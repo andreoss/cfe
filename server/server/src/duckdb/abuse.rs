@@ -5,7 +5,8 @@ use crate::duckdb::topic::{
 };
 use app::AbuseRepository;
 use domain::{
-    Address, AddressBlock, AddressPost, ClientString, CommentId, Page, PostRef, TopicId, UserId,
+    Address, AddressBlock, AddressPost, BlockMode, ClientString, CommentId, Page, PostRef, TopicId,
+    UserId,
 };
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -33,6 +34,7 @@ struct BlockRow {
     reason: String,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+    mode: String,
 }
 
 struct PostRow {
@@ -55,8 +57,8 @@ impl AbuseRepository for DuckAbuseRepository {
             .call(move |conn| {
                 let mut stmt = conn
                     .prepare(
-                        "SELECT moderator_id, reason, blocked_at, until FROM address_blocks \
-                         WHERE addr = ?",
+                        "SELECT moderator_id, reason, blocked_at, until, mode \
+                         FROM address_blocks WHERE addr = ?",
                     )
                     .expect("prepare address block");
                 let mapped = stmt
@@ -66,6 +68,7 @@ impl AbuseRepository for DuckAbuseRepository {
                             reason: row.get(1).expect("read reason"),
                             blocked_at: read_time(row, 2),
                             until: read_opt_time(row, 3),
+                            mode: row.get(4).expect("read mode"),
                         })
                     })
                     .expect("query address block");
@@ -73,13 +76,16 @@ impl AbuseRepository for DuckAbuseRepository {
             })
             .await;
         let row = rows.into_iter().next()?;
-        Some(AddressBlock::new(
-            addr.clone(),
-            UserId::new(row.moderator_id),
-            domain::Reason::parse(&row.reason).expect("stored reason is valid"),
-            row.blocked_at,
-            row.until,
-        ))
+        Some(
+            AddressBlock::new(
+                addr.clone(),
+                UserId::new(row.moderator_id),
+                domain::Reason::parse(&row.reason).expect("stored reason is valid"),
+                row.blocked_at,
+                row.until,
+            )
+            .with_mode(BlockMode::parse(&row.mode).unwrap_or_default()),
+        )
     }
 
     async fn save_address_block(&self, addr: &Address, block: &AddressBlock) {
@@ -89,13 +95,15 @@ impl AbuseRepository for DuckAbuseRepository {
             Value::Text(block.reason().as_str().to_owned()),
             time_to_value(block.blocked_at()),
             opt_time(block.until()),
+            Value::Text(block.mode().as_str().to_owned()),
         ];
         self.db
             .execute(
-                "INSERT INTO address_blocks (addr, moderator_id, reason, blocked_at, until) \
-                 VALUES (?, ?, ?, ?, ?) \
+                "INSERT INTO address_blocks (addr, moderator_id, reason, blocked_at, until, mode) \
+                 VALUES (?, ?, ?, ?, ?, ?) \
                  ON CONFLICT (addr) DO UPDATE SET moderator_id = EXCLUDED.moderator_id, \
-                 reason = EXCLUDED.reason, blocked_at = EXCLUDED.blocked_at, until = EXCLUDED.until",
+                 reason = EXCLUDED.reason, blocked_at = EXCLUDED.blocked_at, \
+                 until = EXCLUDED.until, mode = EXCLUDED.mode",
                 params,
             )
             .await;
@@ -116,7 +124,8 @@ impl AbuseRepository for DuckAbuseRepository {
             .call(|conn| {
                 let mut stmt = conn
                     .prepare(
-                        "SELECT addr, moderator_id, reason, blocked_at, until FROM address_blocks",
+                        "SELECT addr, moderator_id, reason, blocked_at, until, mode \
+                         FROM address_blocks",
                     )
                     .expect("prepare address blocks");
                 let mapped = stmt
@@ -128,6 +137,7 @@ impl AbuseRepository for DuckAbuseRepository {
                                 reason: row.get(2).expect("read reason"),
                                 blocked_at: read_time(row, 3),
                                 until: read_opt_time(row, 4),
+                                mode: row.get(5).expect("read mode"),
                             },
                         ))
                     })
@@ -144,6 +154,7 @@ impl AbuseRepository for DuckAbuseRepository {
                     row.blocked_at,
                     row.until,
                 )
+                .with_mode(BlockMode::parse(&row.mode).unwrap_or_default())
             })
             .collect()
     }
@@ -316,5 +327,64 @@ impl AbuseRepository for DuckAbuseRepository {
             vec![Value::Text(rate_subject(addr))],
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain::Reason;
+
+    const SCHEMA: &str = include_str!("../../migrations_duckdb/0001_schema.sql");
+
+    async fn repository() -> DuckAbuseRepository {
+        let db = Db::open(":memory:");
+        db.call(|conn| {
+            conn.execute_batch(SCHEMA).expect("run schema");
+        })
+        .await;
+        DuckAbuseRepository::new(db)
+    }
+
+    fn block(mode: BlockMode) -> AddressBlock {
+        AddressBlock::new(
+            Address::parse("203.0.113.10").unwrap(),
+            UserId::new(uuid::Uuid::nil()),
+            Reason::parse("a shared address").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        )
+        .with_mode(mode)
+    }
+
+    #[tokio::test]
+    async fn a_stored_block_keeps_its_mode() {
+        let repo = repository().await;
+        let addr = Address::parse("203.0.113.10").unwrap();
+        repo.save_address_block(&addr, &block(BlockMode::Challenge))
+            .await;
+        assert_eq!(
+            repo.find_address_block(&addr).await.map(|b| b.mode()),
+            Some(BlockMode::Challenge)
+        );
+        assert_eq!(
+            repo.list_address_blocks().await.first().map(|b| b.mode()),
+            Some(BlockMode::Challenge)
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_the_same_address_again_moves_its_mode() {
+        let repo = repository().await;
+        let addr = Address::parse("203.0.113.10").unwrap();
+        repo.save_address_block(&addr, &block(BlockMode::Refuse))
+            .await;
+        repo.save_address_block(&addr, &block(BlockMode::Allow))
+            .await;
+        assert_eq!(repo.list_address_blocks().await.len(), 1);
+        assert_eq!(
+            repo.find_address_block(&addr).await.map(|b| b.mode()),
+            Some(BlockMode::Allow)
+        );
     }
 }

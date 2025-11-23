@@ -59,7 +59,8 @@ pub use polls::{
 };
 pub use paging::Paged;
 pub use ports::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
+    CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,

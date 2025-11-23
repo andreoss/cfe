@@ -1,7 +1,7 @@
 use app::AbuseRepository;
 use domain::{
-    Address, AddressBlock, AddressPost, ClientString, CommentId, Page, PostRef, Reason, TopicId,
-    UserId,
+    Address, AddressBlock, AddressPost, BlockMode, ClientString, CommentId, Page, PostRef, Reason,
+    TopicId, UserId,
 };
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
@@ -22,6 +22,7 @@ struct BlockRow {
     reason: String,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+    mode: String,
 }
 
 #[derive(FromRow)]
@@ -31,6 +32,7 @@ struct BlockListRow {
     reason: String,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+    mode: String,
 }
 
 #[derive(FromRow)]
@@ -58,33 +60,39 @@ fn slow_subject(user_id: UserId) -> String {
 impl AbuseRepository for MySqlAbuseRepository {
     async fn find_address_block(&self, addr: &Address) -> Option<AddressBlock> {
         let row = sqlx::query_as::<_, BlockRow>(
-            "SELECT moderator_id, reason, blocked_at, until FROM address_blocks WHERE addr = ?",
+            "SELECT moderator_id, reason, blocked_at, until, mode FROM address_blocks \
+             WHERE addr = ?",
         )
         .bind(addr.as_str())
         .fetch_optional(&self.pool)
         .await
         .expect("query address block")?;
-        Some(AddressBlock::new(
-            addr.clone(),
-            UserId::new(row.moderator_id),
-            Reason::parse(&row.reason).expect("stored reason is valid"),
-            row.blocked_at,
-            row.until,
-        ))
+        Some(
+            AddressBlock::new(
+                addr.clone(),
+                UserId::new(row.moderator_id),
+                Reason::parse(&row.reason).expect("stored reason is valid"),
+                row.blocked_at,
+                row.until,
+            )
+            .with_mode(BlockMode::parse(&row.mode).unwrap_or_default()),
+        )
     }
 
     async fn save_address_block(&self, addr: &Address, block: &AddressBlock) {
         sqlx::query(
-            "INSERT INTO address_blocks (addr, moderator_id, reason, blocked_at, until) \
-             VALUES (?, ?, ?, ?, ?) \
+            "INSERT INTO address_blocks (addr, moderator_id, reason, blocked_at, until, mode) \
+             VALUES (?, ?, ?, ?, ?, ?) \
              ON DUPLICATE KEY UPDATE moderator_id = VALUES(moderator_id), \
-             reason = VALUES(reason), blocked_at = VALUES(blocked_at), until = VALUES(until)",
+             reason = VALUES(reason), blocked_at = VALUES(blocked_at), \
+             until = VALUES(until), mode = VALUES(mode)",
         )
         .bind(addr.as_str())
         .bind(block.moderator_id().as_uuid())
         .bind(block.reason().as_str())
         .bind(block.blocked_at())
         .bind(block.until())
+        .bind(block.mode().as_str())
         .execute(&self.pool)
         .await
         .expect("insert address block");
@@ -100,7 +108,7 @@ impl AbuseRepository for MySqlAbuseRepository {
 
     async fn list_address_blocks(&self) -> Vec<AddressBlock> {
         let rows = sqlx::query_as::<_, BlockListRow>(
-            "SELECT addr, moderator_id, reason, blocked_at, until FROM address_blocks",
+            "SELECT addr, moderator_id, reason, blocked_at, until, mode FROM address_blocks",
         )
         .fetch_all(&self.pool)
         .await
@@ -114,6 +122,7 @@ impl AbuseRepository for MySqlAbuseRepository {
                     row.blocked_at,
                     row.until,
                 )
+                .with_mode(BlockMode::parse(&row.mode).unwrap_or_default())
             })
             .collect()
     }

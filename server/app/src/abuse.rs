@@ -174,11 +174,13 @@ pub async fn block_address(
     reason: Reason,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+    mode: BlockMode,
 ) -> Result<AddressBlock, AbuseError> {
     if !moderator.role().is_moderator() {
         return Err(AbuseError::NotAuthorized);
     }
-    let block = AddressBlock::new(addr.clone(), moderator.id(), reason, blocked_at, until);
+    let block = AddressBlock::new(addr.clone(), moderator.id(), reason, blocked_at, until)
+        .with_mode(mode);
     abuse.save_address_block(&addr, &block).await;
     Ok(block)
 }
@@ -363,6 +365,7 @@ mod tests {
             Reason::parse("flood").unwrap(),
             now,
             None,
+            BlockMode::Refuse,
         )
         .await
         .unwrap();
@@ -382,6 +385,7 @@ mod tests {
             Reason::parse("flood").unwrap(),
             OffsetDateTime::UNIX_EPOCH,
             None,
+            BlockMode::Refuse,
         )
         .await;
         assert_eq!(result, Err(AbuseError::NotAuthorized));

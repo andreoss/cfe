@@ -183,7 +183,8 @@ CREATE TABLE address_blocks (
     moderator_id UUID NOT NULL,
     reason VARCHAR NOT NULL,
     blocked_at TIMESTAMPTZ NOT NULL,
-    until TIMESTAMPTZ
+    until TIMESTAMPTZ,
+    mode VARCHAR NOT NULL DEFAULT 'refuse'
 );
 
 CREATE TABLE post_events (

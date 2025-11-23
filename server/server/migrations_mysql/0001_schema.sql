@@ -214,6 +214,7 @@ CREATE TABLE address_blocks (
     reason TEXT NOT NULL,
     blocked_at TIMESTAMP(6) NOT NULL,
     until TIMESTAMP(6) NULL,
+    mode VARCHAR(16) NOT NULL DEFAULT 'refuse',
     FOREIGN KEY (moderator_id) REFERENCES users (id)
 );
 

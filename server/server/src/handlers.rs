@@ -10,12 +10,12 @@ use app::{
     block_address, cast_vote, change_password, clear_avatar, clear_reaction, close_report,
     commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
     create_group, create_poll, create_session, create_topic, delete_comment, delete_topic,
-    deregister, edit_comment, edit_topic, enforce_posting, get_avatar, get_topic, ignore_user,
-    ignored_by, is_bookmarked, lift_address_block, lift_ban, list_address_blocks,
-    list_bookmarked_topics, list_comments, list_groups, list_notifications, list_open_reports,
-    list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read, move_topic,
-    poll_results, post_comment, promote_to_moderator, react, recent_activity, record_post,
-    register, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
+    deregister, edit_comment, edit_topic, enforce_posting, enforce_registration_challenge,
+    get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
+    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
+    list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read,
+    move_topic, poll_results, post_comment, promote_to_moderator, react, recent_activity,
+    record_post, register, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
     request_activation, request_email_change, request_password_reset, reset_password, search,
     set_avatar, set_postscore, sign_in, sign_out as end_session, stop_ignoring,
     summarize_reactions, uncommit_topic, update_bio, warn_user,
@@ -28,8 +28,8 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
-    Address, Avatar, AvatarError, Bio, Body, CommentId, ContentItem, Email, GroupId, Page,
-    Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, ReportId,
+    Address, Avatar, AvatarError, Bio, BlockMode, Body, CommentId, ContentItem, Email, GroupId,
+    Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, ReportId,
     ReportKind, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,8 @@ use time::{Duration, OffsetDateTime};
 pub struct AppState {
     pub backend: Arc<dyn Backend>,
     pub mailer: Arc<dyn app::Mailer + Send + Sync>,
+    pub challenge: Arc<dyn app::Challenge + Send + Sync>,
+    pub challenge_rules: app::ChallengeRules,
     pub limits: app::Limits,
     pub maintenance: app::MaintenanceSettings,
 }
@@ -50,6 +52,8 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub challenge: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +109,8 @@ pub struct CreateTopicRequest {
     pub tags: Vec<String>,
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub challenge: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -129,6 +135,8 @@ pub struct TopicResponse {
 pub struct CreateCommentRequest {
     pub body: String,
     pub parent_id: Option<String>,
+    #[serde(default)]
+    pub challenge: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -308,6 +316,13 @@ pub async fn register_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
     let email = Email::parse(&body.email)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid email"))?;
+    enforce_registration_challenge(
+        &*state.challenge,
+        body.challenge.as_deref(),
+        state.challenge_rules,
+    )
+    .await
+    .map_err(abuse_error)?;
     let repo = state.backend.users();
     let hasher = Argon2Hasher;
     let id = UserId::new(uuid::Uuid::new_v4());
@@ -516,9 +531,18 @@ pub async fn create_topic_handler(
     let now = OffsetDateTime::now_utc();
     let abuse = state.backend.abuse();
     if let Some(addr) = &ip {
-        enforce_posting(&*abuse, &current, addr, now, state.limits)
-            .await
-            .map_err(abuse_error)?;
+        enforce_posting(
+            &*abuse,
+            &*state.challenge,
+            &current,
+            addr,
+            body.challenge.as_deref(),
+            now,
+            state.limits,
+            state.challenge_rules,
+        )
+        .await
+        .map_err(abuse_error)?;
     }
     let sections = state.backend.sections();
     let topics = state.backend.topics();
@@ -820,9 +844,18 @@ pub async fn post_comment_handler(
     let now = OffsetDateTime::now_utc();
     let abuse = state.backend.abuse();
     if let Some(addr) = &ip {
-        enforce_posting(&*abuse, &current, addr, now, state.limits)
-            .await
-            .map_err(abuse_error)?;
+        enforce_posting(
+            &*abuse,
+            &*state.challenge,
+            &current,
+            addr,
+            body.challenge.as_deref(),
+            now,
+            state.limits,
+            state.challenge_rules,
+        )
+        .await
+        .map_err(abuse_error)?;
     }
     let topics = state.backend.topics();
     let comments = state.backend.comments();
@@ -1460,6 +1493,8 @@ pub struct BlockAddressRequest {
     pub addr: String,
     pub reason: String,
     pub days: Option<i64>,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1468,6 +1503,7 @@ pub struct AddressBlockResponse {
     pub reason: String,
     pub blocked_at: String,
     pub until: Option<String>,
+    pub mode: String,
 }
 
 #[derive(Serialize)]
@@ -1511,6 +1547,9 @@ fn abuse_error(e: AbuseError) -> (StatusCode, Json<ErrorResponse>) {
         AbuseError::AddressBlocked => error(StatusCode::FORBIDDEN, "address is blocked"),
         AbuseError::RateLimited => error(StatusCode::TOO_MANY_REQUESTS, "slow down"),
         AbuseError::SlowMode => error(StatusCode::TOO_MANY_REQUESTS, "slow down"),
+        AbuseError::ChallengeRequired => {
+            error(StatusCode::PRECONDITION_REQUIRED, "challenge required")
+        }
     }
 }
 
@@ -1584,17 +1623,24 @@ pub async fn list_address_blocks_handler(
     let blocks = list_address_blocks(&*abuse).await;
     let mut responses = Vec::with_capacity(blocks.len());
     for block in blocks {
-        responses.push(AddressBlockResponse {
-            addr: block.addr().as_str().to_owned(),
-            reason: block.reason().as_str().to_owned(),
-            blocked_at: block
-                .blocked_at()
-                .format(&Rfc3339)
-                .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
-            until: block.until().and_then(|u| u.format(&Rfc3339).ok()),
-        });
+        responses.push(block_response(&block)?);
     }
     Ok(Json(responses))
+}
+
+fn block_response(
+    block: &domain::AddressBlock,
+) -> Result<AddressBlockResponse, (StatusCode, Json<ErrorResponse>)> {
+    Ok(AddressBlockResponse {
+        addr: block.addr().as_str().to_owned(),
+        reason: block.reason().as_str().to_owned(),
+        blocked_at: block
+            .blocked_at()
+            .format(&Rfc3339)
+            .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
+        until: block.until().and_then(|u| u.format(&Rfc3339).ok()),
+        mode: block.mode().as_str().to_owned(),
+    })
 }
 
 pub async fn block_address_handler(
@@ -1606,21 +1652,18 @@ pub async fn block_address_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid address"))?;
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let mode = match &body.mode {
+        Some(raw) => BlockMode::parse(raw)
+            .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid mode"))?,
+        None => BlockMode::default(),
+    };
     let now = OffsetDateTime::now_utc();
     let until = body.days.map(|d| now + Duration::days(d));
     let abuse = state.backend.abuse();
-    let block = block_address(&*abuse, &current, addr, reason, now, until)
+    let block = block_address(&*abuse, &current, addr, reason, now, until, mode)
         .await
         .map_err(abuse_error)?;
-    Ok(Json(AddressBlockResponse {
-        addr: block.addr().as_str().to_owned(),
-        reason: block.reason().as_str().to_owned(),
-        blocked_at: block
-            .blocked_at()
-            .format(&Rfc3339)
-            .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
-        until: block.until().and_then(|u| u.format(&Rfc3339).ok()),
-    }))
+    Ok(Json(block_response(&block)?))
 }
 
 pub async fn lift_address_block_handler(
