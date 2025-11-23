@@ -5,7 +5,8 @@ use crate::ports::{
     EnforcementRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     TokenDigest,
-    ReactionRepository, SearchRepository, SectionRepository, SessionRepository, TopicRepository,
+    ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
+    TopicRepository,
     UserRepository, GroupRepository,
 };
 use domain::{
@@ -13,7 +14,8 @@ use domain::{
     Notification, NotificationId, Page,
     Query,
     Reaction, Warning,
-    ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
+    ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
+    Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
     Group, GroupId,
 };
@@ -995,5 +997,109 @@ impl AbuseRepository for FakeAbuseRepo {
 
     async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
         self.posts.lock().unwrap().push((user_id, addr.clone(), at));
+    }
+}
+
+pub struct FakeReportRepo {
+    reports: Mutex<Vec<Report>>,
+    recent: Mutex<Vec<(UserId, u64)>>,
+}
+
+impl FakeReportRepo {
+    pub fn new() -> Self {
+        Self {
+            reports: Mutex::new(Vec::new()),
+            recent: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn set_recent_count(&self, reporter_id: UserId, count: u64) {
+        self.recent.lock().unwrap().push((reporter_id, count));
+    }
+}
+
+#[async_trait::async_trait]
+impl ReportRepository for FakeReportRepo {
+    async fn save(&self, report: &Report) {
+        self.reports.lock().unwrap().push(report.clone());
+    }
+
+    async fn update(&self, report: &Report) {
+        let mut stored = self.reports.lock().unwrap();
+        if let Some(slot) = stored.iter_mut().find(|r| r.id() == report.id()) {
+            *slot = report.clone();
+        }
+    }
+
+    async fn find_by_id(&self, id: ReportId) -> Option<Report> {
+        self.reports
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.id() == id)
+            .cloned()
+    }
+
+    async fn list_open(&self, page: Page) -> Vec<Report> {
+        self.reports
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.is_open())
+            .skip(page.offset() as usize)
+            .take(page.size() as usize)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_open(&self) -> u64 {
+        self.reports
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.is_open())
+            .count() as u64
+    }
+
+    async fn count_open_for_topic(&self, topic_id: TopicId) -> u64 {
+        self.reports
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.is_open() && r.target().topic_id() == topic_id)
+            .count() as u64
+    }
+
+    async fn find_open_by_reporter(
+        &self,
+        reporter_id: UserId,
+        target: ReportTarget,
+    ) -> Option<Report> {
+        self.reports
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.is_open() && r.reporter_id() == reporter_id && r.target() == target)
+            .cloned()
+    }
+
+    async fn count_by_reporter_since(&self, reporter_id: UserId, _since: OffsetDateTime) -> u64 {
+        let forced = self
+            .recent
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| *id == reporter_id)
+            .map(|(_, count)| *count);
+        match forced {
+            Some(count) => count,
+            None => self
+                .reports
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.reporter_id() == reporter_id)
+                .count() as u64,
+        }
     }
 }

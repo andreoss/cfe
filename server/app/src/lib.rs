@@ -17,6 +17,7 @@ mod ports;
 mod profile;
 mod reactions;
 mod register;
+mod reports;
 mod reputation;
 mod search;
 mod session;
@@ -66,6 +67,10 @@ pub use ports::{
 pub use profile::{UpdateBioError, update_bio};
 pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};
 pub use register::{RegisterError, register};
+pub use reports::{
+    REPORTS_PER_HOUR, REPORT_WINDOW, ReportError, close_report, count_open_for_topic,
+    list_open_reports, report_content, reporter_of,
+};
 pub use reputation::{apply_deletion, apply_reaction};
 pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};

@@ -4,7 +4,8 @@ use domain::{
     PollId,
     PollOptionId,
     Query, Reaction,
-    ReactionKind, ReactionTarget, ContentItem, Section, SectionId, Session, SessionId, SessionToken,
+    ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
+    Session, SessionId, SessionToken,
     Slug, Topic, TopicId, User, UserId, Username, Vote, Warning,
 };
 use time::OffsetDateTime;
@@ -165,4 +166,20 @@ pub trait TokenDigest {
 pub trait MailTokenRepository {
     async fn save(&self, token: &MailToken);
     async fn find_by_digest(&self, digest: &str) -> Option<MailToken>;
+}
+
+#[async_trait::async_trait]
+pub trait ReportRepository {
+    async fn save(&self, report: &Report);
+    async fn update(&self, report: &Report);
+    async fn find_by_id(&self, id: ReportId) -> Option<Report>;
+    async fn list_open(&self, page: Page) -> Vec<Report>;
+    async fn count_open(&self) -> u64;
+    async fn count_open_for_topic(&self, topic_id: TopicId) -> u64;
+    async fn find_open_by_reporter(
+        &self,
+        reporter_id: UserId,
+        target: ReportTarget,
+    ) -> Option<Report>;
+    async fn count_by_reporter_since(&self, reporter_id: UserId, since: OffsetDateTime) -> u64;
 }
