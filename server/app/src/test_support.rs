@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use crate::ports::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
+    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
+    CommentRepository,
     EnforcementRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     TokenDigest,
@@ -1165,6 +1166,32 @@ impl ReportRepository for FakeReportRepo {
                 .iter()
                 .filter(|r| r.reporter_id() == reporter_id)
                 .count() as u64,
+        }
+    }
+}
+
+pub struct FakeChallenge {
+    expected: Option<String>,
+}
+
+impl FakeChallenge {
+    pub fn accepting() -> Self {
+        Self { expected: None }
+    }
+
+    pub fn expecting(answer: &str) -> Self {
+        Self {
+            expected: Some(answer.to_owned()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Challenge for FakeChallenge {
+    async fn verify(&self, answer: Option<&str>) -> bool {
+        match &self.expected {
+            None => true,
+            Some(expected) => answer == Some(expected.as_str()),
         }
     }
 }

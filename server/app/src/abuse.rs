@@ -1,6 +1,6 @@
-use crate::ports::{AbuseRepository, CommentRepository, TopicRepository};
+use crate::ports::{AbuseRepository, Challenge, CommentRepository, TopicRepository};
 use domain::{
-    Address, AddressBlock, ClientString, Deletion, PostRef, Reason, User, UserId,
+    Address, AddressBlock, BlockMode, ClientString, Deletion, PostRef, Reason, User, UserId,
 };
 use time::{Duration, OffsetDateTime};
 
@@ -37,21 +37,62 @@ pub enum AbuseError {
     AddressBlocked,
     RateLimited,
     SlowMode,
+    ChallengeRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChallengeRules {
+    pub on_register: bool,
+    pub below_floor: bool,
+}
+
+impl Default for ChallengeRules {
+    fn default() -> Self {
+        Self {
+            on_register: false,
+            below_floor: false,
+        }
+    }
+}
+
+pub async fn enforce_registration_challenge(
+    challenge: &(impl Challenge + ?Sized),
+    answer: Option<&str>,
+    rules: ChallengeRules,
+) -> Result<(), AbuseError> {
+    if !rules.on_register {
+        return Ok(());
+    }
+    if challenge.verify(answer).await {
+        return Ok(());
+    }
+    Err(AbuseError::ChallengeRequired)
 }
 
 pub async fn enforce_posting(
     abuse: &(impl AbuseRepository + ?Sized),
+    challenge: &(impl Challenge + ?Sized),
     user: &User,
     addr: &Address,
+    answer: Option<&str>,
     now: OffsetDateTime,
     limits: Limits,
+    rules: ChallengeRules,
 ) -> Result<(), AbuseError> {
+    let mut challenged = rules.below_floor && user.score().value() < limits.slow_mode_score_floor;
     if let Some(block) = abuse.find_address_block(addr).await {
         if block.is_active_at(now) {
-            return Err(AbuseError::AddressBlocked);
+            match block.mode() {
+                BlockMode::Refuse => return Err(AbuseError::AddressBlocked),
+                BlockMode::Challenge => challenged = true,
+                BlockMode::Allow => {}
+            }
         }
     }
     let moderator = user.role().is_moderator();
+    if challenged && !moderator && !challenge.verify(answer).await {
+        return Err(AbuseError::ChallengeRequired);
+    }
     if !moderator {
         if user.score().value() < limits.slow_mode_score_floor {
             if let Some(last) = abuse.last_post_by_user(user.id()).await {
@@ -174,7 +215,7 @@ pub async fn is_address_blocked(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::FakeAbuseRepo;
+    use crate::test_support::{FakeAbuseRepo, FakeChallenge};
     use domain::{Email, Score, Username};
 
     fn plain_user(id: uuid::Uuid) -> User {
@@ -199,7 +240,7 @@ mod tests {
         let abuse = FakeAbuseRepo::new();
         let now = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
-            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &plain_user(uuid::Uuid::nil()), &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -217,7 +258,7 @@ mod tests {
         let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
         let now = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
-            enforce_posting(&abuse, &moderator, &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &moderator, &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::AddressBlocked)
         );
     }
@@ -234,7 +275,7 @@ mod tests {
             Some(now + Duration::hours(1)),
         ));
         assert_eq!(
-            enforce_posting(&abuse, &plain_user(uuid::Uuid::nil()), &addr(), now + Duration::hours(2), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &plain_user(uuid::Uuid::nil()), &addr(), None, now + Duration::hours(2), Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -246,7 +287,7 @@ mod tests {
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let user = plain_user(uuid::Uuid::nil());
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(30), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &user, &addr(), None, now + Duration::seconds(30), Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::SlowMode)
         );
     }
@@ -258,7 +299,7 @@ mod tests {
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let user = plain_user(uuid::Uuid::nil());
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + SLOW_MODE_INTERVAL + Duration::seconds(1), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &user, &addr(), None, now + SLOW_MODE_INTERVAL + Duration::seconds(1), Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -270,7 +311,7 @@ mod tests {
         abuse.set_last_post(UserId::new(uuid::Uuid::nil()), now);
         let established = plain_user(uuid::Uuid::nil()).with_score(Score::of(60));
         assert_eq!(
-            enforce_posting(&abuse, &established, &addr(), now + Duration::seconds(1), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &established, &addr(), None, now + Duration::seconds(1), Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -283,7 +324,7 @@ mod tests {
         abuse.set_address_posts(&addr(), now, RATE_LIMIT_MAX + 5);
         let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
         assert_eq!(
-            enforce_posting(&abuse, &moderator, &addr(), now + Duration::seconds(1), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &moderator, &addr(), None, now + Duration::seconds(1), Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -294,7 +335,7 @@ mod tests {
         let abuse = FakeAbuseRepo::new();
         abuse.set_address_posts(&addr(), now, RATE_LIMIT_MAX);
         assert_eq!(
-            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &established_user(uuid::Uuid::nil()), &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::RateLimited)
         );
     }
@@ -305,7 +346,7 @@ mod tests {
         let abuse = FakeAbuseRepo::new();
         abuse.set_address_posts(&addr(), now - RATE_LIMIT_WINDOW - Duration::seconds(1), RATE_LIMIT_MAX);
         assert_eq!(
-            enforce_posting(&abuse, &established_user(uuid::Uuid::nil()), &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &established_user(uuid::Uuid::nil()), &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -362,7 +403,7 @@ mod tests {
             record_post(&abuse, user.id(), &addr(), None, None, now).await;
         }
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &user, &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::RateLimited)
         );
     }
@@ -377,11 +418,11 @@ mod tests {
             record_post(&abuse, noisy.id(), &addr(), None, None, now).await;
         }
         assert_eq!(
-            enforce_posting(&abuse, &noisy, &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &noisy, &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::RateLimited)
         );
         assert_eq!(
-            enforce_posting(&abuse, &quiet, &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &quiet, &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
     }
@@ -393,7 +434,7 @@ mod tests {
         abuse.set_address_posts(&addr(), now, RATE_LIMIT_MAX);
         let fresh = established_user(uuid::Uuid::from_u128(9));
         assert_eq!(
-            enforce_posting(&abuse, &fresh, &addr(), now, Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &fresh, &addr(), None, now, Limits::default(), ChallengeRules::default()).await,
             Err(AbuseError::RateLimited)
         );
     }
@@ -605,6 +646,220 @@ mod tests {
         assert_eq!(result, Err(AbuseError::NotAuthorized));
     }
 
+    fn challenged_below_floor() -> ChallengeRules {
+        ChallengeRules {
+            on_register: false,
+            below_floor: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn nothing_is_challenged_while_the_rules_are_off() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &FakeChallenge::expecting("open sesame"),
+                &plain_user(uuid::Uuid::nil()),
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                ChallengeRules::default(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_low_standing_author_must_answer_when_the_rule_is_on() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let challenge = FakeChallenge::expecting("open sesame");
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &challenge,
+                &plain_user(uuid::Uuid::nil()),
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                challenged_below_floor(),
+            )
+            .await,
+            Err(AbuseError::ChallengeRequired)
+        );
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &challenge,
+                &plain_user(uuid::Uuid::nil()),
+                &addr(),
+                Some("open sesame"),
+                now,
+                Limits::default(),
+                challenged_below_floor(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn an_established_author_is_never_challenged_by_standing() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &FakeChallenge::expecting("open sesame"),
+                &established_user(uuid::Uuid::nil()),
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                challenged_below_floor(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_block_in_challenge_mode_asks_instead_of_refusing() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        abuse.insert_block(
+            AddressBlock::new(
+                addr(),
+                UserId::new(uuid::Uuid::nil()),
+                Reason::parse("a shared address").unwrap(),
+                now,
+                None,
+            )
+            .with_mode(BlockMode::Challenge),
+        );
+        let challenge = FakeChallenge::expecting("open sesame");
+        let user = established_user(uuid::Uuid::nil());
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &challenge,
+                &user,
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                ChallengeRules::default(),
+            )
+            .await,
+            Err(AbuseError::ChallengeRequired)
+        );
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &challenge,
+                &user,
+                &addr(),
+                Some("open sesame"),
+                now,
+                Limits::default(),
+                ChallengeRules::default(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_block_in_allow_mode_lets_the_write_through() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        abuse.insert_block(
+            AddressBlock::new(
+                addr(),
+                UserId::new(uuid::Uuid::nil()),
+                Reason::parse("watched only").unwrap(),
+                now,
+                None,
+            )
+            .with_mode(BlockMode::Allow),
+        );
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &FakeChallenge::expecting("open sesame"),
+                &established_user(uuid::Uuid::nil()),
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                ChallengeRules::default(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_moderator_is_never_challenged() {
+        let abuse = FakeAbuseRepo::new();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        abuse.insert_block(
+            AddressBlock::new(
+                addr(),
+                UserId::new(uuid::Uuid::nil()),
+                Reason::parse("a shared address").unwrap(),
+                now,
+                None,
+            )
+            .with_mode(BlockMode::Challenge),
+        );
+        let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
+        assert_eq!(
+            enforce_posting(
+                &abuse,
+                &FakeChallenge::expecting("open sesame"),
+                &moderator,
+                &addr(),
+                None,
+                now,
+                Limits::default(),
+                challenged_below_floor(),
+            )
+            .await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn registration_asks_only_when_the_rule_is_on() {
+        let challenge = FakeChallenge::expecting("open sesame");
+        assert_eq!(
+            enforce_registration_challenge(&challenge, None, ChallengeRules::default()).await,
+            Ok(())
+        );
+        let rules = ChallengeRules {
+            on_register: true,
+            below_floor: false,
+        };
+        assert_eq!(
+            enforce_registration_challenge(&challenge, None, rules).await,
+            Err(AbuseError::ChallengeRequired)
+        );
+        assert_eq!(
+            enforce_registration_challenge(&challenge, Some("open sesame"), rules).await,
+            Ok(())
+        );
+        assert_eq!(
+            enforce_registration_challenge(&challenge, Some("wrong"), rules).await,
+            Err(AbuseError::ChallengeRequired)
+        );
+    }
+
     #[tokio::test]
     async fn recording_a_post_is_visible_to_the_limits() {
         let abuse = FakeAbuseRepo::new();
@@ -612,7 +867,7 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         record_post(&abuse, user.id(), &addr(), None, None, now).await;
         assert_eq!(
-            enforce_posting(&abuse, &user, &addr(), now + Duration::seconds(1), Limits::default()).await,
+            enforce_posting(&abuse, &FakeChallenge::accepting(), &user, &addr(), None, now + Duration::seconds(1), Limits::default(), ChallengeRules::default()).await,
             Ok(())
         );
         assert_eq!(

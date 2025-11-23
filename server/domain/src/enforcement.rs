@@ -48,6 +48,45 @@ impl Ban {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BlockMode {
+    Refuse,
+    Challenge,
+    Allow,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BlockModeError;
+
+impl BlockMode {
+    pub fn parse(raw: &str) -> Result<Self, BlockModeError> {
+        match raw {
+            "refuse" => Ok(Self::Refuse),
+            "challenge" => Ok(Self::Challenge),
+            "allow" => Ok(Self::Allow),
+            _ => Err(BlockModeError),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Challenge => "challenge",
+            Self::Allow => "allow",
+        }
+    }
+
+    pub fn all() -> [Self; 3] {
+        [Self::Refuse, Self::Challenge, Self::Allow]
+    }
+}
+
+impl Default for BlockMode {
+    fn default() -> Self {
+        Self::Refuse
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressBlock {
     addr: Address,
@@ -55,6 +94,7 @@ pub struct AddressBlock {
     reason: Reason,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+    mode: BlockMode,
 }
 
 impl AddressBlock {
@@ -71,7 +111,23 @@ impl AddressBlock {
             reason,
             blocked_at,
             until,
+            mode: BlockMode::Refuse,
         }
+    }
+
+    pub fn with_mode(&self, mode: BlockMode) -> Self {
+        Self {
+            addr: self.addr.clone(),
+            moderator_id: self.moderator_id,
+            reason: self.reason.clone(),
+            blocked_at: self.blocked_at,
+            until: self.until,
+            mode,
+        }
+    }
+
+    pub fn mode(&self) -> BlockMode {
+        self.mode
     }
 
     pub fn addr(&self) -> &Address {
@@ -289,5 +345,53 @@ mod tests {
         assert!(block.is_active_at(until - Duration::seconds(1)));
         assert!(!block.is_active_at(until));
         assert!(!block.is_active_at(until + Duration::days(1)));
+    }
+}
+
+#[cfg(test)]
+mod block_mode_tests {
+    use super::*;
+
+    #[test]
+    fn parses_every_mode_round_trip() {
+        for mode in BlockMode::all() {
+            assert_eq!(BlockMode::parse(mode.as_str()), Ok(mode));
+        }
+    }
+
+    #[test]
+    fn rejects_an_unknown_mode() {
+        assert_eq!(BlockMode::parse("maybe"), Err(BlockModeError));
+        assert_eq!(BlockMode::parse(""), Err(BlockModeError));
+    }
+
+    #[test]
+    fn a_block_refuses_unless_told_otherwise() {
+        let block = AddressBlock::new(
+            Address::parse("203.0.113.10").unwrap(),
+            UserId::new(uuid::Uuid::nil()),
+            Reason::parse("spam").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        assert_eq!(block.mode(), BlockMode::Refuse);
+        assert_eq!(BlockMode::default(), BlockMode::Refuse);
+    }
+
+    #[test]
+    fn a_mode_can_be_set_without_disturbing_the_rest() {
+        let block = AddressBlock::new(
+            Address::parse("203.0.113.10").unwrap(),
+            UserId::new(uuid::Uuid::nil()),
+            Reason::parse("spam").unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        let challenged = block.with_mode(BlockMode::Challenge);
+        assert_eq!(challenged.mode(), BlockMode::Challenge);
+        assert_eq!(challenged.addr(), block.addr());
+        assert_eq!(challenged.reason(), block.reason());
+        assert_eq!(challenged.until(), block.until());
+        assert!(challenged.is_active_at(OffsetDateTime::UNIX_EPOCH));
     }
 }

@@ -199,3 +199,8 @@ pub trait ReportRepository {
     ) -> Option<Report>;
     async fn count_by_reporter_since(&self, reporter_id: UserId, since: OffsetDateTime) -> u64;
 }
+
+#[async_trait::async_trait]
+pub trait Challenge {
+    async fn verify(&self, answer: Option<&str>) -> bool;
+}
