@@ -1,5 +1,5 @@
 use app::AbuseRepository;
-use domain::{Address, AddressBlock, Reason, UserId};
+use domain::{Address, AddressBlock, AddressPost, ClientString, Page, Reason, UserId};
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
 
@@ -28,6 +28,13 @@ struct BlockListRow {
     reason: String,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+}
+
+#[derive(FromRow)]
+struct AddressPostRow {
+    user_id: uuid::Uuid,
+    client: Option<String>,
+    created_at: OffsetDateTime,
 }
 
 fn rate_subject(addr: &Address) -> String {
@@ -114,6 +121,18 @@ impl AbuseRepository for MySqlAbuseRepository {
         count as u64
     }
 
+    async fn count_posts_by_user(&self, user_id: UserId, since: OffsetDateTime) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM post_events WHERE subject = ? AND created_at >= ?",
+        )
+        .bind(slow_subject(user_id))
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await
+        .expect("query account rate count");
+        count as u64
+    }
+
     async fn last_post_by_user(&self, user_id: UserId) -> Option<OffsetDateTime> {
         sqlx::query_scalar("SELECT MAX(created_at) FROM post_events WHERE subject = ?")
             .bind(slow_subject(user_id))
@@ -122,28 +141,74 @@ impl AbuseRepository for MySqlAbuseRepository {
             .expect("query last post")
     }
 
-    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
+    async fn record_post(
+        &self,
+        user_id: UserId,
+        addr: &Address,
+        client: Option<&ClientString>,
+        at: OffsetDateTime,
+    ) {
+        let client = client.map(|c| c.as_str().to_owned());
         let mut tx = self.pool.begin().await.expect("begin record post");
         sqlx::query(
-            "INSERT INTO post_events (subject, kind, user_id, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(rate_subject(addr))
         .bind("rate")
-        .bind(Option::<uuid::Uuid>::None)
+        .bind(user_id.as_uuid())
+        .bind(client.as_deref())
         .bind(at)
         .execute(&mut *tx)
         .await
         .expect("insert rate event");
         sqlx::query(
-            "INSERT INTO post_events (subject, kind, user_id, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(slow_subject(user_id))
         .bind("slow")
-        .bind(Option::<uuid::Uuid>::None)
+        .bind(user_id.as_uuid())
+        .bind(client.as_deref())
         .bind(at)
         .execute(&mut *tx)
         .await
         .expect("insert slow event");
         tx.commit().await.expect("commit record post");
+    }
+
+    async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
+        let rows = sqlx::query_as::<_, AddressPostRow>(
+            "SELECT user_id, client, created_at FROM post_events \
+             WHERE subject = ? AND user_id IS NOT NULL \
+             ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(rate_subject(addr))
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query address posts");
+        rows.into_iter()
+            .map(|row| {
+                AddressPost::new(
+                    UserId::new(row.user_id),
+                    addr.clone(),
+                    row.client.and_then(|c| ClientString::parse(&c).ok()),
+                    row.created_at,
+                )
+            })
+            .collect()
+    }
+
+    async fn count_posts_from_address(&self, addr: &Address) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM post_events WHERE subject = ? AND user_id IS NOT NULL",
+        )
+        .bind(rate_subject(addr))
+        .fetch_one(&self.pool)
+        .await
+        .expect("query address post count");
+        count as u64
     }
 }

@@ -190,10 +190,13 @@ CREATE TABLE post_events (
     subject VARCHAR NOT NULL,
     kind VARCHAR NOT NULL,
     user_id UUID,
+    client VARCHAR,
     created_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);
+
+CREATE INDEX post_events_recent_idx ON post_events (subject, created_at DESC);
 
 CREATE TABLE reports (
     id UUID PRIMARY KEY,

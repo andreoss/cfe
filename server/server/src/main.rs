@@ -33,10 +33,10 @@ use handlers::{
     AppState, block_address_handler, commit_topic_handler, create_group_handler,
     create_topic_handler, delete_comment_handler, delete_topic_handler, get_profile_handler,
     get_topic_handler, lift_address_block_handler, list_address_blocks_handler,
-    list_comments_handler, list_groups_handler, list_sections_handler, list_topics_by_tag_handler,
-    list_topics_handler, move_topic_handler, post_comment_handler, register_handler,
-    set_postscore_handler, sign_in_handler, sign_out_handler, uncommit_topic_handler,
-    update_bio_handler,
+    list_address_posts_handler, list_comments_handler, list_groups_handler, list_sections_handler,
+    list_topics_by_tag_handler, list_topics_handler, move_topic_handler, post_comment_handler,
+    register_handler, set_postscore_handler, sign_in_handler, sign_out_handler,
+    uncommit_topic_handler, update_bio_handler,
 };
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -57,6 +57,11 @@ fn limits_from_env() -> app::Limits {
     if let Ok(raw) = std::env::var("RATE_LIMIT_MAX") {
         if let Ok(value) = raw.parse() {
             limits.rate_limit_max = value;
+        }
+    }
+    if let Ok(raw) = std::env::var("ACCOUNT_RATE_LIMIT_MAX") {
+        if let Ok(value) = raw.parse() {
+            limits.account_rate_limit_max = value;
         }
     }
     if let Ok(raw) = std::env::var("RATE_LIMIT_WINDOW_SECONDS") {
@@ -232,6 +237,10 @@ async fn main() {
         .route(
             "/api/address-blocks/{addr}",
             delete(lift_address_block_handler),
+        )
+        .route(
+            "/api/addresses/{addr}/posts",
+            get(list_address_posts_handler),
         )
         .route(
             "/api/maintenance/run",

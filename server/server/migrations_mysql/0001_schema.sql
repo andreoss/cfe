@@ -221,10 +221,13 @@ CREATE TABLE post_events (
     subject VARCHAR(64) NOT NULL,
     kind VARCHAR(16) NOT NULL,
     user_id BINARY(16) NULL,
+    client TEXT NULL,
     created_at TIMESTAMP(6) NOT NULL
 );
 
 CREATE INDEX post_events_subject_idx ON post_events (subject, created_at);
+
+CREATE INDEX post_events_recent_idx ON post_events (subject, created_at DESC);
 
 CREATE TABLE reports (
     id BINARY(16) PRIMARY KEY,

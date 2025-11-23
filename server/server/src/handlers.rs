@@ -1,4 +1,4 @@
-use crate::auth::{ClientIp, CurrentUser, OptionalUser, SESSION_COOKIE};
+use crate::auth::{ClientAgent, ClientIp, CurrentUser, OptionalUser, SESSION_COOKIE};
 use crate::backend::Backend;
 use crate::hasher::Argon2Hasher;
 use app::{
@@ -502,6 +502,7 @@ pub async fn create_topic_handler(
     Path(slug): Path<String>,
     CurrentUser(current): CurrentUser,
     ClientIp(ip): ClientIp,
+    ClientAgent(client): ClientAgent,
     Json(body): Json<CreateTopicRequest>,
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
     let slug = Slug::parse(&slug)
@@ -557,7 +558,7 @@ pub async fn create_topic_handler(
         CreateTopicError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to post here"),
     })?;
     if let Some(addr) = &ip {
-        record_post(&*abuse, author, addr, now).await;
+        record_post(&*abuse, author, addr, client.as_ref(), now).await;
     }
     topic_response(&state, &topic).await
 }
@@ -795,6 +796,7 @@ pub async fn post_comment_handler(
     Path(topic_id): Path<uuid::Uuid>,
     CurrentUser(current): CurrentUser,
     ClientIp(ip): ClientIp,
+    ClientAgent(client): ClientAgent,
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
     let comment_body = Body::parse(&body.body)
@@ -843,7 +845,7 @@ pub async fn post_comment_handler(
         PostCommentError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to comment"),
     })?;
     if let Some(addr) = &ip {
-        record_post(&*abuse, author, addr, now).await;
+        record_post(&*abuse, author, addr, client.as_ref(), now).await;
     }
     Ok(Json(comment_response(&state, &comment).await?))
 }
@@ -1453,6 +1455,14 @@ pub struct AddressBlockResponse {
 }
 
 #[derive(Serialize)]
+pub struct AddressPostResponse {
+    pub username: String,
+    pub addr: String,
+    pub client: Option<String>,
+    pub at: String,
+}
+
+#[derive(Serialize)]
 pub struct WarningResponse {
     pub id: String,
     pub reason: String,
@@ -1598,6 +1608,42 @@ pub async fn lift_address_block_handler(
         .await
         .map_err(abuse_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_address_posts_handler(
+    State(state): State<AppState>,
+    Path(addr): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<PagedResponse<AddressPostResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    if !current.role().is_moderator() {
+        return Err(error(StatusCode::FORBIDDEN, "moderator role required"));
+    }
+    let addr = Address::parse(&addr)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid address"))?;
+    let page = to_page(&params)?;
+    let abuse = state.backend.abuse();
+    let users = state.backend.users();
+    let posts = abuse.posts_from_address(&addr, page).await;
+    let total = abuse.count_posts_from_address(&addr).await;
+    let mut responses = Vec::with_capacity(posts.len());
+    for post in &posts {
+        let username = match users.find_by_id(post.user_id()).await {
+            Some(user) => user.username().as_str().to_owned(),
+            None => "unknown".to_owned(),
+        };
+        responses.push(AddressPostResponse {
+            username,
+            addr: post.addr().as_str().to_owned(),
+            client: post.client().map(|c| c.as_str().to_owned()),
+            at: post
+                .at()
+                .format(&Rfc3339)
+                .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
+        });
+    }
+    let list = app::Paged::new(posts, page, total);
+    Ok(Json(paged(&list, responses)))
 }
 
 #[derive(Serialize)]

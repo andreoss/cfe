@@ -1,9 +1,10 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    opt_time, read_opt_time, read_time, read_uuid, time_to_value, uuid_value,
+    count, limit_value, offset_value, opt_text, opt_time, read_opt_time, read_time, read_uuid,
+    time_to_value, uuid_value,
 };
 use app::AbuseRepository;
-use domain::{Address, AddressBlock, UserId};
+use domain::{Address, AddressBlock, AddressPost, ClientString, Page, UserId};
 use duckdb::types::Value;
 use time::OffsetDateTime;
 
@@ -30,6 +31,12 @@ struct BlockRow {
     reason: String,
     blocked_at: OffsetDateTime,
     until: Option<OffsetDateTime>,
+}
+
+struct PostRow {
+    user_id: uuid::Uuid,
+    client: Option<String>,
+    created_at: OffsetDateTime,
 }
 
 #[async_trait::async_trait]
@@ -152,6 +159,15 @@ impl AbuseRepository for DuckAbuseRepository {
             .await
     }
 
+    async fn count_posts_by_user(&self, user_id: UserId, since: OffsetDateTime) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM post_events WHERE subject = ? AND created_at >= ?",
+            vec![Value::Text(slow_subject(user_id)), time_to_value(since)],
+        )
+        .await
+    }
+
     async fn last_post_by_user(&self, user_id: UserId) -> Option<OffsetDateTime> {
         let subject = slow_subject(user_id);
         self.db
@@ -167,28 +183,88 @@ impl AbuseRepository for DuckAbuseRepository {
             .await
     }
 
-    async fn record_post(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
+    async fn record_post(
+        &self,
+        user_id: UserId,
+        addr: &Address,
+        client: Option<&ClientString>,
+        at: OffsetDateTime,
+    ) {
+        let client = client.map(|c| c.as_str());
         self.db
             .execute(
-                "INSERT INTO post_events (subject, kind, user_id, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
+                 VALUES (?, ?, ?, ?, ?)",
                 vec![
                     Value::Text(rate_subject(addr)),
                     Value::Text("rate".to_owned()),
-                    Value::Null,
+                    uuid_value(user_id.as_uuid()),
+                    opt_text(client),
                     time_to_value(at),
                 ],
             )
             .await;
         self.db
             .execute(
-                "INSERT INTO post_events (subject, kind, user_id, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO post_events (subject, kind, user_id, client, created_at) \
+                 VALUES (?, ?, ?, ?, ?)",
                 vec![
                     Value::Text(slow_subject(user_id)),
                     Value::Text("slow".to_owned()),
-                    Value::Null,
+                    uuid_value(user_id.as_uuid()),
+                    opt_text(client),
                     time_to_value(at),
                 ],
             )
             .await;
+    }
+
+    async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
+        let params = vec![
+            Value::Text(rate_subject(addr)),
+            limit_value(page),
+            offset_value(page),
+        ];
+        let rows: Vec<PostRow> = self
+            .db
+            .call(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT user_id, client, created_at FROM post_events \
+                         WHERE subject = ? AND user_id IS NOT NULL \
+                         ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    )
+                    .expect("prepare address posts");
+                let mapped = stmt
+                    .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                        Ok(PostRow {
+                            user_id: read_uuid(row, 0),
+                            client: row.get(1).expect("read client"),
+                            created_at: read_time(row, 2),
+                        })
+                    })
+                    .expect("query address posts");
+                mapped.map(|r| r.expect("read address post")).collect()
+            })
+            .await;
+        rows.into_iter()
+            .map(|row| {
+                AddressPost::new(
+                    UserId::new(row.user_id),
+                    addr.clone(),
+                    row.client.and_then(|c| ClientString::parse(&c).ok()),
+                    row.created_at,
+                )
+            })
+            .collect()
+    }
+
+    async fn count_posts_from_address(&self, addr: &Address) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM post_events WHERE subject = ? AND user_id IS NOT NULL",
+            vec![Value::Text(rate_subject(addr))],
+        )
+        .await
     }
 }

@@ -5,7 +5,7 @@ use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum_extra::extract::cookie::CookieJar;
-use domain::{Address, SessionToken, User};
+use domain::{Address, ClientString, SessionToken, User};
 use std::net::SocketAddr;
 use time::OffsetDateTime;
 
@@ -92,5 +92,23 @@ impl FromRequestParts<AppState> for ClientIp {
         _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         Ok(ClientIp(forwarded_address(parts)))
+    }
+}
+
+pub struct ClientAgent(pub Option<ClientString>);
+
+fn declared_client(parts: &Parts) -> Option<ClientString> {
+    let value = parts.headers.get(axum::http::header::USER_AGENT)?;
+    ClientString::parse(value.to_str().ok()?).ok()
+}
+
+impl FromRequestParts<AppState> for ClientAgent {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(ClientAgent(declared_client(parts)))
     }
 }
