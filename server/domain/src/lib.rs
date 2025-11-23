@@ -15,6 +15,7 @@ mod page;
 mod poll;
 mod query;
 mod reaction;
+mod report;
 mod revision;
 mod role;
 mod content_item;
@@ -48,6 +49,9 @@ pub use poll::{
 };
 pub use query::{Query, QueryError};
 pub use reaction::{Reaction, ReactionKind, ReactionKindError, ReactionTarget};
+pub use report::{
+    Report, ReportId, ReportKind, ReportKindError, ReportTarget,
+};
 pub use revision::Revision;
 pub use role::Role;
 pub use content_item::ContentItem;
