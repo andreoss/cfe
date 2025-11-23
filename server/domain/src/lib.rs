@@ -4,6 +4,7 @@ mod bio;
 mod group;
 mod bookmark;
 mod body;
+mod client_string;
 mod comment;
 mod email;
 mod enforcement;
@@ -35,6 +36,9 @@ pub use address::{Address, AddressError};
 pub use bio::{Bio, BioError};
 pub use bookmark::Bookmark;
 pub use body::{Body, BodyError};
+pub use client_string::{
+    ClientString, ClientStringError, MAX_LENGTH as CLIENT_STRING_MAX_LENGTH,
+};
 pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use enforcement::{AddressBlock, Ban, Warning, WarningId};
