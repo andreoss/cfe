@@ -98,6 +98,21 @@ fn maintenance_from_env() -> app::MaintenanceSettings {
     settings
 }
 
+fn sign_in_limits_from_env() -> app::SignInLimits {
+    let mut limits = app::SignInLimits::default();
+    if let Ok(raw) = std::env::var("SIGN_IN_ATTEMPT_MAX") {
+        if let Ok(value) = raw.parse() {
+            limits.attempt_max = value;
+        }
+    }
+    if let Ok(raw) = std::env::var("SIGN_IN_ATTEMPT_WINDOW_SECONDS") {
+        if let Ok(value) = raw.parse() {
+            limits.attempt_window = time::Duration::seconds(value);
+        }
+    }
+    limits
+}
+
 fn maintenance_interval() -> Option<std::time::Duration> {
     let seconds: u64 = std::env::var("MAINTENANCE_INTERVAL_SECONDS")
         .ok()
@@ -120,6 +135,7 @@ async fn main() {
         challenge_rules: challenge::rules_from_env(),
         limits: limits_from_env(),
         maintenance: maintenance_from_env(),
+        sign_in_limits: sign_in_limits_from_env(),
     };
     if let Some(interval) = maintenance_interval() {
         let scheduled = state.clone();
@@ -142,6 +158,10 @@ async fn main() {
         .route("/api/sign-in", post(sign_in_handler))
         .route("/api/sign-out", post(sign_out_handler))
         .route("/api/me", get(handlers::me_handler))
+        .route(
+            "/api/me/sessions/end-all",
+            post(handlers::end_all_sessions_handler),
+        )
         .route("/api/me/bio", patch(update_bio_handler))
         .route("/api/users/{username}", get(get_profile_handler))
         .route("/api/sections", get(list_sections_handler))

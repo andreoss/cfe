@@ -280,6 +280,74 @@ impl AbuseRepository for DuckAbuseRepository {
             .collect()
     }
 
+    async fn record_sign_in_failure(&self, username: &str, addr: &Address, at: OffsetDateTime) {
+        self.db
+            .execute(
+                "INSERT INTO sign_in_failures (username, addr, created_at) VALUES (?, ?, ?)",
+                vec![
+                    Value::Text(username.to_owned()),
+                    Value::Text(addr.as_str().to_owned()),
+                    time_to_value(at),
+                ],
+            )
+            .await;
+    }
+
+    async fn count_sign_in_failures(
+        &self,
+        username: &str,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM sign_in_failures \
+             WHERE username = ? AND addr = ? AND created_at >= ?",
+            vec![
+                Value::Text(username.to_owned()),
+                Value::Text(addr.as_str().to_owned()),
+                time_to_value(since),
+            ],
+        )
+        .await
+    }
+
+    async fn clear_sign_in_failures(&self, username: &str) {
+        self.db
+            .execute(
+                "DELETE FROM sign_in_failures WHERE username = ?",
+                vec![Value::Text(username.to_owned())],
+            )
+            .await;
+    }
+
+    async fn has_seen_address(&self, user_id: UserId, addr: &Address) -> bool {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM known_addresses WHERE user_id = ? AND addr = ?",
+            vec![
+                uuid_value(user_id.as_uuid()),
+                Value::Text(addr.as_str().to_owned()),
+            ],
+        )
+        .await
+            > 0
+    }
+
+    async fn remember_address(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
+        self.db
+            .execute(
+                "INSERT INTO known_addresses (user_id, addr, first_seen) VALUES (?, ?, ?) \
+                 ON CONFLICT (user_id, addr) DO NOTHING",
+                vec![
+                    uuid_value(user_id.as_uuid()),
+                    Value::Text(addr.as_str().to_owned()),
+                    time_to_value(at),
+                ],
+            )
+            .await;
+    }
+
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
         let params = vec![
             Value::Text(rate_subject(addr)),
@@ -371,6 +439,42 @@ mod tests {
             repo.list_address_blocks().await.first().map(|b| b.mode()),
             Some(BlockMode::Challenge)
         );
+    }
+
+    #[tokio::test]
+    async fn failures_are_counted_for_one_name_and_address_within_a_window() {
+        let repo = repository().await;
+        let addr = Address::parse("203.0.113.10").unwrap();
+        let other = Address::parse("198.51.100.4").unwrap();
+        let now = OffsetDateTime::UNIX_EPOCH;
+        repo.record_sign_in_failure("owner_01", &addr, now).await;
+        repo.record_sign_in_failure("owner_01", &addr, now).await;
+        repo.record_sign_in_failure("owner_01", &other, now).await;
+        repo.record_sign_in_failure("quiet_01", &addr, now).await;
+        assert_eq!(repo.count_sign_in_failures("owner_01", &addr, now).await, 2);
+        let later = now + time::Duration::seconds(1);
+        assert_eq!(
+            repo.count_sign_in_failures("owner_01", &addr, later).await,
+            0
+        );
+        repo.clear_sign_in_failures("owner_01").await;
+        assert_eq!(repo.count_sign_in_failures("owner_01", &addr, now).await, 0);
+        assert_eq!(repo.count_sign_in_failures("quiet_01", &addr, now).await, 1);
+    }
+
+    #[tokio::test]
+    async fn an_address_may_be_remembered_twice_for_one_account() {
+        let repo = repository().await;
+        let addr = Address::parse("203.0.113.10").unwrap();
+        let owner = UserId::new(uuid::Uuid::from_u128(1));
+        let other = UserId::new(uuid::Uuid::from_u128(2));
+        assert!(!repo.has_seen_address(owner, &addr).await);
+        repo.remember_address(owner, &addr, OffsetDateTime::UNIX_EPOCH)
+            .await;
+        repo.remember_address(owner, &addr, OffsetDateTime::UNIX_EPOCH)
+            .await;
+        assert!(repo.has_seen_address(owner, &addr).await);
+        assert!(!repo.has_seen_address(other, &addr).await);
     }
 
     #[tokio::test]

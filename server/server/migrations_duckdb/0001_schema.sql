@@ -218,3 +218,18 @@ CREATE TABLE reports (
 CREATE INDEX reports_open_idx ON reports (closed_at, created_at);
 
 CREATE INDEX reports_topic_idx ON reports (topic_id, closed_at);
+
+CREATE TABLE sign_in_failures (
+    username VARCHAR NOT NULL,
+    addr VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX sign_in_failures_subject_idx ON sign_in_failures (username, addr, created_at);
+
+CREATE TABLE known_addresses (
+    user_id UUID NOT NULL,
+    addr VARCHAR NOT NULL,
+    first_seen TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, addr)
+);

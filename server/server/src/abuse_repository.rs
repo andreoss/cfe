@@ -226,6 +226,70 @@ impl AbuseRepository for PgAbuseRepository {
             .collect()
     }
 
+    async fn record_sign_in_failure(&self, username: &str, addr: &Address, at: OffsetDateTime) {
+        sqlx::query(
+            "INSERT INTO sign_in_failures (username, addr, created_at) VALUES ($1, $2, $3)",
+        )
+        .bind(username)
+        .bind(addr.as_str())
+        .bind(at)
+        .execute(&self.pool)
+        .await
+        .expect("insert sign in failure");
+    }
+
+    async fn count_sign_in_failures(
+        &self,
+        username: &str,
+        addr: &Address,
+        since: OffsetDateTime,
+    ) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sign_in_failures \
+             WHERE username = $1 AND addr = $2 AND created_at >= $3",
+        )
+        .bind(username)
+        .bind(addr.as_str())
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await
+        .expect("query sign in failures");
+        count as u64
+    }
+
+    async fn clear_sign_in_failures(&self, username: &str) {
+        sqlx::query("DELETE FROM sign_in_failures WHERE username = $1")
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .expect("delete sign in failures");
+    }
+
+    async fn has_seen_address(&self, user_id: UserId, addr: &Address) -> bool {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM known_addresses WHERE user_id = $1 AND addr = $2",
+        )
+        .bind(user_id.as_uuid())
+        .bind(addr.as_str())
+        .fetch_one(&self.pool)
+        .await
+        .expect("query known address");
+        count > 0
+    }
+
+    async fn remember_address(&self, user_id: UserId, addr: &Address, at: OffsetDateTime) {
+        sqlx::query(
+            "INSERT INTO known_addresses (user_id, addr, first_seen) VALUES ($1, $2, $3) \
+             ON CONFLICT (user_id, addr) DO NOTHING",
+        )
+        .bind(user_id.as_uuid())
+        .bind(addr.as_str())
+        .bind(at)
+        .execute(&self.pool)
+        .await
+        .expect("insert known address");
+    }
+
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost> {
         let rows = sqlx::query_as::<_, AddressPostRow>(
             "SELECT user_id, client, created_at FROM post_events \

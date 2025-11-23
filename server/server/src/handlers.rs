@@ -7,18 +7,20 @@ use app::{
     EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
     PostCommentError, ReactionSummary, RegisterError, ReportError, SetPostscoreError, SignInError,
     UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user,
-    block_address, cast_vote, change_password, clear_avatar, clear_reaction, close_report,
-    commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
-    create_group, create_poll, create_session, create_topic, delete_comment, delete_topic,
-    deregister, edit_comment, edit_topic, enforce_posting, enforce_registration_challenge,
-    get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
+    block_address, cast_vote, change_password, clear_avatar, clear_reaction,
+    clear_sign_in_failures, close_report, commit_topic, confirm_activation, confirm_email_change,
+    count_open_for_topic, count_unread, create_group, create_poll, create_session, create_topic,
+    delete_comment, delete_topic, deregister, edit_comment, edit_topic, end_every_session,
+    enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts, get_avatar,
+    get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
     list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
     list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read,
-    move_topic, poll_results, post_comment, promote_to_moderator, react, recent_activity,
-    record_post, register, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
-    request_activation, request_email_change, request_password_reset, reset_password, search,
-    set_avatar, set_postscore, sign_in, sign_out as end_session, stop_ignoring,
-    summarize_reactions, uncommit_topic, update_bio, warn_user,
+    move_topic, notice_of_new_network, poll_results, post_comment, promote_to_moderator, react,
+    recent_activity, record_post, record_sign_in_failure, register, remove_bookmark,
+    remove_posts_from_address, report_content, reporter_of, request_activation,
+    request_email_change, request_password_reset, reset_password, search, set_avatar,
+    set_postscore, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions,
+    uncommit_topic, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -45,6 +47,7 @@ pub struct AppState {
     pub challenge_rules: app::ChallengeRules,
     pub limits: app::Limits,
     pub maintenance: app::MaintenanceSettings,
+    pub sign_in_limits: app::SignInLimits,
 }
 
 #[derive(Deserialize)]
@@ -351,6 +354,7 @@ pub async fn register_handler(
 
 pub async fn sign_in_handler(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     jar: CookieJar,
     Json(body): Json<SignInRequest>,
 ) -> Result<(CookieJar, Json<UserResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -358,20 +362,40 @@ pub async fn sign_in_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid username"))?;
     let repo = state.backend.users();
     let hasher = Argon2Hasher;
-    let user = sign_in(&*repo, &hasher, &username, &body.password)
-        .await
-        .map_err(|e| match e {
-            SignInError::NotFound => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
-            SignInError::WrongPassword => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
-        })?;
+    let abuse = state.backend.abuse();
+    let now = OffsetDateTime::now_utc();
+    if let Some(addr) = &ip {
+        enforce_sign_in_attempts(&*abuse, &username, addr, now, state.sign_in_limits)
+            .await
+            .map_err(|_| error(StatusCode::TOO_MANY_REQUESTS, "too many attempts"))?;
+    }
+    let attempt = sign_in(&*repo, &hasher, &username, &body.password).await;
+    let user = match attempt {
+        Ok(user) => user,
+        Err(e) => {
+            if let Some(addr) = &ip {
+                record_sign_in_failure(&*abuse, &username, addr, now).await;
+            }
+            return Err(match e {
+                SignInError::NotFound => error(StatusCode::UNAUTHORIZED, "invalid credentials"),
+                SignInError::WrongPassword => {
+                    error(StatusCode::UNAUTHORIZED, "invalid credentials")
+                }
+            });
+        }
+    };
+    clear_sign_in_failures(&*abuse, &username).await;
     let enforcement = state.backend.enforcement();
-    if let Some(ban) = active_ban(&*enforcement, user.id(), OffsetDateTime::now_utc()).await {
+    if let Some(ban) = active_ban(&*enforcement, user.id(), now).await {
         return Err(error(
             StatusCode::FORBIDDEN,
             &format!("account suspended: {}", ban.reason().as_str()),
         ));
     }
     let token = start_session(&state, user.id()).await;
+    if let Some(addr) = &ip {
+        notice_of_new_network(&*abuse, &*state.mailer, &user, addr, now).await;
+    }
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
 
@@ -390,6 +414,15 @@ pub async fn sign_out_handler(State(state): State<AppState>, jar: CookieJar) -> 
     }
     let removal = Cookie::build((SESSION_COOKIE, "")).path("/").build();
     jar.remove(removal)
+}
+
+pub async fn end_all_sessions_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> StatusCode {
+    let sessions = state.backend.sessions();
+    end_every_session(&*sessions, &current).await;
+    StatusCode::NO_CONTENT
 }
 
 pub async fn get_profile_handler(
