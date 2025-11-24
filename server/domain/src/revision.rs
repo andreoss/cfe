@@ -5,6 +5,7 @@ use time::OffsetDateTime;
 pub struct Revision {
     editor_id: UserId,
     edited_at: OffsetDateTime,
+    minor: bool,
 }
 
 impl Revision {
@@ -12,7 +13,20 @@ impl Revision {
         Self {
             editor_id,
             edited_at,
+            minor: false,
         }
+    }
+
+    pub fn minor(editor_id: UserId, edited_at: OffsetDateTime) -> Self {
+        Self {
+            editor_id,
+            edited_at,
+            minor: true,
+        }
+    }
+
+    pub fn is_minor(&self) -> bool {
+        self.minor
     }
 
     pub fn editor_id(&self) -> UserId {
@@ -33,6 +47,17 @@ mod tests {
         let editor_id = UserId::new(uuid::Uuid::nil());
         let now = OffsetDateTime::UNIX_EPOCH;
         let revision = Revision::new(editor_id, now);
+        assert_eq!(revision.editor_id(), editor_id);
+        assert_eq!(revision.edited_at(), now);
+        assert!(!revision.is_minor());
+    }
+
+    #[test]
+    fn a_minor_revision_says_so_and_keeps_its_fields() {
+        let editor_id = UserId::new(uuid::Uuid::nil());
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let revision = Revision::minor(editor_id, now);
+        assert!(revision.is_minor());
         assert_eq!(revision.editor_id(), editor_id);
         assert_eq!(revision.edited_at(), now);
     }

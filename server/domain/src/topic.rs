@@ -28,6 +28,10 @@ pub struct Topic {
     postscore: PostScore,
     group_id: Option<GroupId>,
     pending: bool,
+    draft: bool,
+    sticky: bool,
+    off_front: bool,
+    resolved: bool,
 }
 
 impl Topic {
@@ -53,6 +57,10 @@ impl Topic {
             postscore: PostScore::default(),
             group_id: None,
             pending: false,
+            draft: false,
+            sticky: false,
+            off_front: false,
+            resolved: false,
         }
     }
 
@@ -82,6 +90,26 @@ impl Topic {
             postscore: PostScore::default(),
             group_id,
             pending,
+            draft: false,
+            sticky: false,
+            off_front: false,
+            resolved: false,
+        }
+    }
+
+    pub fn with_lifecycle(
+        &self,
+        draft: bool,
+        sticky: bool,
+        off_front: bool,
+        resolved: bool,
+    ) -> Self {
+        Self {
+            draft,
+            sticky,
+            off_front,
+            resolved,
+            ..self.clone()
         }
     }
 
@@ -179,6 +207,50 @@ impl Topic {
     pub fn with_pending(&self, pending: bool) -> Self {
         Self {
             pending,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_draft(&self) -> bool {
+        self.draft
+    }
+
+    pub fn with_draft(&self, draft: bool) -> Self {
+        Self {
+            draft,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_sticky(&self) -> bool {
+        self.sticky
+    }
+
+    pub fn with_sticky(&self, sticky: bool) -> Self {
+        Self {
+            sticky,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_off_front(&self) -> bool {
+        self.off_front
+    }
+
+    pub fn with_off_front(&self, off_front: bool) -> Self {
+        Self {
+            off_front,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        self.resolved
+    }
+
+    pub fn with_resolved(&self, resolved: bool) -> Self {
+        Self {
+            resolved,
             ..self.clone()
         }
     }
@@ -327,5 +399,66 @@ mod tests {
         assert_eq!(grouped.id(), topic.id());
         assert_eq!(topic.group_id(), None);
         assert!(topic.is_committed());
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    fn topic() -> Topic {
+        Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+    }
+
+    #[test]
+    fn a_new_topic_carries_no_lifecycle_flags() {
+        let topic = topic();
+        assert!(!topic.is_draft());
+        assert!(!topic.is_sticky());
+        assert!(!topic.is_off_front());
+        assert!(!topic.is_resolved());
+    }
+
+    #[test]
+    fn each_flag_can_be_set_on_its_own() {
+        let topic = topic();
+        assert!(topic.with_draft(true).is_draft());
+        assert!(topic.with_sticky(true).is_sticky());
+        assert!(topic.with_off_front(true).is_off_front());
+        assert!(topic.with_resolved(true).is_resolved());
+    }
+
+    #[test]
+    fn setting_one_flag_leaves_the_others_alone() {
+        let topic = topic().with_sticky(true).with_resolved(true);
+        let published = topic.with_draft(false);
+        assert!(published.is_sticky());
+        assert!(published.is_resolved());
+        assert!(!published.is_draft());
+        assert_eq!(published.id(), topic.id());
+        assert_eq!(published.title(), topic.title());
+    }
+
+    #[test]
+    fn a_flag_can_be_cleared_again() {
+        let topic = topic().with_sticky(true);
+        assert!(!topic.with_sticky(false).is_sticky());
+    }
+
+    #[test]
+    fn lifecycle_restores_every_flag_at_once() {
+        let restored = topic().with_lifecycle(true, true, true, true);
+        assert!(restored.is_draft());
+        assert!(restored.is_sticky());
+        assert!(restored.is_off_front());
+        assert!(restored.is_resolved());
     }
 }
