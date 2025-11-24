@@ -5,10 +5,11 @@ vi.mock('@/api/client', () => ({
   register: vi.fn(),
   signIn: vi.fn(),
   signOut: vi.fn(),
+  endAllSessions: vi.fn(),
   me: vi.fn(),
 }))
 
-import { register, signIn, me, signOut } from '@/api/client'
+import { register, signIn, me, signOut, endAllSessions } from '@/api/client'
 import { useAuthStore } from './auth'
 
 describe('useAuthStore', () => {
@@ -18,6 +19,7 @@ describe('useAuthStore', () => {
     vi.mocked(signIn).mockReset()
     vi.mocked(me).mockReset()
     vi.mocked(signOut).mockReset()
+    vi.mocked(endAllSessions).mockReset()
   })
 
   it('doRegister sets the current user on success', async () => {
@@ -76,5 +78,26 @@ describe('useAuthStore', () => {
     await auth.doSignOut()
     expect(auth.currentUser).toBeNull()
     expect(signOut).toHaveBeenCalled()
+  })
+
+  it('doEndAllSessions clears the current user on success', async () => {
+    vi.mocked(me).mockResolvedValue({ ok: true, value: { id: '1', username: 'alice_01', role: 'user' } })
+    vi.mocked(endAllSessions).mockResolvedValue({ ok: true, value: undefined })
+    const auth = useAuthStore()
+    await auth.checkSession()
+    const result = await auth.doEndAllSessions()
+    expect(result.ok).toBe(true)
+    expect(auth.currentUser).toBeNull()
+    expect(endAllSessions).toHaveBeenCalled()
+  })
+
+  it('doEndAllSessions keeps the current user on failure', async () => {
+    vi.mocked(me).mockResolvedValue({ ok: true, value: { id: '1', username: 'alice_01', role: 'user' } })
+    vi.mocked(endAllSessions).mockResolvedValue({ ok: false, error: 'missing session', status: 401 })
+    const auth = useAuthStore()
+    await auth.checkSession()
+    const result = await auth.doEndAllSessions()
+    expect(result.ok).toBe(false)
+    expect(auth.currentUser).toEqual({ id: '1', username: 'alice_01', role: 'user' })
   })
 })

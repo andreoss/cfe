@@ -4,6 +4,7 @@ import {
   signIn,
   me,
   signOut,
+  endAllSessions,
   getProfile,
   updateBio,
   getSections,
@@ -250,6 +251,34 @@ describe('signOut', () => {
     vi.mocked(fetch).mockResolvedValue(emptyResponse(true))
     const result = await signOut()
     expect(result).toEqual({ ok: true, value: undefined })
+  })
+})
+
+describe('endAllSessions', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the end-all path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await endAllSessions()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/me/sessions/end-all',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+  })
+
+  it('succeeds on an empty response body', async () => {
+    vi.mocked(fetch).mockResolvedValue(emptyResponse(true))
+    const result = await endAllSessions()
+    expect(result).toEqual({ ok: true, value: undefined })
+  })
+
+  it('reports the server error when there is no session', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await endAllSessions()
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
   })
 })
 

@@ -26,6 +26,8 @@ const formError = ref('')
 const changed = ref(false)
 const confirming = ref(false)
 const deregisterError = ref('')
+const confirmingEndAll = ref(false)
+const endAllError = ref('')
 const warnings = ref<Warning[]>([])
 const warningsError = ref('')
 const newEmail = ref('')
@@ -172,6 +174,17 @@ async function onDeregister() {
   await auth.doSignOut()
   router.push('/')
 }
+
+async function onEndAllSessions() {
+  endAllError.value = ''
+  const result = await auth.doEndAllSessions()
+  if (!result.ok) {
+    endAllError.value = result.error
+    return
+  }
+  confirmingEndAll.value = false
+  router.push('/')
+}
 </script>
 
 <template>
@@ -252,6 +265,13 @@ async function onDeregister() {
         <p v-if="formError" role="alert">{{ formError }}</p>
         <button type="submit">Change password</button>
       </form>
+      <template v-if="confirmingEndAll">
+        <p>This signs you out on every device.</p>
+        <p v-if="endAllError" role="alert">{{ endAllError }}</p>
+        <button type="button" @click="onEndAllSessions">Confirm end all sessions</button>
+        <button type="button" @click="confirmingEndAll = false">Cancel</button>
+      </template>
+      <button v-else type="button" @click="confirmingEndAll = true">End all sessions</button>
       <template v-if="confirming">
         <p>This removes your account for good.</p>
         <p v-if="deregisterError" role="alert">{{ deregisterError }}</p>

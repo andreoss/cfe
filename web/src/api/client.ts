@@ -189,6 +189,10 @@ export function signOut(): Promise<ApiResult<void>> {
   return request<void>('/api/sign-out', { method: 'POST' })
 }
 
+export function endAllSessions(): Promise<ApiResult<void>> {
+  return request<void>('/api/me/sessions/end-all', { method: 'POST' })
+}
+
 export async function changePassword(
   currentPassword: string,
   newPassword: string,

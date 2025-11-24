@@ -13,7 +13,8 @@ async function onSubmit() {
   formError.value = ''
   const result = await auth.doSignIn(username.value, password.value)
   if (!result.ok) {
-    formError.value = result.error
+    formError.value =
+      result.status === 429 ? 'Too many attempts. Try again later.' : result.error
     return
   }
   router.push('/')
