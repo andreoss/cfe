@@ -8,6 +8,7 @@ mod editing;
 mod enforcement;
 mod groups;
 mod lifecycle;
+mod lifecycle_flags;
 mod maintenance;
 mod moderation;
 mod notifications;
@@ -48,6 +49,10 @@ pub use enforcement::{
 pub use lifecycle::{
     ChangeEmailError, RedeemError, confirm_activation, confirm_email_change, request_activation,
     request_email_change, request_password_reset, reset_password,
+};
+pub use lifecycle_flags::{
+    FlagError, order_sticky_first, publish_draft, set_off_front, set_resolved, set_sticky,
+    visible_to,
 };
 pub use maintenance::{
     CONFIRMATION_WINDOW, FALLEN_REASON, MaintenanceReport, MaintenanceSettings, default_floor,
