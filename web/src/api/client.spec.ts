@@ -72,6 +72,10 @@ import {
   closeReport,
   listAddressPosts,
   removeAddressPosts,
+  publishTopic,
+  setSticky,
+  setOffFront,
+  setResolved,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -2738,5 +2742,179 @@ describe('challenge', () => {
     )
     const result = await postComment('t1', 'Nice topic!', null)
     expect(result).toEqual({ ok: false, error: 'challenge required', status: 428 })
+  })
+})
+
+describe('content lifecycle', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps draft, sticky, off_front, resolved and minor from the topic response', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        rawTopic({
+          draft: true,
+          sticky: true,
+          off_front: true,
+          resolved: true,
+          minor: true,
+        }),
+      ),
+    )
+    const result = await getTopic('1')
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.draft).toBe(true)
+    expect(result.ok && result.value.sticky).toBe(true)
+    expect(result.ok && result.value.offFront).toBe(true)
+    expect(result.ok && result.value.resolved).toBe(true)
+    expect(result.ok && result.value.minor).toBe(true)
+  })
+
+  it('maps the lifecycle flags when they are false', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        rawTopic({
+          draft: false,
+          sticky: false,
+          off_front: false,
+          resolved: false,
+          minor: false,
+        }),
+      ),
+    )
+    const result = await getTopic('1')
+    expect(result.ok && result.value.draft).toBe(false)
+    expect(result.ok && result.value.sticky).toBe(false)
+    expect(result.ok && result.value.offFront).toBe(false)
+    expect(result.ok && result.value.resolved).toBe(false)
+    expect(result.ok && result.value.minor).toBe(false)
+  })
+
+  it('createTopic sends draft when it is true', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ draft: true })))
+    await createTopic('general', 'Hello', 'World', ['rust'], undefined, undefined, true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({ title: 'Hello', body: 'World', tags: ['rust'], draft: true }),
+      }),
+    )
+  })
+
+  it('createTopic omits draft when it is false', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await createTopic('general', 'Hello', 'World', ['rust'], undefined, undefined, false)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({ title: 'Hello', body: 'World', tags: ['rust'] }),
+      }),
+    )
+  })
+
+  it('createTopic keeps the group and challenge alongside draft', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ draft: true })))
+    await createTopic('general', 'Hello', 'World', ['rust'], 'announcements', 'a blue moon', true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/general/topics'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          title: 'Hello',
+          body: 'World',
+          tags: ['rust'],
+          group: 'announcements',
+          draft: true,
+          challenge: 'a blue moon',
+        }),
+      }),
+    )
+  })
+
+  it('editTopic sends minor when it is true', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ minor: true })))
+    await editTopic('t1', 'After', 'New', ['rust'], true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1'),
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ title: 'After', body: 'New', tags: ['rust'], minor: true }),
+      }),
+    )
+  })
+
+  it('editTopic omits minor when it is false', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic()))
+    await editTopic('t1', 'After', 'New', ['rust'], false)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1'),
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ title: 'After', body: 'New', tags: ['rust'] }),
+      }),
+    )
+  })
+
+  it('publishTopic posts to the publish endpoint', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', draft: false })))
+    const result = await publishTopic('7')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/publish',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok && result.value.draft).toBe(false)
+  })
+
+  it('setSticky posts the sticky flag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', sticky: true })))
+    const result = await setSticky('7', true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/sticky',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ sticky: true }) }),
+    )
+    expect(result.ok && result.value.sticky).toBe(true)
+  })
+
+  it('setOffFront posts the off_front flag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', off_front: true })))
+    const result = await setOffFront('7', true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/off-front',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ off_front: true }) }),
+    )
+    expect(result.ok && result.value.offFront).toBe(true)
+  })
+
+  it('setResolved posts the resolved flag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ id: '7', resolved: false })))
+    const result = await setResolved('7', false)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/7/resolved',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ resolved: false }) }),
+    )
+    expect(result.ok && result.value.resolved).toBe(false)
+  })
+
+  it('reports the error when setSticky is refused with 403', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not a moderator' }))
+    const result = await setSticky('7', true)
+    expect(result).toEqual({ ok: false, error: 'not a moderator', status: 403 })
+  })
+
+  it('reports the error when publishTopic is refused with 403', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not the author' }))
+    const result = await publishTopic('7')
+    expect(result).toEqual({ ok: false, error: 'not the author', status: 403 })
   })
 })

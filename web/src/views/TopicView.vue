@@ -22,6 +22,10 @@ import {
   moveTopic,
   getGroups,
   reportTopic,
+  publishTopic,
+  setSticky,
+  setOffFront,
+  setResolved,
   type ReportKind,
   type Topic,
   type Comment,
@@ -71,7 +75,10 @@ const editing = ref(false)
 const editTitle = ref('')
 const editBody = ref('')
 const editTags = ref('')
+const editMinor = ref(false)
 const editError = ref('')
+const lifecycleError = ref('')
+const placementError = ref('')
 const bookmarked = ref(false)
 const bookmarkError = ref('')
 const reactions = ref<ReactionSummary | null>(null)
@@ -162,11 +169,70 @@ const mayEdit = computed(
       auth.currentUser.role === 'moderator'),
 )
 
+const isModerator = computed(() => auth.currentUser?.role === 'moderator')
+
+const isAuthor = computed(
+  () =>
+    topic.value !== null &&
+    auth.currentUser !== null &&
+    auth.currentUser.username === topic.value.authorUsername,
+)
+
+const mayPublish = computed(() => topic.value !== null && topic.value.draft && isAuthor.value)
+
+const mayResolve = computed(
+  () => topic.value !== null && (isAuthor.value || isModerator.value),
+)
+
+async function onPublish() {
+  lifecycleError.value = ''
+  const result = await publishTopic(props.id)
+  if (!result.ok) {
+    lifecycleError.value = result.error
+    return
+  }
+  topic.value = result.value
+}
+
+async function onToggleResolved() {
+  lifecycleError.value = ''
+  if (!topic.value) return
+  const result = await setResolved(props.id, !topic.value.resolved)
+  if (!result.ok) {
+    lifecycleError.value = result.error
+    return
+  }
+  topic.value = result.value
+}
+
+async function onToggleSticky() {
+  placementError.value = ''
+  if (!topic.value) return
+  const result = await setSticky(props.id, !topic.value.sticky)
+  if (!result.ok) {
+    placementError.value = result.error
+    return
+  }
+  topic.value = result.value
+}
+
+async function onToggleOffFront() {
+  placementError.value = ''
+  if (!topic.value) return
+  const result = await setOffFront(props.id, !topic.value.offFront)
+  if (!result.ok) {
+    placementError.value = result.error
+    return
+  }
+  topic.value = result.value
+}
+
 function startEdit() {
   if (!topic.value) return
   editTitle.value = topic.value.title
   editBody.value = topic.value.body
   editTags.value = topic.value.tags.join(', ')
+  editMinor.value = false
   editError.value = ''
   editing.value = true
 }
@@ -246,6 +312,8 @@ async function load() {
   reporting.value = false
   reportSent.value = false
   reportError.value = ''
+  lifecycleError.value = ''
+  placementError.value = ''
   const result = await getTopic(props.id)
   if (result.ok) {
     topic.value = result.value
@@ -329,7 +397,13 @@ async function onEdit() {
     .split(',')
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
-  const result = await editTopic(props.id, editTitle.value, editBody.value, tags)
+  const result = await editTopic(
+    props.id,
+    editTitle.value,
+    editBody.value,
+    tags,
+    editMinor.value,
+  )
   if (!result.ok) {
     editError.value = result.error
     return
@@ -378,6 +452,18 @@ async function onUnsave() {
       </p>
 
       <p v-if="topic.pending" role="status" class="queued">Awaiting moderation.</p>
+
+      <p v-if="topic.draft" class="draft">Draft</p>
+      <p v-if="topic.resolved" class="resolved">Resolved</p>
+
+      <template v-if="mayPublish">
+        <button type="button" @click="onPublish">Publish draft</button>
+      </template>
+      <template v-if="mayResolve">
+        <button v-if="!topic.resolved" type="button" @click="onToggleResolved">Mark resolved</button>
+        <button v-else type="button" @click="onToggleResolved">Mark unresolved</button>
+      </template>
+      <p v-if="lifecycleError" role="alert">{{ lifecycleError }}</p>
 
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
@@ -432,6 +518,10 @@ async function onUnsave() {
             Tags
             <input v-model="editTags" name="edit-tags" type="text" />
           </label>
+          <label>
+            <input v-model="editMinor" name="edit-minor" type="checkbox" />
+            Minor edit
+          </label>
           <p v-if="editError" role="alert">{{ editError }}</p>
           <button type="submit">Save changes</button>
           <button type="button" @click="editing = false">Cancel</button>
@@ -471,6 +561,14 @@ async function onUnsave() {
           </label>
           <button type="button" :disabled="!moveTarget" @click="onMove">Move</button>
           <p v-if="moderationError" role="alert">{{ moderationError }}</p>
+        </details>
+        <details v-if="!deleting && !editing">
+          <summary>Placement</summary>
+          <button v-if="!topic.sticky" type="button" @click="onToggleSticky">Make sticky</button>
+          <button v-else type="button" @click="onToggleSticky">Unstick</button>
+          <button v-if="!topic.offFront" type="button" @click="onToggleOffFront">Hide from front</button>
+          <button v-else type="button" @click="onToggleOffFront">Show on front</button>
+          <p v-if="placementError" role="alert">{{ placementError }}</p>
         </details>
       </template>
 

@@ -22,6 +22,11 @@ export type Topic = {
   postscore: number
   pending: boolean
   openReports: number
+  draft: boolean
+  sticky: boolean
+  offFront: boolean
+  resolved: boolean
+  minor: boolean
 }
 export type Comment = {
   id: string
@@ -258,6 +263,11 @@ type RawTopic = {
   postscore: number
   pending: boolean
   open_reports: number
+  draft: boolean
+  sticky: boolean
+  off_front: boolean
+  resolved: boolean
+  minor: boolean
 }
 
 function toTopic(raw: RawTopic): Topic {
@@ -276,6 +286,11 @@ function toTopic(raw: RawTopic): Topic {
     postscore: raw.postscore,
     pending: raw.pending,
     openReports: raw.open_reports,
+    draft: raw.draft,
+    sticky: raw.sticky,
+    offFront: raw.off_front,
+    resolved: raw.resolved,
+    minor: raw.minor,
   }
 }
 
@@ -301,11 +316,14 @@ export async function createTopic(
   tags: string[],
   group?: string,
   challenge?: string,
+  draft?: boolean,
 ): Promise<ApiResult<Topic>> {
+  const payload: Record<string, unknown> = { title, body, tags, group }
+  if (draft === true) payload.draft = true
   const result = await request<RawTopic>(`/api/sections/${encodeURIComponent(slug)}/topics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(withChallenge({ title, body, tags, group }, challenge)),
+    body: JSON.stringify(withChallenge(payload, challenge)),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
@@ -462,13 +480,51 @@ export async function editTopic(
   title: string,
   body: string,
   tags: string[],
+  minor?: boolean,
 ): Promise<ApiResult<Topic>> {
+  const payload: Record<string, unknown> = { title, body, tags }
+  if (minor === true) payload.minor = true
   const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body, tags }),
+    body: JSON.stringify(payload),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export async function publishTopic(id: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/publish`, {
+    method: 'POST',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+async function topicFlag(
+  id: string,
+  segment: string,
+  body: Record<string, boolean>,
+): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(
+    `/api/topics/${encodeURIComponent(id)}/${segment}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
+export function setSticky(id: string, sticky: boolean): Promise<ApiResult<Topic>> {
+  return topicFlag(id, 'sticky', { sticky })
+}
+
+export function setOffFront(id: string, offFront: boolean): Promise<ApiResult<Topic>> {
+  return topicFlag(id, 'off-front', { off_front: offFront })
+}
+
+export function setResolved(id: string, resolved: boolean): Promise<ApiResult<Topic>> {
+  return topicFlag(id, 'resolved', { resolved })
 }
 
 export async function editComment(

@@ -25,6 +25,7 @@ const titleDraft = ref('')
 const bodyDraft = ref('')
 const tagsDraft = ref('')
 const groupDraft = ref('')
+const asDraft = ref(false)
 const groups = ref<Group[]>([])
 const moderationError = ref('')
 const formError = ref('')
@@ -100,6 +101,7 @@ async function onCreate() {
     parseTags(tagsDraft.value),
     groupDraft.value || undefined,
     challengeAnswer.value,
+    asDraft.value,
   )
   if (!result.ok) {
     if (result.status === 428 && !challengeNeeded.value) {
@@ -114,6 +116,7 @@ async function onCreate() {
   bodyDraft.value = ''
   tagsDraft.value = ''
   groupDraft.value = ''
+  asDraft.value = false
   challengeNeeded.value = false
   challengeAnswer.value = ''
   creating.value = false
@@ -136,6 +139,8 @@ async function onCreate() {
           in <RouterLink :to="`/s/${topic.sectionSlug}/g/${topic.groupSlug}`">{{ topic.groupSlug }}</RouterLink>
         </template>
         by {{ topic.authorUsername }}
+        <span v-if="topic.draft">Draft</span>
+        <span v-if="topic.sticky">Sticky</span>
         <span v-if="topic.pending && auth.currentUser?.role === 'moderator'"> (pending)</span>
         <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
         <button
@@ -184,6 +189,10 @@ async function onCreate() {
             <option value="">— none —</option>
             <option v-for="g in groups" :key="g.id" :value="g.slug">{{ g.name }}</option>
           </select>
+        </label>
+        <label>
+          <input v-model="asDraft" name="topic-draft" type="checkbox" />
+          Save as draft
         </label>
         <template v-if="challengeNeeded">
           <p role="status">Answer the challenge to continue.</p>
