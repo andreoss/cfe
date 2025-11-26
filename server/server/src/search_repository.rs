@@ -1,8 +1,6 @@
+use crate::topic_repository::{SELECT_COLUMNS, TopicRow, to_topic};
 use app::SearchRepository;
-use domain::{
-    Body, Comment, CommentId, ContentItem, Query, Revision, SectionId, TagSet, Title, Topic,
-    TopicId, UserId,
-};
+use domain::{Body, Comment, CommentId, ContentItem, Query, Revision, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -19,16 +17,9 @@ impl PgSearchRepository {
 const LIMIT: i64 = 50;
 
 #[derive(FromRow)]
-struct TopicRow {
-    id: uuid::Uuid,
-    section_id: uuid::Uuid,
-    author_id: uuid::Uuid,
-    title: String,
-    body: String,
-    tags: Vec<String>,
-    created_at: OffsetDateTime,
-    edited_by: Option<uuid::Uuid>,
-    edited_at: Option<OffsetDateTime>,
+struct RankedTopic {
+    #[sqlx(flatten)]
+    topic: TopicRow,
     rank: f32,
 }
 
@@ -57,16 +48,15 @@ fn revision(by: Option<uuid::Uuid>, at: Option<OffsetDateTime>) -> Option<Revisi
 #[async_trait::async_trait]
 impl SearchRepository for PgSearchRepository {
     async fn search(&self, query: &Query) -> Vec<ContentItem> {
-        let topic_rows = sqlx::query_as::<_, TopicRow>(
-            "SELECT id, section_id, author_id, title, body, tags, created_at, edited_by, \
-             edited_at, ts_rank(to_tsvector('english', title || ' ' || body), \
+        let topic_rows = sqlx::query_as::<_, RankedTopic>(&format!(
+            "SELECT {SELECT_COLUMNS}, ts_rank(to_tsvector('english', title || ' ' || body), \
              plainto_tsquery('english', $1)) AS rank \
              FROM topics \
              WHERE deleted_at IS NULL \
              AND to_tsvector('english', title || ' ' || body) \
              @@ plainto_tsquery('english', $1) \
-             ORDER BY rank DESC LIMIT $2",
-        )
+             ORDER BY rank DESC LIMIT $2"
+        ))
         .bind(query.as_str())
         .bind(LIMIT)
         .fetch_all(&self.pool)
@@ -89,20 +79,7 @@ impl SearchRepository for PgSearchRepository {
 
         let mut ranked: Vec<(f32, ContentItem)> = Vec::new();
         for row in topic_rows {
-            let hit = ContentItem::Topic(Topic::from_parts(
-                TopicId::new(row.id),
-                SectionId::new(row.section_id),
-                UserId::new(row.author_id),
-                Title::parse(&row.title).expect("stored title is valid"),
-                Body::parse(&row.body).expect("stored body is valid"),
-                TagSet::parse(&row.tags).expect("stored tags are valid"),
-                row.created_at,
-                None,
-                revision(row.edited_by, row.edited_at),
-                None,
-                false,
-            ));
-            ranked.push((row.rank, hit));
+            ranked.push((row.rank, ContentItem::Topic(to_topic(row.topic))));
         }
         for row in comment_rows {
             let hit = ContentItem::Comment(Comment::from_parts(

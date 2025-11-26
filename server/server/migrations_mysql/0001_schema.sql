@@ -50,11 +50,19 @@ CREATE TABLE topics (
     deleted_at TIMESTAMP(6) NULL,
     edited_by BINARY(16),
     edited_at TIMESTAMP(6) NULL,
+    draft BOOLEAN NOT NULL DEFAULT FALSE,
+    sticky BOOLEAN NOT NULL DEFAULT FALSE,
+    off_front BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved BOOLEAN NOT NULL DEFAULT FALSE,
+    minor BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (section_id) REFERENCES sections (id),
     FOREIGN KEY (group_id) REFERENCES `groups` (id),
     FOREIGN KEY (author_id) REFERENCES users (id),
     FULLTEXT KEY topics_search_idx (title, body)
 );
+
+CREATE INDEX topics_section_sticky_idx
+    ON topics (section_id, sticky DESC, created_at DESC);
 
 CREATE TABLE topic_tags (
     topic_id BINARY(16) NOT NULL,

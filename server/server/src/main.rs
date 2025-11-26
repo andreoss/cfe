@@ -183,6 +183,22 @@ async fn main() {
         .route("/api/topics/{id}/uncommit", post(uncommit_topic_handler))
         .route("/api/topics/{id}/move", post(move_topic_handler))
         .route(
+            "/api/topics/{id}/publish",
+            post(handlers::publish_topic_handler),
+        )
+        .route(
+            "/api/topics/{id}/sticky",
+            post(handlers::set_sticky_handler),
+        )
+        .route(
+            "/api/topics/{id}/off-front",
+            post(handlers::set_off_front_handler),
+        )
+        .route(
+            "/api/topics/{id}/resolved",
+            post(handlers::set_resolved_handler),
+        )
+        .route(
             "/api/topics/{id}/report",
             post(handlers::report_topic_handler),
         )

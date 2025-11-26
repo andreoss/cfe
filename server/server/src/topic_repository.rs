@@ -16,11 +16,19 @@ impl PgTopicRepository {
     }
 }
 
-const SELECT_COLUMNS: &str = "id, section_id, author_id, title, body, tags, created_at, \
-    postscore, deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending";
+pub const SELECT_COLUMNS: &str = "id, section_id, author_id, title, body, tags, created_at, \
+    postscore, deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending, \
+    draft, sticky, off_front, resolved, minor";
+pub fn aliased_columns(alias: &str) -> String {
+    SELECT_COLUMNS
+        .split(", ")
+        .map(|c| format!("{alias}.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 #[derive(FromRow)]
-struct Row {
+pub struct TopicRow {
     id: uuid::Uuid,
     section_id: uuid::Uuid,
     author_id: uuid::Uuid,
@@ -36,10 +44,18 @@ struct Row {
     edited_at: Option<OffsetDateTime>,
     group_id: Option<uuid::Uuid>,
     pending: bool,
+    draft: bool,
+    sticky: bool,
+    off_front: bool,
+    resolved: bool,
+    minor: bool,
 }
 
-fn to_revision(row: &Row) -> Option<Revision> {
+fn to_revision(row: &TopicRow) -> Option<Revision> {
     match (row.edited_by, row.edited_at) {
+        (Some(editor_id), Some(edited_at)) if row.minor => {
+            Some(Revision::minor(UserId::new(editor_id), edited_at))
+        }
         (Some(editor_id), Some(edited_at)) => {
             Some(Revision::new(UserId::new(editor_id), edited_at))
         }
@@ -47,7 +63,11 @@ fn to_revision(row: &Row) -> Option<Revision> {
     }
 }
 
-fn to_deletion(row: &Row) -> Option<Deletion> {
+fn is_minor(topic: &Topic) -> bool {
+    topic.revision().map(|r| r.is_minor()).unwrap_or(false)
+}
+
+fn to_deletion(row: &TopicRow) -> Option<Deletion> {
     match (&row.deleted_reason, row.deleted_by, row.deleted_at) {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
@@ -58,7 +78,7 @@ fn to_deletion(row: &Row) -> Option<Deletion> {
     }
 }
 
-fn to_topic(row: Row) -> Topic {
+pub fn to_topic(row: TopicRow) -> Topic {
     let deleted = to_deletion(&row);
     let edited = to_revision(&row);
     Topic::from_parts(
@@ -75,6 +95,7 @@ fn to_topic(row: Row) -> Topic {
         row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
+    .with_lifecycle(row.draft, row.sticky, row.off_front, row.resolved)
 }
 
 fn tag_strings(topic: &Topic) -> Vec<String> {
@@ -91,7 +112,8 @@ impl TopicRepository for PgTopicRepository {
     async fn save(&self, topic: &Topic) {
         sqlx::query(
             "INSERT INTO topics (id, section_id, author_id, title, body, tags, created_at, \
-             group_id, pending) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+             group_id, pending, draft, sticky, off_front, resolved, minor) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.section_id().as_uuid())
@@ -102,6 +124,11 @@ impl TopicRepository for PgTopicRepository {
         .bind(topic.created_at())
         .bind(topic.group_id().map(|g| g.as_uuid()))
         .bind(topic.is_pending())
+        .bind(topic.is_draft())
+        .bind(topic.is_sticky())
+        .bind(topic.is_off_front())
+        .bind(topic.is_resolved())
+        .bind(is_minor(topic))
         .execute(&self.pool)
         .await
         .expect("insert topic");
@@ -111,7 +138,8 @@ impl TopicRepository for PgTopicRepository {
         sqlx::query(
             "UPDATE topics SET title = $2, body = $3, tags = $4, postscore = $5, \
              deleted_reason = $6, deleted_by = $7, deleted_at = $8, edited_by = $9, \
-             edited_at = $10, group_id = $11, pending = $12 WHERE id = $1",
+             edited_at = $10, group_id = $11, pending = $12, draft = $13, sticky = $14, \
+             off_front = $15, resolved = $16, minor = $17 WHERE id = $1",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.title().as_str())
@@ -125,13 +153,18 @@ impl TopicRepository for PgTopicRepository {
         .bind(topic.revision().map(|r| r.edited_at()))
         .bind(topic.group_id().map(|g| g.as_uuid()))
         .bind(topic.is_pending())
+        .bind(topic.is_draft())
+        .bind(topic.is_sticky())
+        .bind(topic.is_off_front())
+        .bind(topic.is_resolved())
+        .bind(is_minor(topic))
         .execute(&self.pool)
         .await
         .expect("update topic");
     }
 
     async fn find_by_id(&self, id: TopicId) -> Option<Topic> {
-        sqlx::query_as::<_, Row>(&format!(
+        sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics WHERE id = $1"
         ))
         .bind(id.as_uuid())
@@ -142,10 +175,10 @@ impl TopicRepository for PgTopicRepository {
     }
 
     async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
-        sqlx::query_as::<_, Row>(&format!(
+        sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics \
-             WHERE section_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC \
-             LIMIT $2 OFFSET $3"
+             WHERE section_id = $1 AND deleted_at IS NULL \
+             ORDER BY sticky DESC, created_at DESC LIMIT $2 OFFSET $3"
         ))
         .bind(section_id.as_uuid())
         .bind(page.limit() as i64)
@@ -159,7 +192,7 @@ impl TopicRepository for PgTopicRepository {
     }
 
     async fn list_by_tag(&self, tag: &domain::Slug, page: Page) -> Vec<Topic> {
-        sqlx::query_as::<_, Row>(&format!(
+        sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics \
              WHERE $1 = ANY(tags) AND deleted_at IS NULL ORDER BY created_at DESC \
              LIMIT $2 OFFSET $3"

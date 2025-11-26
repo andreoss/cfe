@@ -19,8 +19,8 @@ impl DuckTopicRepository {
 }
 
 pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending";
-
+    deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending, draft, \
+    sticky, off_front, resolved, minor";
 pub struct TopicRow {
     pub id: uuid::Uuid,
     pub section_id: uuid::Uuid,
@@ -36,8 +36,12 @@ pub struct TopicRow {
     pub edited_at: Option<OffsetDateTime>,
     pub group_id: Option<uuid::Uuid>,
     pub pending: bool,
+    pub draft: bool,
+    pub sticky: bool,
+    pub off_front: bool,
+    pub resolved: bool,
+    pub minor: bool,
 }
-
 pub fn micros_to_time(micros: i64) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp_nanos(micros as i128 * 1_000).expect("stored timestamp")
 }
@@ -138,6 +142,11 @@ pub fn topic_row(row: &Row) -> TopicRow {
         edited_at: read_opt_time(row, 11),
         group_id: read_opt_uuid(row, 12),
         pending: row.get(13).expect("read pending"),
+        draft: row.get(14).expect("read draft"),
+        sticky: row.get(15).expect("read sticky"),
+        off_front: row.get(16).expect("read off front"),
+        resolved: row.get(17).expect("read resolved"),
+        minor: row.get(18).expect("read minor"),
     }
 }
 
@@ -150,6 +159,26 @@ pub fn revision(by: Option<uuid::Uuid>, at: Option<OffsetDateTime>) -> Option<Re
     }
 }
 
+pub fn edit_revision(
+    by: Option<uuid::Uuid>,
+    at: Option<OffsetDateTime>,
+    minor: bool,
+) -> Option<Revision> {
+    match (by, at) {
+        (Some(editor_id), Some(edited_at)) if minor => {
+            Some(Revision::minor(UserId::new(editor_id), edited_at))
+        }
+        (Some(editor_id), Some(edited_at)) => {
+            Some(Revision::new(UserId::new(editor_id), edited_at))
+        }
+        _ => None,
+    }
+}
+
+pub fn is_minor(topic: &Topic) -> bool {
+    topic.revision().map(|r| r.is_minor()).unwrap_or(false)
+}
+
 pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
     let deleted = match (&row.deleted_reason, row.deleted_by, row.deleted_at) {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
@@ -159,7 +188,7 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         )),
         _ => None,
     };
-    let edited = revision(row.edited_by, row.edited_at);
+    let edited = edit_revision(row.edited_by, row.edited_at, row.minor);
     Topic::from_parts(
         TopicId::new(row.id),
         SectionId::new(row.section_id),
@@ -174,6 +203,7 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
+    .with_lifecycle(row.draft, row.sticky, row.off_front, row.resolved)
 }
 
 pub async fn tags_for(db: &Db, topic_id: uuid::Uuid) -> TagSet {
@@ -248,11 +278,17 @@ impl TopicRepository for DuckTopicRepository {
             time_to_value(topic.created_at()),
             opt_uuid(topic.group_id().map(|g| g.as_uuid())),
             Value::Boolean(topic.is_pending()),
+            Value::Boolean(topic.is_draft()),
+            Value::Boolean(topic.is_sticky()),
+            Value::Boolean(topic.is_off_front()),
+            Value::Boolean(topic.is_resolved()),
+            Value::Boolean(is_minor(topic)),
         ];
         self.db
             .execute(
                 "INSERT INTO topics (id, section_id, author_id, title, body, created_at, \
-                 group_id, pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 group_id, pending, draft, sticky, off_front, resolved, minor) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;
@@ -271,13 +307,19 @@ impl TopicRepository for DuckTopicRepository {
             opt_time(topic.revision().map(|r| r.edited_at())),
             opt_uuid(topic.group_id().map(|g| g.as_uuid())),
             Value::Boolean(topic.is_pending()),
+            Value::Boolean(topic.is_draft()),
+            Value::Boolean(topic.is_sticky()),
+            Value::Boolean(topic.is_off_front()),
+            Value::Boolean(topic.is_resolved()),
+            Value::Boolean(is_minor(topic)),
             uuid_value(topic.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
                  deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, group_id = ?, \
-                 pending = ? WHERE id = ?",
+                 pending = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ? \
+                 WHERE id = ?",
                 params,
             )
             .await;
@@ -300,7 +342,7 @@ impl TopicRepository for DuckTopicRepository {
             format!(
                 "SELECT {TOPIC_COLUMNS} FROM topics \
                  WHERE section_id = ? AND deleted_at IS NULL \
-                 ORDER BY created_at DESC LIMIT ? OFFSET ?"
+                 ORDER BY sticky DESC, created_at DESC LIMIT ? OFFSET ?"
             ),
             vec![
                 uuid_value(section_id.as_uuid()),

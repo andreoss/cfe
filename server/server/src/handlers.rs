@@ -15,12 +15,12 @@ use app::{
     get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
     list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
     list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read,
-    move_topic, notice_of_new_network, poll_results, post_comment, promote_to_moderator, react,
-    recent_activity, record_post, record_sign_in_failure, register, remove_bookmark,
-    remove_posts_from_address, report_content, reporter_of, request_activation,
+    move_topic, notice_of_new_network, poll_results, post_comment, promote_to_moderator,
+    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
+    remove_bookmark, remove_posts_from_address, report_content, reporter_of, request_activation,
     request_email_change, request_password_reset, reset_password, search, set_avatar,
-    set_postscore, sign_in, sign_out as end_session, stop_ignoring, summarize_reactions,
-    uncommit_topic, update_bio, warn_user,
+    set_off_front, set_postscore, set_resolved, set_sticky, sign_in, sign_out as end_session,
+    stop_ignoring, summarize_reactions, uncommit_topic, update_bio, warn_user,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -32,7 +32,8 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
     Address, Avatar, AvatarError, Bio, BlockMode, Body, CommentId, ContentItem, Email, GroupId,
     Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, ReportId,
-    ReportKind, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId, Username,
+    ReportKind, Revision, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId,
+    Username,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -114,6 +115,8 @@ pub struct CreateTopicRequest {
     pub group: Option<String>,
     #[serde(default)]
     pub challenge: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
 }
 
 #[derive(Serialize)]
@@ -131,6 +134,11 @@ pub struct TopicResponse {
     pub edited: bool,
     pub postscore: i32,
     pub pending: bool,
+    pub draft: bool,
+    pub sticky: bool,
+    pub off_front: bool,
+    pub resolved: bool,
+    pub minor: bool,
     pub open_reports: u64,
 }
 
@@ -172,6 +180,23 @@ pub struct EditTopicRequest {
     pub body: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub minor: bool,
+}
+
+#[derive(Deserialize)]
+pub struct SetStickyRequest {
+    pub sticky: bool,
+}
+
+#[derive(Deserialize)]
+pub struct SetOffFrontRequest {
+    pub off_front: bool,
+}
+
+#[derive(Deserialize)]
+pub struct SetResolvedRequest {
+    pub resolved: bool,
 }
 
 #[derive(Deserialize)]
@@ -503,6 +528,11 @@ async fn topic_response(
         edited: topic.is_edited(),
         postscore: topic.postscore().to_db(),
         pending: topic.is_pending(),
+        draft: topic.is_draft(),
+        sticky: topic.is_sticky(),
+        off_front: topic.is_off_front(),
+        resolved: topic.is_resolved(),
+        minor: topic.revision().map(|r| r.is_minor()).unwrap_or(false),
         open_reports: count_open_for_topic(&*reports, topic.id()).await,
     }))
 }
@@ -533,11 +563,13 @@ pub async fn list_topics_handler(
     let sections = state.backend.sections();
     let topics = state.backend.topics();
     let visibility = app::Visibility::of(current.as_ref());
-    let list = list_topics(&*sections, &*topics, &slug, page, visibility)
+    let mut list = list_topics(&*sections, &*topics, &slug, page, visibility)
         .await
         .map_err(|e| match e {
             ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         })?;
+    list.items.retain(|t| app::visible_to(t, current.as_ref()));
+    list.items = app::order_sticky_first(std::mem::take(&mut list.items));
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
@@ -614,6 +646,13 @@ pub async fn create_topic_handler(
         CreateTopicError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
         CreateTopicError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to post here"),
     })?;
+    let topic = if body.draft {
+        let draft = topic.with_draft(true);
+        topics.update(&draft).await;
+        draft
+    } else {
+        topic
+    };
     if let Some(addr) = &ip {
         record_post(
             &*abuse,
@@ -637,6 +676,7 @@ pub async fn get_topic_handler(
     let topics = state.backend.topics();
     let topic = get_topic(&*topics, topic_id, app::Visibility::of(current.as_ref()))
         .await
+        .filter(|t| app::visible_to(t, current.as_ref()))
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
     topic_response(&state, &topic).await
 }
@@ -652,7 +692,8 @@ pub async fn list_topics_by_tag_handler(
     let page = to_page(&params)?;
     let topics = state.backend.topics();
     let visibility = app::Visibility::of(current.as_ref());
-    let list = list_topics_by_tag(&*topics, &tag, page, visibility).await;
+    let mut list = list_topics_by_tag(&*topics, &tag, page, visibility).await;
+    list.items.retain(|t| app::visible_to(t, current.as_ref()));
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
@@ -1018,17 +1059,83 @@ pub async fn edit_topic_handler(
     let tags = TagSet::parse(&body.tags)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
     let topics = state.backend.topics();
+    let now = OffsetDateTime::now_utc();
     let topic = edit_topic(
         &*topics,
         &current,
         TopicId::new(id),
-        title,
-        topic_body,
-        tags,
-        OffsetDateTime::now_utc(),
+        title.clone(),
+        topic_body.clone(),
+        tags.clone(),
+        now,
     )
     .await
     .map_err(edit_error)?;
+    let topic = if body.minor {
+        let edited = topic.with_edit(title, topic_body, tags, Revision::minor(current.id(), now));
+        topics.update(&edited).await;
+        edited
+    } else {
+        topic
+    };
+    topic_response(&state, &topic).await
+}
+
+fn flag_error(e: app::FlagError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        app::FlagError::NotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+        app::FlagError::NotAuthorized => error(StatusCode::FORBIDDEN, "not allowed"),
+    }
+}
+
+pub async fn publish_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = publish_draft(&*topics, &current, TopicId::new(id))
+        .await
+        .map_err(flag_error)?;
+    topic_response(&state, &topic).await
+}
+
+pub async fn set_sticky_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetStickyRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = set_sticky(&*topics, &current, TopicId::new(id), body.sticky)
+        .await
+        .map_err(flag_error)?;
+    topic_response(&state, &topic).await
+}
+
+pub async fn set_off_front_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetOffFrontRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = set_off_front(&*topics, &current, TopicId::new(id), body.off_front)
+        .await
+        .map_err(flag_error)?;
+    topic_response(&state, &topic).await
+}
+
+pub async fn set_resolved_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetResolvedRequest>,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = set_resolved(&*topics, &current, TopicId::new(id), body.resolved)
+        .await
+        .map_err(flag_error)?;
     topic_response(&state, &topic).await
 }
 
@@ -1196,7 +1303,8 @@ pub async fn list_bookmarks_handler(
 ) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let page = to_page(&params)?;
     let bookmarks = state.backend.bookmarks();
-    let list = list_bookmarked_topics(&*bookmarks, current.id(), page).await;
+    let mut list = list_bookmarked_topics(&*bookmarks, current.id(), page).await;
+    list.items.retain(|t| app::visible_to(t, Some(&current)));
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);
@@ -2207,7 +2315,7 @@ pub async fn section_feed_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
     let sections = state.backend.sections();
     let topics = state.backend.topics();
-    let list = list_topics(
+    let mut list = list_topics(
         &*sections,
         &*topics,
         &slug,
@@ -2218,6 +2326,7 @@ pub async fn section_feed_handler(
     .map_err(|e| match e {
         ListTopicsError::SectionNotFound => error(StatusCode::NOT_FOUND, "section not found"),
     })?;
+    list.items.retain(|t| app::visible_to(t, None));
     let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         slug.as_str(),
@@ -2233,7 +2342,9 @@ pub async fn tag_feed_handler(
     let tag =
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let topics = state.backend.topics();
-    let list = list_topics_by_tag(&*topics, &tag, feed_page(), app::Visibility::anonymous()).await;
+    let mut list =
+        list_topics_by_tag(&*topics, &tag, feed_page(), app::Visibility::anonymous()).await;
+    list.items.retain(|t| app::visible_to(t, None));
     let entries = feed_entries(&state, &list.items).await;
     Ok(feed_response(
         tag.as_str(),
@@ -2248,7 +2359,20 @@ pub async fn activity_handler(
 ) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let activity = state.backend.activity();
     let enforcement = state.backend.enforcement();
-    let items = recent_activity(&*activity, &*enforcement, viewer.map(|u| u.id()), 30).await;
+    let items = recent_activity(
+        &*activity,
+        &*enforcement,
+        viewer.as_ref().map(|u| u.id()),
+        30,
+    )
+    .await;
+    let items: Vec<ContentItem> = items
+        .into_iter()
+        .filter(|item| match item {
+            ContentItem::Topic(topic) => app::visible_to(topic, viewer.as_ref()),
+            ContentItem::Comment(_) => true,
+        })
+        .collect();
     let mut responses = Vec::with_capacity(items.len());
     for item in &items {
         match item {
@@ -2270,7 +2394,14 @@ pub async fn search_handler(
     let query = domain::Query::parse(&params.q)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid query"))?;
     let repo = state.backend.search();
-    let hits = search(&*repo, &query).await;
+    let hits: Vec<ContentItem> = search(&*repo, &query)
+        .await
+        .into_iter()
+        .filter(|hit| match hit {
+            ContentItem::Topic(topic) => app::visible_to(topic, None),
+            ContentItem::Comment(_) => true,
+        })
+        .collect();
     let mut responses = Vec::with_capacity(hits.len());
     for hit in &hits {
         match hit {

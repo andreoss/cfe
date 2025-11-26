@@ -45,8 +45,15 @@ CREATE TABLE topics (
     edited_by UUID,
     edited_at TIMESTAMPTZ,
     group_id UUID,
-    pending BOOLEAN NOT NULL DEFAULT FALSE
+    pending BOOLEAN NOT NULL DEFAULT FALSE,
+    draft BOOLEAN NOT NULL DEFAULT FALSE,
+    sticky BOOLEAN NOT NULL DEFAULT FALSE,
+    off_front BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved BOOLEAN NOT NULL DEFAULT FALSE,
+    minor BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX topics_section_sticky_idx ON topics (section_id, sticky, created_at);
 
 CREATE TABLE topic_tags (
     topic_id UUID NOT NULL,

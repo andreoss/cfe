@@ -1,8 +1,6 @@
+use crate::topic_repository::{SELECT_COLUMNS, TopicRow, to_topic};
 use app::ActivityRepository;
-use domain::{
-    Body, Comment, CommentId, ContentItem, Revision, SectionId, TagSet, Title, Topic, TopicId,
-    UserId,
-};
+use domain::{Body, Comment, CommentId, ContentItem, Revision, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -14,19 +12,6 @@ impl PgActivityRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-}
-
-#[derive(FromRow)]
-struct TopicRow {
-    id: uuid::Uuid,
-    section_id: uuid::Uuid,
-    author_id: uuid::Uuid,
-    title: String,
-    body: String,
-    tags: Vec<String>,
-    created_at: OffsetDateTime,
-    edited_by: Option<uuid::Uuid>,
-    edited_at: Option<OffsetDateTime>,
 }
 
 #[derive(FromRow)]
@@ -54,10 +39,10 @@ fn revision(by: Option<uuid::Uuid>, at: Option<OffsetDateTime>) -> Option<Revisi
 impl ActivityRepository for PgActivityRepository {
     async fn recent(&self, limit: u32) -> Vec<ContentItem> {
         let bound = limit as i64;
-        let topic_rows = sqlx::query_as::<_, TopicRow>(
-            "SELECT id, section_id, author_id, title, body, tags, created_at, edited_by, edited_at \
-             FROM topics WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1",
-        )
+        let topic_rows = sqlx::query_as::<_, TopicRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM topics WHERE deleted_at IS NULL \
+             ORDER BY created_at DESC LIMIT $1"
+        ))
         .bind(bound)
         .fetch_all(&self.pool)
         .await
@@ -74,23 +59,8 @@ impl ActivityRepository for PgActivityRepository {
 
         let mut dated: Vec<(OffsetDateTime, ContentItem)> = Vec::new();
         for row in topic_rows {
-            let created_at = row.created_at;
-            dated.push((
-                created_at,
-                ContentItem::Topic(Topic::from_parts(
-                    TopicId::new(row.id),
-                    SectionId::new(row.section_id),
-                    UserId::new(row.author_id),
-                    Title::parse(&row.title).expect("stored title is valid"),
-                    Body::parse(&row.body).expect("stored body is valid"),
-                    TagSet::parse(&row.tags).expect("stored tags are valid"),
-                    created_at,
-                    None,
-                    revision(row.edited_by, row.edited_at),
-                    None,
-                    false,
-                )),
-            ));
+            let topic = to_topic(row);
+            dated.push((topic.created_at(), ContentItem::Topic(topic)));
         }
         for row in comment_rows {
             let created_at = row.created_at;

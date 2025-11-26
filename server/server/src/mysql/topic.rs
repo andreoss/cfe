@@ -17,8 +17,8 @@ impl MySqlTopicRepository {
 }
 
 pub const TOPIC_COLUMNS: &str = "id, section_id, group_id, author_id, title, body, created_at, \
-    postscore, pending, deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
-
+    postscore, pending, deleted_reason, deleted_by, deleted_at, edited_by, edited_at, draft, \
+    sticky, off_front, resolved, minor";
 #[derive(FromRow)]
 pub struct TopicRow {
     pub id: uuid::Uuid,
@@ -35,8 +35,12 @@ pub struct TopicRow {
     pub deleted_at: Option<OffsetDateTime>,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
+    pub draft: bool,
+    pub sticky: bool,
+    pub off_front: bool,
+    pub resolved: bool,
+    pub minor: bool,
 }
-
 pub fn deletion(row: &TopicRow) -> Option<Deletion> {
     match (&row.deleted_reason, row.deleted_by, row.deleted_at) {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
@@ -57,9 +61,29 @@ pub fn revision(by: Option<uuid::Uuid>, at: Option<OffsetDateTime>) -> Option<Re
     }
 }
 
+pub fn edit_revision(
+    by: Option<uuid::Uuid>,
+    at: Option<OffsetDateTime>,
+    minor: bool,
+) -> Option<Revision> {
+    match (by, at) {
+        (Some(editor_id), Some(edited_at)) if minor => {
+            Some(Revision::minor(UserId::new(editor_id), edited_at))
+        }
+        (Some(editor_id), Some(edited_at)) => {
+            Some(Revision::new(UserId::new(editor_id), edited_at))
+        }
+        _ => None,
+    }
+}
+
+pub fn is_minor(topic: &Topic) -> bool {
+    topic.revision().map(|r| r.is_minor()).unwrap_or(false)
+}
+
 pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
     let deleted = deletion(&row);
-    let edited = revision(row.edited_by, row.edited_at);
+    let edited = edit_revision(row.edited_by, row.edited_at, row.minor);
     Topic::from_parts(
         TopicId::new(row.id),
         SectionId::new(row.section_id),
@@ -74,6 +98,7 @@ pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
         row.pending,
     )
     .with_postscore(PostScore::from_db(row.postscore))
+    .with_lifecycle(row.draft, row.sticky, row.off_front, row.resolved)
 }
 
 pub async fn tags_for(pool: &MySqlPool, topic_id: uuid::Uuid) -> TagSet {
@@ -120,7 +145,8 @@ impl TopicRepository for MySqlTopicRepository {
     async fn save(&self, topic: &Topic) {
         sqlx::query(
             "INSERT INTO topics (id, section_id, group_id, author_id, title, body, created_at, \
-             pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             pending, draft, sticky, off_front, resolved, minor) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.section_id().as_uuid())
@@ -130,6 +156,11 @@ impl TopicRepository for MySqlTopicRepository {
         .bind(topic.body().as_str())
         .bind(topic.created_at())
         .bind(topic.is_pending())
+        .bind(topic.is_draft())
+        .bind(topic.is_sticky())
+        .bind(topic.is_off_front())
+        .bind(topic.is_resolved())
+        .bind(is_minor(topic))
         .execute(&self.pool)
         .await
         .expect("insert topic");
@@ -140,7 +171,8 @@ impl TopicRepository for MySqlTopicRepository {
         sqlx::query(
             "UPDATE topics SET title = ?, body = ?, postscore = ?, pending = ?, \
              deleted_reason = ?, deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, \
-             group_id = ? WHERE id = ?",
+             group_id = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ? \
+             WHERE id = ?",
         )
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
@@ -152,6 +184,11 @@ impl TopicRepository for MySqlTopicRepository {
         .bind(topic.revision().map(|r| r.editor_id().as_uuid()))
         .bind(topic.revision().map(|r| r.edited_at()))
         .bind(topic.group_id().map(|g| g.as_uuid()))
+        .bind(topic.is_draft())
+        .bind(topic.is_sticky())
+        .bind(topic.is_off_front())
+        .bind(topic.is_resolved())
+        .bind(is_minor(topic))
         .bind(topic.id().as_uuid())
         .execute(&self.pool)
         .await
@@ -174,8 +211,8 @@ impl TopicRepository for MySqlTopicRepository {
     async fn list_by_section(&self, section_id: SectionId, page: Page) -> Vec<Topic> {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {TOPIC_COLUMNS} FROM topics \
-             WHERE section_id = ? AND deleted_at IS NULL ORDER BY created_at DESC \
-             LIMIT ? OFFSET ?"
+             WHERE section_id = ? AND deleted_at IS NULL \
+             ORDER BY sticky DESC, created_at DESC LIMIT ? OFFSET ?"
         ))
         .bind(section_id.as_uuid())
         .bind(page.limit() as i64)
