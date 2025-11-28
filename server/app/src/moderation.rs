@@ -215,6 +215,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_corrector_cannot_delete_a_topic_or_a_comment() {
+        let corrector = plain_user().with_role(domain::Role::Corrector);
+        let topics = FakeTopicRepo::with(topic());
+        let comments = FakeCommentRepo::new();
+        comments.save(&comment()).await;
+        assert_eq!(
+            delete_topic(
+                &topics,
+                &FakeUserRepo::new(),
+                &corrector,
+                topic().id(),
+                Reason::parse("spam").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await,
+            Err(DeleteError::NotAuthorized)
+        );
+        assert_eq!(
+            delete_comment(
+                &comments,
+                &FakeUserRepo::new(),
+                &corrector,
+                comment().id(),
+                Reason::parse("spam").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await,
+            Err(DeleteError::NotAuthorized)
+        );
+    }
+
+    #[tokio::test]
     async fn plain_user_cannot_delete_a_comment() {
         let comments = FakeCommentRepo::new();
         comments.save(&comment()).await;

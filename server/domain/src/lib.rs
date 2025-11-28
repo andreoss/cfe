@@ -59,7 +59,7 @@ pub use report::{
     Report, ReportId, ReportKind, ReportKindError, ReportTarget,
 };
 pub use revision::Revision;
-pub use role::Role;
+pub use role::{Role, RoleError};
 pub use content_item::ContentItem;
 pub use score::{
     DELETION_PENALTY, MAX as SCORE_MAX, MIN as SCORE_MIN, Score, for_deletion, for_reaction,

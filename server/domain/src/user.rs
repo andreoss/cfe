@@ -138,6 +138,13 @@ impl User {
         }
     }
 
+    pub fn with_role(&self, role: Role) -> Self {
+        Self {
+            role,
+            ..self.clone()
+        }
+    }
+
     pub fn with_email(&self, email: Email) -> Self {
         Self {
             email,

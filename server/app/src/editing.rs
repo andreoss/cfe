@@ -10,7 +10,7 @@ pub enum EditError {
 }
 
 fn may_edit(user: &User, author_id: domain::UserId) -> bool {
-    user.id() == author_id || user.role().is_moderator()
+    user.id() == author_id || user.role().may_correct()
 }
 
 pub async fn edit_topic(

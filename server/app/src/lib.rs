@@ -44,7 +44,7 @@ pub use comments::{PostCommentError, list_comments, post_comment};
 pub use editing::{EditError, edit_comment, edit_topic};
 pub use enforcement::{
     EnforcementError, acknowledge_warnings, active_ban, ban_user, ignore_user, ignored_by,
-    lift_ban, list_warnings, promote_to_moderator, stop_ignoring, warn_user,
+    lift_ban, list_warnings, promote_to_moderator, set_role, stop_ignoring, warn_user,
 };
 pub use lifecycle::{
     ChangeEmailError, RedeemError, confirm_activation, confirm_email_change, request_activation,

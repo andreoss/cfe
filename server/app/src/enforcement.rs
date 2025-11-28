@@ -1,5 +1,5 @@
 use crate::ports::{EnforcementRepository, SessionRepository, UserRepository};
-use domain::{Ban, Reason, User, UserId, Warning, WarningId};
+use domain::{Role, Ban, Reason, User, UserId, Warning, WarningId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,6 +75,22 @@ pub async fn promote_to_moderator(
     let promoted = target.promoted_to_moderator();
     users.update(&promoted).await;
     Ok(promoted)
+}
+
+pub async fn set_role(
+    users: &(impl UserRepository + ?Sized),
+    moderator: &User,
+    target_id: UserId,
+    role: Role,
+) -> Result<User, EnforcementError> {
+    require_moderator(moderator)?;
+    let target = users
+        .find_by_id(target_id)
+        .await
+        .ok_or(EnforcementError::UserNotFound)?;
+    let updated = target.with_role(role);
+    users.update(&updated).await;
+    Ok(updated)
 }
 
 pub async fn warn_user(
@@ -443,5 +459,110 @@ mod tests {
         assert_eq!(ignored_by(&enforcement, moderator().id()).await.len(), 1);
         stop_ignoring(&enforcement, &moderator(), plain().id()).await;
         assert!(ignored_by(&enforcement, moderator().id()).await.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+    use crate::test_support::FakeUserRepo;
+    use domain::{Email, Username};
+
+    fn keeper() -> User {
+        User::register(
+            UserId::new(uuid::Uuid::from_u128(1)),
+            Username::parse("keeper_01").unwrap(),
+            Email::parse("k@example.com").unwrap(),
+            "hash".to_owned(),
+        )
+        .promoted_to_moderator()
+    }
+
+    fn reader() -> User {
+        User::register(
+            UserId::new(uuid::Uuid::from_u128(2)),
+            Username::parse("reader_01").unwrap(),
+            Email::parse("r@example.com").unwrap(),
+            "hash".to_owned(),
+        )
+    }
+
+    async fn seeded() -> FakeUserRepo {
+        let users = FakeUserRepo::with(keeper());
+        users.save(&reader()).await;
+        users
+    }
+
+    #[tokio::test]
+    async fn a_moderator_grants_and_revokes_the_corrector_role() {
+        let users = seeded().await;
+        let granted = set_role(&users, &keeper(), reader().id(), Role::Corrector)
+            .await
+            .unwrap();
+        assert!(granted.role().is_corrector());
+        assert!(granted.role().may_correct());
+        assert!(!granted.role().is_moderator());
+        let revoked = set_role(&users, &keeper(), reader().id(), Role::User)
+            .await
+            .unwrap();
+        assert!(!revoked.role().may_correct());
+    }
+
+    #[tokio::test]
+    async fn a_reader_cannot_grant_a_role() {
+        let users = seeded().await;
+        let result = set_role(&users, &reader(), keeper().id(), Role::Corrector).await;
+        assert_eq!(result, Err(EnforcementError::NotAuthorized));
+    }
+
+    #[tokio::test]
+    async fn a_corrector_cannot_grant_a_role() {
+        let users = seeded().await;
+        let corrector = reader().with_role(Role::Corrector);
+        let result = set_role(&users, &corrector, keeper().id(), Role::Moderator).await;
+        assert_eq!(result, Err(EnforcementError::NotAuthorized));
+    }
+
+    #[tokio::test]
+    async fn granting_a_role_to_an_unknown_account_is_refused() {
+        let users = seeded().await;
+        let missing = UserId::new(uuid::Uuid::from_u128(404));
+        let result = set_role(&users, &keeper(), missing, Role::Corrector).await;
+        assert_eq!(result, Err(EnforcementError::UserNotFound));
+    }
+
+    #[tokio::test]
+    async fn a_corrector_may_not_ban_or_warn() {
+        let users = seeded().await;
+        let corrector = reader().with_role(Role::Corrector);
+        let sessions = crate::test_support::FakeSessionRepo::new();
+        let enforcement = crate::test_support::FakeEnforcementRepo::new();
+        assert_eq!(
+            ban_user(
+                &users,
+                &sessions,
+                &enforcement,
+                &corrector,
+                keeper().id(),
+                Reason::parse("spam").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+                None,
+            )
+            .await,
+            Err(EnforcementError::NotAuthorized)
+        );
+        assert_eq!(
+            warn_user(
+                &users,
+                &enforcement,
+                &corrector,
+                WarningId::new(uuid::Uuid::nil()),
+                keeper().id(),
+                Reason::parse("spam").unwrap(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await,
+            Err(EnforcementError::NotAuthorized)
+        );
     }
 }
