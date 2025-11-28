@@ -28,17 +28,11 @@ struct Row {
 }
 
 fn role_to_str(role: Role) -> &'static str {
-    match role {
-        Role::User => "user",
-        Role::Moderator => "moderator",
-    }
+    role.as_str()
 }
 
 fn role_from_str(raw: &str) -> Role {
-    match raw {
-        "moderator" => Role::Moderator,
-        _ => Role::User,
-    }
+    Role::parse(raw).unwrap_or(Role::User)
 }
 
 fn to_user(row: Row) -> User {

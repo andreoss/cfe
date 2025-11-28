@@ -282,10 +282,7 @@ fn edit_error(e: EditError) -> (StatusCode, Json<ErrorResponse>) {
 }
 
 fn role_str(role: domain::Role) -> &'static str {
-    match role {
-        domain::Role::User => "user",
-        domain::Role::Moderator => "moderator",
-    }
+    role.as_str()
 }
 
 fn to_response(user: &domain::User) -> Json<UserResponse> {
