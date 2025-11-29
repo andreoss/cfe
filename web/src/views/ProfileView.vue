@@ -9,6 +9,9 @@ import {
   getIgnoreState,
   ignoreUser,
   stopIgnoring,
+  getRemark,
+  setRemark,
+  clearRemark,
   warnUser,
   banUser,
   liftBan,
@@ -41,6 +44,12 @@ const banDays = ref('')
 const moderationError = ref('')
 const moderationStatus = ref('')
 const roleDraft = ref<Role>('user')
+
+const remarkDraft = ref('')
+const remarkSaved = ref(false)
+const remarkReady = ref(false)
+const remarkStatus = ref('')
+const remarkError = ref('')
 
 const isOwnProfile = computed(() => auth.currentUser?.username === props.username)
 const isOtherProfile = computed(() => auth.currentUser !== null && !isOwnProfile.value)
@@ -84,8 +93,30 @@ async function loadIgnoreState() {
   ignoreReady.value = true
 }
 
+async function loadRemark() {
+  remarkStatus.value = ''
+  remarkError.value = ''
+  remarkDraft.value = ''
+  remarkSaved.value = false
+  if (!isOtherProfile.value) {
+    remarkReady.value = false
+    return
+  }
+  const asked = props.username
+  const result = await getRemark(asked)
+  if (asked !== props.username) return
+  if (result.ok) {
+    remarkDraft.value = result.value ?? ''
+    remarkSaved.value = result.value !== null
+  } else {
+    remarkError.value = result.error
+  }
+  remarkReady.value = true
+}
+
 watch(() => props.username, load, { immediate: true })
 watch([() => props.username, () => auth.currentUser], loadIgnoreState, { immediate: true })
+watch([() => props.username, () => auth.currentUser], loadRemark, { immediate: true })
 
 async function onSave() {
   formError.value = ''
@@ -150,6 +181,31 @@ async function onToggleIgnore() {
     return
   }
   ignoring.value = result.value
+}
+
+async function onSaveRemark() {
+  remarkStatus.value = ''
+  remarkError.value = ''
+  const result = await setRemark(props.username, remarkDraft.value)
+  if (!result.ok) {
+    remarkError.value = result.error
+    return
+  }
+  remarkSaved.value = true
+  remarkStatus.value = 'Note saved.'
+}
+
+async function onClearRemark() {
+  remarkStatus.value = ''
+  remarkError.value = ''
+  const result = await clearRemark(props.username)
+  if (!result.ok) {
+    remarkError.value = result.error
+    return
+  }
+  remarkDraft.value = ''
+  remarkSaved.value = false
+  remarkStatus.value = 'Note cleared.'
 }
 
 async function onWarn() {
@@ -233,6 +289,13 @@ async function onSetRole() {
         <button v-if="ignoreReady" type="button" @click="onToggleIgnore">
           {{ ignoring ? 'Stop ignoring' : 'Ignore user' }}
         </button>
+        <template v-if="remarkReady">
+          <textarea v-model="remarkDraft" name="remark-text" rows="3"></textarea>
+          <button type="button" @click="onSaveRemark">Save note</button>
+          <button v-if="remarkSaved" type="button" @click="onClearRemark">Clear note</button>
+          <p v-if="remarkStatus" role="status">{{ remarkStatus }}</p>
+          <p v-if="remarkError" role="alert">{{ remarkError }}</p>
+        </template>
         <template v-if="isModerator">
           <button v-if="!warnOpen" type="button" @click="warnOpen = true">Warn user</button>
           <form v-else @submit.prevent="onWarn">

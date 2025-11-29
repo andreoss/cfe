@@ -81,6 +81,10 @@ import {
   watchTopic,
   unwatchTopic,
   getWatched,
+  getRemark,
+  setRemark,
+  clearRemark,
+  getRemarks,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -3200,5 +3204,175 @@ describe('notification kind', () => {
     )
     const result = await markNotificationRead('1')
     expect(result.ok && result.value.kind).toBe('reply')
+  })
+})
+
+function rawRemark(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    subject_username: 'bob_02',
+    text: 'met at the meetup',
+    created_at: '2026-09-03T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('getRemark', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps a missing note to null', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { text: null }))
+    const result = await getRemark('bob_02')
+    expect(result).toEqual({ ok: true, value: null })
+  })
+
+  it('unwraps the note text to a plain string', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { text: 'met at the meetup' }))
+    const result = await getRemark('bob_02')
+    expect(result).toEqual({ ok: true, value: 'met at the meetup' })
+  })
+
+  it('reads the note with GET and url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { text: null }))
+    await getRemark('bob 02/x')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002%2Fx/remark'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getRemark('bob_02')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('setRemark', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends the text with PUT to the note path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await setRemark('bob_02', 'met at the meetup')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/remark'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ text: 'met at the meetup' }),
+      }),
+    )
+  })
+
+  it('url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await setRemark('bob 02/x', 'hello')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002%2Fx/remark'),
+      expect.anything(),
+    )
+  })
+
+  it('returns the server error when the text is rejected', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not about yourself' }))
+    const result = await setRemark('alice_01', 'about me')
+    expect(result).toEqual({ ok: false, error: 'not about yourself' })
+  })
+})
+
+describe('clearRemark', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('uses DELETE on the note path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await clearRemark('bob_02')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob_02/remark'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('url-encodes the username', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await clearRemark('bob 02/x')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/users/bob%2002%2Fx/remark'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await clearRemark('bob_02')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getRemarks', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Remark type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawRemark()])))
+    const result = await getRemarks()
+    expect(result.ok && result.value.items).toEqual([
+      {
+        subjectUsername: 'bob_02',
+        text: 'met at the meetup',
+        createdAt: '2026-09-03T00:00:00Z',
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawRemark()], {
+          number: 2,
+          size: 25,
+          total: 51,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getRemarks(2)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 25,
+      total: 51,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('reads the listing with GET and carries the page and size', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getRemarks(4, 100)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/remarks?page=4&size=100'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getRemarks()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
   })
 })

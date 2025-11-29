@@ -95,6 +95,11 @@ export type Report = {
   reason: string
   createdAt: string
 }
+export type Remark = {
+  subjectUsername: string
+  text: string
+  createdAt: string
+}
 export type ApiResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string; status?: number }
@@ -908,6 +913,47 @@ export async function stopIgnoring(username: string): Promise<ApiResult<boolean>
     method: 'DELETE',
   })
   return result.ok ? { ok: true, value: result.value.ignored } : result
+}
+
+type RawRemark = {
+  subject_username: string
+  text: string
+  created_at: string
+}
+
+function toRemark(raw: RawRemark): Remark {
+  return {
+    subjectUsername: raw.subject_username,
+    text: raw.text,
+    createdAt: raw.created_at,
+  }
+}
+
+function remarkPath(username: string): string {
+  return `/api/users/${encodeURIComponent(username)}/remark`
+}
+
+export async function getRemark(username: string): Promise<ApiResult<string | null>> {
+  const result = await request<{ text: string | null }>(remarkPath(username), {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.text } : result
+}
+
+export function setRemark(username: string, text: string): Promise<ApiResult<void>> {
+  return request<void>(remarkPath(username), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+}
+
+export function clearRemark(username: string): Promise<ApiResult<void>> {
+  return request<void>(remarkPath(username), { method: 'DELETE' })
+}
+
+export function getRemarks(page?: number, size?: number): Promise<ApiResult<Paged<Remark>>> {
+  return requestPage<RawRemark, Remark>(`/api/remarks${pageQuery(page, size)}`, toRemark)
 }
 
 export async function promoteUser(username: string): Promise<ApiResult<User>> {

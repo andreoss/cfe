@@ -39,6 +39,7 @@ onMounted(() => {
         }}</RouterLink>
         <RouterLink to="/bookmarks">Saved</RouterLink>
         <RouterLink to="/watched">Watched</RouterLink>
+        <RouterLink to="/notes">Notes</RouterLink>
         <RouterLink :to="`/u/${auth.currentUser.username}`">{{
           auth.currentUser.username
         }}</RouterLink>
