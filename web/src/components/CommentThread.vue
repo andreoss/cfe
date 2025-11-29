@@ -118,7 +118,10 @@ async function onReact(commentId: string, kind: string) {
 function mayEdit(comment: Comment) {
   const user = auth.currentUser
   return (
-    user !== null && (user.username === comment.authorUsername || user.role === 'moderator')
+    user !== null &&
+    (user.username === comment.authorUsername ||
+      user.role === 'corrector' ||
+      user.role === 'moderator')
   )
 }
 

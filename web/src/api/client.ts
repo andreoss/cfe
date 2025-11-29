@@ -1,5 +1,12 @@
-export type User = { id: string; username: string; role: string }
-export type Profile = { id: string; username: string; bio: string | null; score: number }
+export type Role = 'user' | 'corrector' | 'moderator'
+export type User = { id: string; username: string; role: Role }
+export type Profile = {
+  id: string
+  username: string
+  bio: string | null
+  score: number
+  role: Role
+}
 export type Section = { slug: string; title: string }
 export type Group = {
   id: string
@@ -882,6 +889,14 @@ export async function stopIgnoring(username: string): Promise<ApiResult<boolean>
 export async function promoteUser(username: string): Promise<ApiResult<User>> {
   return request<User>(`/api/users/${encodeURIComponent(username)}/promote`, {
     method: 'POST',
+  })
+}
+
+export async function setUserRole(username: string, role: Role): Promise<ApiResult<User>> {
+  return request<User>(`/api/users/${encodeURIComponent(username)}/role`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
   })
 }
 

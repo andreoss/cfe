@@ -89,6 +89,7 @@ pub struct ProfileResponse {
     pub username: String,
     pub bio: Option<String>,
     pub score: i32,
+    pub role: String,
 }
 
 #[derive(Serialize)]
@@ -299,6 +300,7 @@ fn to_profile_response(user: &domain::User) -> Json<ProfileResponse> {
         username: user.username().as_str().to_owned(),
         bio: user.bio().map(|b| b.as_str().to_owned()),
         score: user.score().value(),
+        role: role_str(user.role()).to_owned(),
     })
 }
 

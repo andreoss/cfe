@@ -53,6 +53,7 @@ import {
   ignoreUser,
   stopIgnoring,
   promoteUser,
+  setUserRole,
   requestPasswordReset,
   confirmPasswordReset,
   requestEmailChange,
@@ -293,13 +294,41 @@ describe('getProfile', () => {
 
   it('returns the profile on success', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'hello', score: 7 }),
+      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'hello', score: 7, role: 'user' }),
     )
     const result = await getProfile('alice_01')
     expect(result).toEqual({
       ok: true,
-      value: { id: '1', username: 'alice_01', bio: 'hello', score: 7 },
+      value: { id: '1', username: 'alice_01', bio: 'hello', score: 7, role: 'user' },
     })
+  })
+
+  it('carries the corrector role', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, {
+        id: '2',
+        username: 'bob_02',
+        bio: null,
+        score: 0,
+        role: 'corrector',
+      }),
+    )
+    const result = await getProfile('bob_02')
+    expect(result.ok && result.value.role).toBe('corrector')
+  })
+
+  it('carries the moderator role', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, {
+        id: '3',
+        username: 'carol_03',
+        bio: null,
+        score: 0,
+        role: 'moderator',
+      }),
+    )
+    const result = await getProfile('carol_03')
+    expect(result.ok && result.value.role).toBe('moderator')
   })
 
   it('carries a negative score', async () => {
@@ -344,12 +373,18 @@ describe('updateBio', () => {
 
   it('returns the updated profile on success', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, { id: '1', username: 'alice_01', bio: 'new bio', score: 3 }),
+      jsonResponse(true, {
+        id: '1',
+        username: 'alice_01',
+        bio: 'new bio',
+        score: 3,
+        role: 'user',
+      }),
     )
     const result = await updateBio('new bio')
     expect(result).toEqual({
       ok: true,
-      value: { id: '1', username: 'alice_01', bio: 'new bio', score: 3 },
+      value: { id: '1', username: 'alice_01', bio: 'new bio', score: 3, role: 'user' },
     })
   })
 
@@ -2028,6 +2063,58 @@ describe('promoteUser', () => {
     )
     const result = await promoteUser('alice_01')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+})
+
+describe('setUserRole', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the role to the role path and returns the updated user', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '1', username: 'alice_01', role: 'corrector' }),
+    )
+    const result = await setUserRole('alice_01', 'corrector')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/users/alice_01/role',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'corrector' }),
+      }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { id: '1', username: 'alice_01', role: 'corrector' },
+    })
+  })
+
+  it('sends the moderator role and encodes the username in the path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, { id: '2', username: 'bob 02', role: 'moderator' }),
+    )
+    await setUserRole('bob 02', 'moderator')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/users/bob%2002/role',
+      expect.objectContaining({ body: JSON.stringify({ role: 'moderator' }) }),
+    )
+  })
+
+  it('reports the error when the caller is not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(403, { error: 'moderator role required' }),
+    )
+    const result = await setUserRole('alice_01', 'moderator')
+    expect(result).toEqual({ ok: false, error: 'moderator role required', status: 403 })
+  })
+
+  it('reports the error when the role is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid role' }))
+    const result = await setUserRole('alice_01', 'user')
+    expect(result).toEqual({ ok: false, error: 'invalid role', status: 422 })
   })
 })
 

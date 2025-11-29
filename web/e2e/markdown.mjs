@@ -39,6 +39,9 @@ async function run() {
     await driver.findElement(By.css('button[type="submit"]')).click()
     await driver.wait(until.urlIs(`${baseUrl}/`), 5000)
 
+    await driver.wait(until.elementLocated(By.linkText('General')), 10000)
+
+
     await driver.findElement(By.linkText('General')).click()
     await driver.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
     await driver.findElement(By.xpath("//button[text()='New topic']")).click()
@@ -51,6 +54,8 @@ async function run() {
     await publishTopic(topicTitle)
     await driver.findElement(By.linkText('Home')).click()
     await driver.wait(until.urlIs(`${baseUrl}/`), 5000)
+    await driver.wait(until.elementLocated(By.linkText('General')), 10000)
+
     await driver.findElement(By.linkText('General')).click()
     await driver.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
     await driver.wait(until.elementLocated(By.linkText(topicTitle)), 5000)

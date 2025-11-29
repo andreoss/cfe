@@ -13,7 +13,9 @@ import {
   banUser,
   liftBan,
   promoteUser,
+  setUserRole,
   type Profile,
+  type Role,
 } from '@/api/client'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -38,6 +40,7 @@ const banReason = ref('')
 const banDays = ref('')
 const moderationError = ref('')
 const moderationStatus = ref('')
+const roleDraft = ref<Role>('user')
 
 const isOwnProfile = computed(() => auth.currentUser?.username === props.username)
 const isOtherProfile = computed(() => auth.currentUser !== null && !isOwnProfile.value)
@@ -55,10 +58,12 @@ async function load() {
   banDays.value = ''
   moderationError.value = ''
   moderationStatus.value = ''
+  roleDraft.value = 'user'
   const result = await getProfile(props.username)
   if (result.ok) {
     profile.value = result.value
     bioDraft.value = result.value.bio ?? ''
+    roleDraft.value = result.value.role
   } else {
     notFound.value = true
     return
@@ -194,6 +199,21 @@ async function onPromote() {
   }
   moderationStatus.value = 'User promoted.'
 }
+
+async function onSetRole() {
+  moderationError.value = ''
+  moderationStatus.value = ''
+  const result = await setUserRole(props.username, roleDraft.value)
+  if (!result.ok) {
+    moderationError.value = result.error
+    return
+  }
+  roleDraft.value = result.value.role
+  if (profile.value !== null) {
+    profile.value = { ...profile.value, role: result.value.role }
+  }
+  moderationStatus.value = 'Role updated.'
+}
 </script>
 
 <template>
@@ -238,6 +258,15 @@ async function onPromote() {
           </form>
           <button type="button" @click="onLiftBan">Lift ban</button>
           <button type="button" @click="onPromote">Promote to moderator</button>
+          <label>
+            Role
+            <select v-model="roleDraft" name="user-role">
+              <option value="user">Reader</option>
+              <option value="corrector">Corrector</option>
+              <option value="moderator">Moderator</option>
+            </select>
+          </label>
+          <button type="button" @click="onSetRole">Set role</button>
         </template>
         <p v-if="moderationStatus" role="status">{{ moderationStatus }}</p>
         <p v-if="moderationError" role="alert">{{ moderationError }}</p>

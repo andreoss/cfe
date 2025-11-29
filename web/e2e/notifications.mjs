@@ -47,6 +47,9 @@ async function run() {
   try {
     await register(author, authorName)
 
+    await author.wait(until.elementLocated(By.linkText('General')), 10000)
+
+
     await author.findElement(By.linkText('General')).click()
     await author.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
     await author.findElement(By.xpath("//button[text()='New topic']")).click()

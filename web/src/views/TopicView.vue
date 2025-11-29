@@ -166,6 +166,7 @@ const mayEdit = computed(
     !topic.value.deleted &&
     auth.currentUser !== null &&
     (auth.currentUser.username === topic.value.authorUsername ||
+      auth.currentUser.role === 'corrector' ||
       auth.currentUser.role === 'moderator'),
 )
 
