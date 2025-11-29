@@ -30,6 +30,7 @@ mod tag_set;
 mod title;
 mod topic;
 mod user;
+mod watch;
 mod username;
 
 pub use address_post::{AddressPost, PostRef};
@@ -48,7 +49,9 @@ pub use group::{Group, GroupId};
 pub use mail_token::{MailToken, MailTokenId, TokenPurpose, TokenPurposeError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};
-pub use notification::{Notification, NotificationId};
+pub use notification::{
+    Notification, NotificationId, NotificationKind, NotificationKindError,
+};
 pub use page::{DEFAULT_SIZE as PAGE_DEFAULT_SIZE, MAX_SIZE as PAGE_MAX_SIZE, Page, PageError};
 pub use poll::{
     Poll, PollError, PollId, PollOption, PollOptionId, Question, QuestionError, Vote,
@@ -76,4 +79,5 @@ pub use tag_set::{TagSet, TagSetError};
 pub use title::{Title, TitleError};
 pub use topic::{Topic, TopicId};
 pub use user::{User, UserId};
+pub use watch::Watch;
 pub use username::{Username, UsernameError};

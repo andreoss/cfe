@@ -26,6 +26,7 @@ mod sessions_security;
 mod sign_in;
 mod test_support;
 mod topics;
+mod watches;
 
 pub use activity::recent_activity;
 pub use abuse::{
@@ -88,6 +89,9 @@ pub use sessions_security::{
     record_sign_in_failure,
 };
 pub use sign_in::{SignInError, sign_in};
+pub use watches::{
+    WatchError, is_watching, list_watched, notify_watchers, stop_watching, watch_topic,
+};
 pub use topics::{
     CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,
     Visibility,

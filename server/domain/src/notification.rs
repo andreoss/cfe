@@ -14,6 +14,42 @@ impl NotificationId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotificationKind {
+    Reply,
+    Watch,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct NotificationKindError;
+
+impl NotificationKind {
+    pub fn parse(raw: &str) -> Result<Self, NotificationKindError> {
+        match raw {
+            "reply" => Ok(Self::Reply),
+            "watch" => Ok(Self::Watch),
+            _ => Err(NotificationKindError),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Reply => "reply",
+            Self::Watch => "watch",
+        }
+    }
+
+    pub fn all() -> [Self; 2] {
+        [Self::Reply, Self::Watch]
+    }
+}
+
+impl Default for NotificationKind {
+    fn default() -> Self {
+        Self::Reply
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notification {
     id: NotificationId,
@@ -23,6 +59,7 @@ pub struct Notification {
     comment_id: CommentId,
     created_at: OffsetDateTime,
     read_at: Option<OffsetDateTime>,
+    kind: NotificationKind,
 }
 
 impl Notification {
@@ -42,7 +79,19 @@ impl Notification {
             comment_id,
             created_at,
             read_at: None,
+            kind: NotificationKind::Reply,
         }
+    }
+
+    pub fn of_kind(&self, kind: NotificationKind) -> Self {
+        Self {
+            kind,
+            ..self.clone()
+        }
+    }
+
+    pub fn kind(&self) -> NotificationKind {
+        self.kind
     }
 
     pub fn from_parts(
@@ -62,6 +111,7 @@ impl Notification {
             comment_id,
             created_at,
             read_at,
+            kind: NotificationKind::Reply,
         }
     }
 
@@ -140,5 +190,41 @@ mod tests {
         assert_eq!(read.topic_id(), n.topic_id());
         assert!(read.is_read());
         assert_eq!(read.read_at(), Some(at));
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+
+    #[test]
+    fn parses_every_kind_round_trip() {
+        for kind in NotificationKind::all() {
+            assert_eq!(NotificationKind::parse(kind.as_str()), Ok(kind));
+        }
+    }
+
+    #[test]
+    fn rejects_an_unknown_kind() {
+        assert_eq!(NotificationKind::parse("mention"), Err(NotificationKindError));
+        assert_eq!(NotificationKind::parse(""), Err(NotificationKindError));
+    }
+
+    #[test]
+    fn a_notification_is_a_reply_unless_told_otherwise() {
+        let notification = Notification::new(
+            NotificationId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::max()),
+            TopicId::new(uuid::Uuid::nil()),
+            CommentId::new(uuid::Uuid::nil()),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert_eq!(notification.kind(), NotificationKind::Reply);
+        assert_eq!(NotificationKind::default(), NotificationKind::Reply);
+        let watched = notification.of_kind(NotificationKind::Watch);
+        assert_eq!(watched.kind(), NotificationKind::Watch);
+        assert_eq!(watched.id(), notification.id());
+        assert_eq!(watched.recipient_id(), notification.recipient_id());
     }
 }

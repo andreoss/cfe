@@ -8,7 +8,7 @@ use crate::ports::{
     TokenDigest,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
     TopicRepository,
-    UserRepository, GroupRepository,
+    UserRepository, GroupRepository, WatchRepository,
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
@@ -19,7 +19,7 @@ use domain::{
     ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
     Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
-    Group, GroupId, PostRef,
+    Group, GroupId, PostRef, Watch,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -1234,5 +1234,92 @@ impl Challenge for FakeChallenge {
             None => true,
             Some(expected) => answer == Some(expected.as_str()),
         }
+    }
+}
+
+pub struct FakeWatchRepo {
+    watches: Mutex<Vec<Watch>>,
+    topics: Mutex<Vec<Topic>>,
+}
+
+impl FakeWatchRepo {
+    pub fn new() -> Self {
+        Self {
+            watches: Mutex::new(Vec::new()),
+            topics: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn hold(&self, topic: Topic) {
+        self.topics.lock().unwrap().push(topic);
+    }
+}
+
+#[async_trait::async_trait]
+impl WatchRepository for FakeWatchRepo {
+    async fn save(&self, watch: &Watch) {
+        let mut stored = self.watches.lock().unwrap();
+        if stored
+            .iter()
+            .any(|w| w.user_id() == watch.user_id() && w.topic_id() == watch.topic_id())
+        {
+            return;
+        }
+        stored.push(watch.clone());
+    }
+
+    async fn delete(&self, user_id: UserId, topic_id: TopicId) {
+        self.watches
+            .lock()
+            .unwrap()
+            .retain(|w| !(w.user_id() == user_id && w.topic_id() == topic_id));
+    }
+
+    async fn find(&self, user_id: UserId, topic_id: TopicId) -> Option<Watch> {
+        self.watches
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|w| w.user_id() == user_id && w.topic_id() == topic_id)
+            .cloned()
+    }
+
+    async fn watchers(&self, topic_id: TopicId) -> Vec<UserId> {
+        self.watches
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.topic_id() == topic_id)
+            .map(|w| w.user_id())
+            .collect()
+    }
+
+    async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic> {
+        let watched: Vec<TopicId> = self
+            .watches
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.user_id() == user_id)
+            .map(|w| w.topic_id())
+            .collect();
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| watched.contains(&t.id()))
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_topics(&self, user_id: UserId) -> u64 {
+        self.watches
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.user_id() == user_id)
+            .count() as u64
     }
 }
