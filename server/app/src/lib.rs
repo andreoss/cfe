@@ -18,6 +18,7 @@ mod ports;
 mod profile;
 mod reactions;
 mod register;
+mod remarks;
 mod reports;
 mod reputation;
 mod search;
@@ -71,11 +72,14 @@ pub use ports::{
     EnforcementRepository, GroupRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
-    TokenDigest, TopicRepository, UserRepository, WatchRepository,
+    RemarkRepository, TokenDigest, TopicRepository, UserRepository, WatchRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};
 pub use register::{RegisterError, register};
+pub use remarks::{
+    RemarkError, clear_remark, list_remarks, remark_about, set_remark,
+};
 pub use reports::{
     REPORTS_PER_HOUR, REPORT_WINDOW, ReportError, close_report, count_open_for_topic,
     list_open_reports, report_content, reporter_of,

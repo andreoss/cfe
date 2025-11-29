@@ -7,7 +7,7 @@ use domain::{
     Query, Reaction,
     ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
     Session, SessionId, SessionToken,
-    Slug, Topic, TopicId, User, UserId, Username, Vote, Warning, Watch,
+    Remark, Slug, Topic, TopicId, User, UserId, Username, Vote, Warning, Watch,
 };
 use time::OffsetDateTime;
 
@@ -223,4 +223,13 @@ pub trait WatchRepository {
     async fn watchers(&self, topic_id: TopicId) -> Vec<UserId>;
     async fn list_topics(&self, user_id: UserId, page: Page) -> Vec<Topic>;
     async fn count_topics(&self, user_id: UserId) -> u64;
+}
+
+#[async_trait::async_trait]
+pub trait RemarkRepository {
+    async fn save(&self, remark: &Remark);
+    async fn delete(&self, author_id: UserId, subject_id: UserId);
+    async fn find(&self, author_id: UserId, subject_id: UserId) -> Option<Remark>;
+    async fn list_by_author(&self, author_id: UserId, page: Page) -> Vec<Remark>;
+    async fn count_by_author(&self, author_id: UserId) -> u64;
 }

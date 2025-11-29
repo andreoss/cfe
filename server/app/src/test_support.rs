@@ -8,7 +8,7 @@ use crate::ports::{
     TokenDigest,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
     TopicRepository,
-    UserRepository, GroupRepository, WatchRepository,
+    RemarkRepository, UserRepository, GroupRepository, WatchRepository,
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
@@ -19,7 +19,7 @@ use domain::{
     ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
     Session, SessionId, SessionToken,
     Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
-    Group, GroupId, PostRef, Watch,
+    Group, GroupId, PostRef, Remark, Watch,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -1320,6 +1320,66 @@ impl WatchRepository for FakeWatchRepo {
             .unwrap()
             .iter()
             .filter(|w| w.user_id() == user_id)
+            .count() as u64
+    }
+}
+
+pub struct FakeRemarkRepo {
+    remarks: Mutex<Vec<Remark>>,
+}
+
+impl FakeRemarkRepo {
+    pub fn new() -> Self {
+        Self {
+            remarks: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RemarkRepository for FakeRemarkRepo {
+    async fn save(&self, remark: &Remark) {
+        let mut stored = self.remarks.lock().unwrap();
+        stored.retain(|r| {
+            !(r.author_id() == remark.author_id() && r.subject_id() == remark.subject_id())
+        });
+        stored.push(remark.clone());
+    }
+
+    async fn delete(&self, author_id: UserId, subject_id: UserId) {
+        self.remarks
+            .lock()
+            .unwrap()
+            .retain(|r| !(r.author_id() == author_id && r.subject_id() == subject_id));
+    }
+
+    async fn find(&self, author_id: UserId, subject_id: UserId) -> Option<Remark> {
+        self.remarks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.author_id() == author_id && r.subject_id() == subject_id)
+            .cloned()
+    }
+
+    async fn list_by_author(&self, author_id: UserId, page: Page) -> Vec<Remark> {
+        self.remarks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.author_id() == author_id)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_by_author(&self, author_id: UserId) -> u64 {
+        self.remarks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.author_id() == author_id)
             .count() as u64
     }
 }

@@ -17,6 +17,7 @@ mod page;
 mod poll;
 mod query;
 mod reaction;
+mod remark;
 mod report;
 mod revision;
 mod role;
@@ -58,6 +59,9 @@ pub use poll::{
 };
 pub use query::{Query, QueryError};
 pub use reaction::{Reaction, ReactionKind, ReactionKindError, ReactionTarget};
+pub use remark::{
+    MAX_LENGTH as REMARK_MAX_LENGTH, Remark, RemarkText, RemarkTextError,
+};
 pub use report::{
     Report, ReportId, ReportKind, ReportKindError, ReportTarget,
 };
