@@ -27,7 +27,15 @@ async function runSearch(driver, term) {
   await box.sendKeys(term)
   await driver.findElement(By.xpath("//button[normalize-space(text())='Search']")).click()
   await driver.wait(until.urlContains('q='), 5000)
-  await driver.sleep(500)
+  await driver.wait(
+    async () => {
+      const text = await driver.findElement(By.css('body')).getText()
+      if (text.includes('Nothing found.')) return true
+      return (await driver.findElements(By.css('main ul li'))).length > 0
+    },
+    10000,
+    'the search should come back with either hits or the nothing-found message',
+  )
   return driver.findElement(By.css('body')).getText()
 }
 

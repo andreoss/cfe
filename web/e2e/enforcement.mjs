@@ -50,6 +50,13 @@ async function mainText(driver) {
   return (await driver.findElement(By.css('main')).getText()).replace(/\s+/g, ' ')
 }
 
+async function respondedTo(driver, path) {
+  return driver.executeScript(
+    'return performance.getEntriesByType("resource").some((entry) => entry.name.includes(arguments[0]))',
+    path,
+  )
+}
+
 async function run() {
   const mod = await buildDriver()
   const suffix = Date.now().toString(36)
@@ -83,7 +90,13 @@ async function run() {
 
     await loud.get(`${baseUrl}/settings`)
     await loud.wait(until.elementLocated(By.css('main')), 5000)
-    await loud.sleep(600)
+    await loud.wait(
+      async () =>
+        (await respondedTo(loud, '/api/me/warnings')) &&
+        (await loud.findElements(button('Deregister account'))).length > 0,
+      10000,
+      'the settings page should have loaded the signed-in view and its warnings',
+    )
     let text = await mainText(loud)
     assert(text.includes('No warnings.'), `a new user should have no warnings, saw: ${text}`)
 
@@ -102,7 +115,11 @@ async function run() {
     text = await mainText(loud)
     assert(text.includes('please be civil'), `the warned user should see the reason, saw: ${text}`)
     await loud.findElement(button('Acknowledge warnings')).click()
-    await loud.sleep(1000)
+    await loud.wait(
+      async () => respondedTo(loud, '/api/me/warnings/acknowledge'),
+      10000,
+      'acknowledging the warning should reach the server before moving on',
+    )
 
     await mod.get(topicUrl)
     await mod.wait(until.elementLocated(By.xpath(`//p[contains(., '${loudComment}')]`)), 5000)
@@ -113,7 +130,11 @@ async function run() {
 
     await mod.get(topicUrl)
     await mod.wait(until.elementLocated(By.name('comment-body')), 5000)
-    await mod.sleep(800)
+    await mod.wait(
+      async () => (await mainText(mod)).includes('Hidden — you ignore this author.'),
+      10000,
+      'the comment list should render with the ignored author hidden',
+    )
     text = await mainText(mod)
     assert(
       text.includes('Hidden — you ignore this author.'),
@@ -124,7 +145,11 @@ async function run() {
     const loudView = await (async () => {
       await loud.get(topicUrl)
       await loud.wait(until.elementLocated(By.name('comment-body')), 5000)
-      await loud.sleep(600)
+      await loud.wait(
+        async () => (await mainText(loud)).includes(loudComment),
+        10000,
+        'the author should see their own comment on the topic',
+      )
       return mainText(loud)
     })()
     assert(
@@ -166,7 +191,11 @@ async function run() {
     await mod.get(`${baseUrl}/u/${loudName}`)
     await mod.wait(until.elementLocated(button('Lift ban')), 5000)
     await mod.findElement(button('Lift ban')).click()
-    await mod.sleep(1500)
+    await mod.wait(
+      async () => respondedTo(mod, `/api/users/${loudName}/ban`),
+      10000,
+      'lifting the ban should reach the server before the next sign-in attempt',
+    )
 
     await signIn(loud, loudName)
     nav = await loud.findElement(By.css('nav')).getText()

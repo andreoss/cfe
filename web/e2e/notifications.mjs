@@ -33,7 +33,14 @@ async function register(driver, username) {
 async function navText(driver) {
   await driver.get(`${baseUrl}/`)
   await driver.wait(until.elementLocated(By.css('nav')), 5000)
-  await driver.sleep(500)
+  await driver.wait(
+    async () => {
+      const text = await driver.findElement(By.css('nav')).getText()
+      return text.includes('Notifications') || text.includes('Sign in')
+    },
+    10000,
+    'the navigation should settle before it is read',
+  )
   return driver.findElement(By.css('nav')).getText()
 }
 
@@ -104,7 +111,11 @@ async function run() {
     assert(text.includes(topicTitle), 'the notification should link the topic by title')
 
     await author.findElement(By.xpath("//button[normalize-space(text())='Mark read']")).click()
-    await author.sleep(800)
+    await author.wait(
+      async () => !(await author.findElement(By.css('body')).getText()).includes('Mark read'),
+      10000,
+      'marking read should retire the control',
+    )
     text = await author.findElement(By.css('body')).getText()
     assert(!text.includes('Mark read'), 'a read notification should lose its mark-read control')
 
@@ -112,16 +123,25 @@ async function run() {
     assert(!nav.includes('Notifications ('), 'the unread count should clear once read')
 
     await author.get(`${baseUrl}/notifications`)
-    await author.wait(until.elementLocated(By.css('body')), 5000)
-    await author.sleep(500)
+    await author.wait(
+      async () => (await author.findElement(By.css('body')).getText()).includes(topicTitle),
+      10000,
+      'the read notification should still be listed after a reload',
+    )
     text = await author.findElement(By.css('body')).getText()
     assert(text.includes(topicTitle), 'a read notification should still be listed')
     assert(!text.includes('Mark read'), 'the read state should survive a reload')
 
     const readerText = await (async () => {
       await reader.get(`${baseUrl}/notifications`)
-      await reader.wait(until.elementLocated(By.css('body')), 5000)
-      await reader.sleep(500)
+      await reader.wait(
+        async () => {
+          const text = await reader.findElement(By.css('body')).getText()
+          return text.includes('No notifications.') || text.includes('Reply')
+        },
+        10000,
+        'the notifications page should settle before it is read',
+      )
       return reader.findElement(By.css('body')).getText()
     })()
     assert(

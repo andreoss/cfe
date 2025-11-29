@@ -19,6 +19,12 @@ async function buildDriver() {
   return builder.build()
 }
 
+async function sessionChecked(driver) {
+  return driver.executeScript(
+    'return performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/api/me"))',
+  )
+}
+
 async function fillRegister(driver, username, password) {
   await driver.get(`${baseUrl}/register`)
   await driver.wait(until.elementLocated(By.name('username')), 5000)
@@ -69,7 +75,11 @@ async function run() {
   const second = 'brandnewpass'
   try {
     await fillRegister(driver, `${username}_s`, 'short')
-    await driver.sleep(800)
+    await driver.wait(
+      until.elementLocated(By.css('[role="alert"]')),
+      10000,
+      'the register form should report why it refused the account',
+    )
     let text = await driver.findElement(By.css('main')).getText()
     assert(
       text.toLowerCase().includes('password'),
@@ -102,7 +112,11 @@ async function run() {
     )
 
     await driver.findElement(By.xpath("//button[normalize-space(.)='Sign out']")).click()
-    await driver.sleep(800)
+    await driver.wait(
+      async () => (await driver.findElement(By.css('nav')).getText()).includes('Sign in'),
+      10000,
+      'signing out should put the sign-in link back in the nav',
+    )
 
     await signIn(driver, username, first)
     text = await driver.findElement(By.css('main')).getText()
@@ -143,7 +157,11 @@ async function run() {
 
     await driver.get(`${baseUrl}/settings`)
     await driver.wait(until.elementLocated(By.css('main')), 5000)
-    await driver.sleep(500)
+    await driver.wait(
+      async () => sessionChecked(driver),
+      10000,
+      'the settings page should have finished checking whose session this is',
+    )
     text = await driver.findElement(By.css('main')).getText()
     assert(
       text.includes('Sign in to manage your account.'),

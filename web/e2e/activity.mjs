@@ -43,10 +43,17 @@ async function postTopic(driver, section, title, body) {
   await driver.wait(until.elementLocated(By.linkText(title)), 5000)
 }
 
-async function activityText(driver) {
+async function activityText(driver, expected) {
   await driver.get(`${baseUrl}/activity`)
   await driver.wait(until.elementLocated(By.css('main')), 5000)
-  await driver.sleep(700)
+  await driver.wait(
+    async () => {
+      const text = await driver.findElement(By.css('main')).getText()
+      return text.replace(/\s+/g, ' ').includes(expected)
+    },
+    10000,
+    `the activity feed should have loaded and listed ${expected}`,
+  )
   return (await driver.findElement(By.css('main')).getText()).replace(/\s+/g, ' ')
 }
 
@@ -64,7 +71,7 @@ async function run() {
     await postTopic(driver, 'general', generalTitle, 'Body for the activity e2e spec.')
     await postTopic(driver, 'help', helpTitle, 'Another body for the activity e2e spec.')
 
-    let text = await activityText(driver)
+    let text = await activityText(driver, helpTitle)
     assert(text.includes('Activity'), 'the page should be headed Activity')
     assert(text.includes(generalTitle), 'a topic from general should appear')
     assert(text.includes(helpTitle), 'a topic from help should appear')
@@ -83,7 +90,7 @@ async function run() {
     await other.findElement(By.xpath("//button[text()='Post comment']")).click()
     await other.wait(until.elementLocated(By.xpath(`//p[contains(., '${commentBody}')]`)), 5000)
 
-    text = await activityText(driver)
+    text = await activityText(driver, `Comment by ${otherName}`)
     assert(
       text.includes(`Comment by ${otherName}`),
       `a new comment should appear in activity, saw: ${text}`,
@@ -96,7 +103,7 @@ async function run() {
 
     const anon = await buildDriver()
     try {
-      const anonText = await activityText(anon)
+      const anonText = await activityText(anon, generalTitle)
       assert(anonText.includes(generalTitle), 'a signed-out visitor should see activity too')
       assert(
         anonText.includes(`Comment by ${otherName}`),
@@ -117,7 +124,7 @@ async function run() {
       5000,
     )
 
-    text = await activityText(driver)
+    text = await activityText(driver, helpTitle)
     assert(
       !text.includes(`Comment by ${otherName}`),
       'an ignored author should drop out of your activity feed',

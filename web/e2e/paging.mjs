@@ -118,7 +118,11 @@ async function run() {
 
     await driver.get(`${baseUrl}/t/${topicId}`)
     await driver.wait(until.elementLocated(By.name('comment-body')), 8000)
-    await driver.sleep(800)
+    await driver.wait(
+      async () => /Page 1 of \d+/.test(await mainText(driver)),
+      10000,
+      'the first comment page should have loaded with its pagination',
+    )
     text = await mainText(driver)
     assert(text.includes('Root 01'), `the first comment page should show its roots, saw: ${text}`)
     assert(

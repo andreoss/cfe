@@ -80,7 +80,14 @@ async function run() {
 
     await driver.findElement(By.name('avatar-file')).sendKeys(png)
     await driver.findElement(By.xpath("//button[normalize-space(.)='Upload avatar']")).click()
-    await driver.sleep(1200)
+    await driver.wait(
+      async () =>
+        driver.executeScript(
+          "const img = document.querySelector('img.avatar'); return img !== null && img.src.includes('?v=') && img.complete",
+        ),
+      10000,
+      'the uploaded avatar should replace the placeholder and finish fetching',
+    )
 
     const img = await driver.findElement(By.css('img.avatar'))
     const src = await img.getAttribute('src')
@@ -99,7 +106,11 @@ async function run() {
     )
 
     await driver.findElement(By.xpath("//button[normalize-space(.)='Remove avatar']")).click()
-    await driver.sleep(1200)
+    await driver.wait(
+      async () => (await driver.findElements(By.css('img.avatar'))).length === 0,
+      10000,
+      'the removed avatar should stop rendering on the profile',
+    )
     const after = await fetchStatus(driver, `${apiUrl}/api/users/${username}/avatar`)
     assert(after.status === 404, `removing should leave no avatar, got ${after.status}`)
 

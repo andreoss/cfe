@@ -30,10 +30,21 @@ async function register(driver, username) {
   await driver.wait(until.urlIs(`${baseUrl}/`), 5000)
 }
 
+async function respondedTo(driver, path) {
+  return driver.executeScript(
+    'return performance.getEntriesByType("resource").some((entry) => entry.name.includes(arguments[0]))',
+    path,
+  )
+}
+
 async function bookmarksText(driver) {
   await driver.get(`${baseUrl}/bookmarks`)
   await driver.wait(until.elementLocated(By.css('main')), 5000)
-  await driver.sleep(500)
+  await driver.wait(
+    async () => respondedTo(driver, '/api/bookmarks'),
+    10000,
+    'the bookmarks page should have received its list of saved topics',
+  )
   return driver.findElement(By.css('main')).getText()
 }
 
