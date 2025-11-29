@@ -54,6 +54,7 @@ load()
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="notification in notifications" :key="notification.id">
+        <span>{{ notification.kind === 'watch' ? 'Watched topic' : 'Reply' }}</span>
         {{ notification.actorUsername }} replied
         <RouterLink :to="`/t/${notification.topicId}`">{{ notification.topicTitle }}</RouterLink>
         <button

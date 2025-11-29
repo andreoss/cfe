@@ -86,6 +86,11 @@ const router = createRouter({
       component: () => import('../views/BookmarksView.vue'),
     },
     {
+      path: '/watched',
+      name: 'watched',
+      component: () => import('../views/WatchedView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue'),

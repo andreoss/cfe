@@ -38,6 +38,7 @@ onMounted(() => {
           unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'
         }}</RouterLink>
         <RouterLink to="/bookmarks">Saved</RouterLink>
+        <RouterLink to="/watched">Watched</RouterLink>
         <RouterLink :to="`/u/${auth.currentUser.username}`">{{
           auth.currentUser.username
         }}</RouterLink>

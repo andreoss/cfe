@@ -77,6 +77,10 @@ import {
   setSticky,
   setOffFront,
   setResolved,
+  getWatchState,
+  watchTopic,
+  unwatchTopic,
+  getWatched,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -3003,5 +3007,198 @@ describe('content lifecycle', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not the author' }))
     const result = await publishTopic('7')
     expect(result).toEqual({ ok: false, error: 'not the author', status: 403 })
+  })
+})
+
+describe('getWatchState', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the watching envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { watching: true }))
+    const result = await getWatchState('t1')
+    expect(result).toEqual({ ok: true, value: true })
+  })
+
+  it('reads the watch state with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { watching: false }))
+    const result = await getWatchState('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t1/watch',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(result).toEqual({ ok: true, value: false })
+  })
+
+  it('url-encodes the topic id', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { watching: false }))
+    await getWatchState('t/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t%2F1/watch'),
+      expect.anything(),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getWatchState('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('watchTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the watch path of the topic', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { watching: true }))
+    const result = await watchTopic('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t1/watch',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('reports the error when the topic is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'topic not found' }))
+    const result = await watchTopic('missing')
+    expect(result).toEqual({ ok: false, error: 'topic not found', status: 404 })
+  })
+})
+
+describe('unwatchTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('deletes the watch path of the topic', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await unwatchTopic('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t1/watch',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await unwatchTopic('t1')
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('getWatched', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('reads the watched listing with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getWatched()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/watched',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('maps snake_case fields to the Topic type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawTopic()])))
+    const result = await getWatched()
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        sectionSlug: 'general',
+        title: 'Hello',
+        body: 'World',
+        tags: ['rust'],
+        authorUsername: 'alice_01',
+        createdAt: '2026-09-03T00:00:00Z',
+        deleted: false,
+        deletedReason: null,
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawTopic()], {
+          number: 2,
+          size: 25,
+          total: 51,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getWatched(2)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 25,
+      total: 51,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getWatched(4, 100)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/watched?page=4&size=100'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
+    const result = await getWatched()
+    expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+describe('notification kind', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps a watch notification kind', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, pagedBody([rawNotification({ kind: 'watch' })])),
+    )
+    const result = await getNotifications()
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        topicId: 't1',
+        topicTitle: 'Getting Started',
+        commentId: 'c1',
+        actorUsername: 'bob_02',
+        createdAt: '2026-09-03T00:00:00Z',
+        read: false,
+        kind: 'watch',
+      },
+    ])
+  })
+
+  it('maps a reply notification kind', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, rawNotification({ kind: 'reply', read: true })),
+    )
+    const result = await markNotificationRead('1')
+    expect(result.ok && result.value.kind).toBe('reply')
   })
 })

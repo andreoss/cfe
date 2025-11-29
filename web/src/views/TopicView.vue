@@ -10,6 +10,9 @@ import {
   getBookmarkState,
   addBookmark,
   removeBookmark,
+  getWatchState,
+  watchTopic,
+  unwatchTopic,
   getTopicReactions,
   reactToTopic,
   clearTopicReaction,
@@ -81,6 +84,8 @@ const lifecycleError = ref('')
 const placementError = ref('')
 const bookmarked = ref(false)
 const bookmarkError = ref('')
+const watching = ref(false)
+const watchError = ref('')
 const reactions = ref<ReactionSummary | null>(null)
 const poll = ref<Poll | null>(null)
 const creatingPoll = ref(false)
@@ -252,6 +257,42 @@ async function loadBookmarkState() {
   }
 }
 
+async function loadWatchState() {
+  if (auth.currentUser === null) {
+    watching.value = false
+    return
+  }
+  watchError.value = ''
+  const asked = props.id
+  const result = await getWatchState(asked)
+  if (asked !== props.id) return
+  if (result.ok) {
+    watching.value = result.value
+  } else {
+    watchError.value = result.error
+  }
+}
+
+async function onWatch() {
+  watchError.value = ''
+  const result = await watchTopic(props.id)
+  if (!result.ok) {
+    watchError.value = result.error
+    return
+  }
+  watching.value = true
+}
+
+async function onUnwatch() {
+  watchError.value = ''
+  const result = await unwatchTopic(props.id)
+  if (!result.ok) {
+    watchError.value = result.error
+    return
+  }
+  watching.value = false
+}
+
 async function loadReactions() {
   reactions.value = null
   const result = await getTopicReactions(props.id)
@@ -351,6 +392,8 @@ function nextComments() {
 }
 
 watch(() => props.id, load, { immediate: true })
+watch([() => props.id, () => auth.currentUser], loadWatchState, { immediate: true })
+watch([() => props.id, () => auth.currentUser], loadBookmarkState, { immediate: true })
 
 async function onPostComment() {
   formError.value = ''
@@ -577,6 +620,12 @@ async function onUnsave() {
         <button v-if="!bookmarked" type="button" @click="onSave">Save topic</button>
         <button v-else type="button" @click="onUnsave">Unsave topic</button>
         <p v-if="bookmarkError" role="alert">{{ bookmarkError }}</p>
+      </template>
+
+      <template v-if="auth.currentUser">
+        <button v-if="!watching" type="button" @click="onWatch">Watch topic</button>
+        <button v-else type="button" @click="onUnwatch">Stop watching</button>
+        <p v-if="watchError" role="alert">{{ watchError }}</p>
       </template>
 
       <template v-if="auth.currentUser">

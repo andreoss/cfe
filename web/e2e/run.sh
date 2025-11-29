@@ -141,6 +141,7 @@ node e2e/permissions.mjs
 node e2e/reports.mjs
 node e2e/lifecycle.mjs
 node e2e/corrector.mjs
+node e2e/watching.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs

@@ -55,6 +55,7 @@ export type Notification = {
   actorUsername: string
   createdAt: string
   read: boolean
+  kind: 'reply' | 'watch'
 }
 export type PollOption = { id: string; text: string; votes: number }
 export type Poll = {
@@ -586,6 +587,7 @@ type RawNotification = {
   actor_username: string
   created_at: string
   read: boolean
+  kind: 'reply' | 'watch'
 }
 
 function toNotification(raw: RawNotification): Notification {
@@ -597,6 +599,7 @@ function toNotification(raw: RawNotification): Notification {
     actorUsername: raw.actor_username,
     createdAt: raw.created_at,
     read: raw.read,
+    kind: raw.kind,
   }
 }
 
@@ -727,6 +730,27 @@ export async function removeBookmark(topicId: string): Promise<ApiResult<boolean
     { method: 'DELETE' },
   )
   return result.ok ? { ok: true, value: result.value.bookmarked } : result
+}
+
+function watchPath(topicId: string): string {
+  return `/api/topics/${encodeURIComponent(topicId)}/watch`
+}
+
+export function getWatched(page?: number, size?: number): Promise<ApiResult<Paged<Topic>>> {
+  return requestPage<RawTopic, Topic>(`/api/watched${pageQuery(page, size)}`, toTopic)
+}
+
+export async function getWatchState(topicId: string): Promise<ApiResult<boolean>> {
+  const result = await request<{ watching: boolean }>(watchPath(topicId), { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.watching } : result
+}
+
+export function watchTopic(topicId: string): Promise<ApiResult<void>> {
+  return request<void>(watchPath(topicId), { method: 'POST' })
+}
+
+export function unwatchTopic(topicId: string): Promise<ApiResult<void>> {
+  return request<void>(watchPath(topicId), { method: 'DELETE' })
 }
 
 type RawPoll = {

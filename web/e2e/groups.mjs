@@ -124,6 +124,11 @@ async function run() {
     const picker = await author.findElement(By.name('group'))
     await picker.findElement(By.xpath(`./option[@value='${groupSlug}']`)).click()
     await clickWhenReady(author, By.xpath("//button[text()='Post']"), 'the post control should be present')
+    await author.wait(
+      async () => (await mainText(author)).includes(topicTitle),
+      15000,
+      'the queued topic should be created before the moderator looks',
+    )
 
     await mod.get(`${baseUrl}/s/general`)
     await mod.wait(
