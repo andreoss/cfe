@@ -9,6 +9,7 @@ mod mail_token;
 mod notification;
 mod poll;
 mod reaction;
+mod remark;
 mod report;
 mod search;
 mod section;
@@ -21,8 +22,8 @@ use crate::backend::Backend;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
-    PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository, WatchRepository,
+    PollRepository, ReactionRepository, RemarkRepository, ReportRepository, SearchRepository,
+    SectionRepository, SessionRepository, TopicRepository, UserRepository, WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -110,6 +111,10 @@ impl Backend for MySqlBackend {
 
     fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync> {
         Arc::new(watch::MySqlWatchRepository::new(self.pool.clone()))
+    }
+
+    fn remarks(&self) -> Arc<dyn RemarkRepository + Send + Sync> {
+        Arc::new(remark::MySqlRemarkRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

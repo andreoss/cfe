@@ -111,6 +111,16 @@ CREATE INDEX watches_user_idx ON watches (user_id, created_at DESC);
 
 CREATE INDEX watches_topic_idx ON watches (topic_id);
 
+CREATE TABLE remarks (
+    author_id UUID NOT NULL,
+    subject_id UUID NOT NULL,
+    text VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (author_id, subject_id)
+);
+
+CREATE INDEX remarks_author_idx ON remarks (author_id, created_at DESC);
+
 CREATE TABLE reactions (
     user_id UUID NOT NULL,
     target_kind VARCHAR NOT NULL,

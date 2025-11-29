@@ -19,6 +19,7 @@ mod notification_repository;
 mod poll_repository;
 mod postgres;
 mod reaction_repository;
+mod remark_repository;
 mod report_repository;
 mod repository;
 mod search_repository;
@@ -274,6 +275,13 @@ async fn main() {
                 .post(handlers::ignore_user_handler)
                 .delete(handlers::stop_ignoring_handler),
         )
+        .route(
+            "/api/users/{username}/remark",
+            get(handlers::remark_handler)
+                .put(handlers::set_remark_handler)
+                .delete(handlers::delete_remark_handler),
+        )
+        .route("/api/remarks", get(handlers::list_remarks_handler))
         .route(
             "/api/address-blocks",
             get(list_address_blocks_handler).post(block_address_handler),

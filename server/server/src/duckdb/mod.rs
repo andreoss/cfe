@@ -11,6 +11,7 @@ mod mail_token;
 mod notification;
 mod poll;
 mod reaction;
+mod remark;
 mod report;
 mod search;
 mod section;

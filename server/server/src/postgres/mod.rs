@@ -10,6 +10,7 @@ use crate::mail_token_repository::PgMailTokenRepository;
 use crate::notification_repository::PgNotificationRepository;
 use crate::poll_repository::PgPollRepository;
 use crate::reaction_repository::PgReactionRepository;
+use crate::remark_repository::PgRemarkRepository;
 use crate::report_repository::PgReportRepository;
 use crate::repository::PgUserRepository;
 use crate::search_repository::PgSearchRepository;
@@ -20,8 +21,8 @@ use crate::watch_repository::PgWatchRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
-    PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository, WatchRepository,
+    PollRepository, ReactionRepository, RemarkRepository, ReportRepository, SearchRepository,
+    SectionRepository, SessionRepository, TopicRepository, UserRepository, WatchRepository,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -105,6 +106,10 @@ impl Backend for PostgresBackend {
 
     fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync> {
         Arc::new(PgWatchRepository::new(self.pool.clone()))
+    }
+
+    fn remarks(&self) -> Arc<dyn RemarkRepository + Send + Sync> {
+        Arc::new(PgRemarkRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

@@ -130,6 +130,18 @@ CREATE INDEX watches_user_idx ON watches (user_id, created_at DESC);
 
 CREATE INDEX watches_topic_idx ON watches (topic_id);
 
+CREATE TABLE remarks (
+    author_id BINARY(16) NOT NULL,
+    subject_id BINARY(16) NOT NULL,
+    text TEXT NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    PRIMARY KEY (author_id, subject_id),
+    FOREIGN KEY (author_id) REFERENCES users (id),
+    FOREIGN KEY (subject_id) REFERENCES users (id)
+);
+
+CREATE INDEX remarks_author_idx ON remarks (author_id, created_at DESC);
+
 CREATE TABLE reactions (
     user_id BINARY(16) NOT NULL,
     target_kind VARCHAR(16) NOT NULL,

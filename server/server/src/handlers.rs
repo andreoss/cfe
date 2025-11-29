@@ -5,21 +5,22 @@ use app::{
     AbuseError, AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError,
     CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
     EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
-    PostCommentError, ReactionSummary, RegisterError, ReportError, SetPostscoreError, SignInError,
-    UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban, add_bookmark,
-    ban_user, block_address, cast_vote, change_password, clear_avatar, clear_reaction,
-    clear_sign_in_failures, close_report, commit_topic, confirm_activation, confirm_email_change,
-    count_open_for_topic, count_unread, create_group, create_poll, create_session, create_topic,
-    delete_comment, delete_topic, deregister, edit_comment, edit_topic, end_every_session,
-    enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts, get_avatar,
-    get_topic, ignore_user, ignored_by, is_bookmarked, is_watching, lift_address_block, lift_ban,
-    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
-    list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, list_watched,
-    mark_read, move_topic, notice_of_new_network, notify_watchers, poll_results, post_comment,
-    promote_to_moderator, publish_draft, react, recent_activity, record_post,
-    record_sign_in_failure, register, remove_bookmark, remove_posts_from_address, report_content,
-    reporter_of, request_activation, request_email_change, request_password_reset, reset_password,
-    search, set_avatar, set_off_front, set_postscore, set_resolved, set_sticky, sign_in,
+    PostCommentError, ReactionSummary, RegisterError, RemarkError, ReportError, SetPostscoreError,
+    SignInError, UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban,
+    add_bookmark, ban_user, block_address, cast_vote, change_password, clear_avatar,
+    clear_reaction, clear_remark, clear_sign_in_failures, close_report, commit_topic,
+    confirm_activation, confirm_email_change, count_open_for_topic, count_unread, create_group,
+    create_poll, create_session, create_topic, delete_comment, delete_topic, deregister,
+    edit_comment, edit_topic, end_every_session, enforce_posting, enforce_registration_challenge,
+    enforce_sign_in_attempts, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
+    is_watching, lift_address_block, lift_ban, list_address_blocks, list_bookmarked_topics,
+    list_comments, list_groups, list_notifications, list_open_reports, list_remarks, list_sections,
+    list_topics, list_topics_by_tag, list_warnings, list_watched, mark_read, move_topic,
+    notice_of_new_network, notify_watchers, poll_results, post_comment, promote_to_moderator,
+    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
+    remark_about, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
+    request_activation, request_email_change, request_password_reset, reset_password, search,
+    set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_sticky, sign_in,
     sign_out as end_session, stop_ignoring, stop_watching, summarize_reactions, uncommit_topic,
     update_bio, warn_user, watch_topic,
 };
@@ -32,9 +33,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
     Address, Avatar, AvatarError, Bio, BlockMode, Body, CommentId, ContentItem, Email, GroupId,
-    Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, ReportId,
-    ReportKind, Revision, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId, UserId,
-    Username,
+    Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, RemarkText,
+    ReportId, ReportKind, Revision, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
+    UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -2143,6 +2144,104 @@ pub async fn ignore_state_handler(
             .await
             .contains(&target),
     }))
+}
+
+#[derive(Deserialize)]
+pub struct SetRemarkRequest {
+    pub text: String,
+}
+
+#[derive(Serialize)]
+pub struct RemarkResponse {
+    pub text: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RemarkListingResponse {
+    pub subject_username: String,
+    pub text: String,
+    pub created_at: String,
+}
+
+pub async fn set_remark_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetRemarkRequest>,
+) -> Result<Json<RemarkResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let subject = find_user_id(&state, &username).await?;
+    let text = RemarkText::parse(&body.text)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid note"))?;
+    let remarks = state.backend.remarks();
+    let users = state.backend.users();
+    let remark = set_remark(
+        &*remarks,
+        &*users,
+        &current,
+        subject,
+        text,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        RemarkError::SubjectNotFound => error(StatusCode::NOT_FOUND, "user not found"),
+        RemarkError::NotYourself => error(StatusCode::UNPROCESSABLE_ENTITY, "not about yourself"),
+    })?;
+    Ok(Json(RemarkResponse {
+        text: Some(remark.text().as_str().to_owned()),
+    }))
+}
+
+pub async fn delete_remark_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let subject = find_user_id(&state, &username).await?;
+    let remarks = state.backend.remarks();
+    clear_remark(&*remarks, &current, subject).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn remark_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<RemarkResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let subject = find_user_id(&state, &username).await?;
+    let remarks = state.backend.remarks();
+    Ok(Json(RemarkResponse {
+        text: remark_about(&*remarks, &current, subject)
+            .await
+            .map(|r| r.text().as_str().to_owned()),
+    }))
+}
+
+pub async fn list_remarks_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<PagedResponse<RemarkListingResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
+    let remarks = state.backend.remarks();
+    let users = state.backend.users();
+    let list = list_remarks(&*remarks, &current, page).await;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for remark in &list.items {
+        let subject_username = match users.find_by_id(remark.subject_id()).await {
+            Some(user) => user.username().as_str().to_owned(),
+            None => "unknown".to_owned(),
+        };
+        responses.push(RemarkListingResponse {
+            subject_username,
+            text: remark.text().as_str().to_owned(),
+            created_at: remark
+                .created_at()
+                .format(&Rfc3339)
+                .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
+        });
+    }
+    Ok(Json(paged(&list, responses)))
 }
 
 #[derive(Deserialize)]
