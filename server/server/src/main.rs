@@ -264,6 +264,10 @@ async fn main() {
             post(handlers::promote_handler),
         )
         .route(
+            "/api/users/{username}/role",
+            post(handlers::set_role_handler),
+        )
+        .route(
             "/api/users/{username}/ignore",
             get(handlers::ignore_state_handler)
                 .post(handlers::ignore_user_handler)

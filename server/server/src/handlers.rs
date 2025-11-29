@@ -1928,6 +1928,27 @@ pub async fn promote_handler(
     Ok(to_response(&promoted))
 }
 
+#[derive(Deserialize)]
+pub struct SetRoleRequest {
+    pub role: String,
+}
+
+pub async fn set_role_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SetRoleRequest>,
+) -> Result<Json<UserResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let role = domain::Role::parse(&body.role)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid role"))?;
+    let target = find_user_id(&state, &username).await?;
+    let users = state.backend.users();
+    let updated = app::set_role(&*users, &current, target, role)
+        .await
+        .map_err(enforcement_error)?;
+    Ok(to_response(&updated))
+}
+
 pub async fn warn_user_handler(
     State(state): State<AppState>,
     Path(username): Path<String>,
