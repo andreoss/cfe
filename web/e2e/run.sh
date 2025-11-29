@@ -18,7 +18,11 @@ cleanup() {
   pkill -f "target/[d]ebug/server" 2>/dev/null || true
   pkill -f "serve -s -l $WEB_PORT" 2>/dev/null || true
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'org.chromium.Chromium.*' \
+    -newer "$STARTED_AT" -exec rm -rf {} + 2>/dev/null || true
+  rm -f "$STARTED_AT"
 }
+STARTED_AT=$(mktemp)
 trap cleanup EXIT
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
