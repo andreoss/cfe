@@ -87,7 +87,8 @@ CREATE TABLE notifications (
     topic_id UUID NOT NULL,
     comment_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    read_at TIMESTAMPTZ
+    read_at TIMESTAMPTZ,
+    kind VARCHAR NOT NULL DEFAULT 'reply'
 );
 
 CREATE INDEX notifications_recipient_idx ON notifications (recipient_id, created_at);
@@ -98,6 +99,17 @@ CREATE TABLE bookmarks (
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, topic_id)
 );
+
+CREATE TABLE watches (
+    user_id UUID NOT NULL,
+    topic_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, topic_id)
+);
+
+CREATE INDEX watches_user_idx ON watches (user_id, created_at DESC);
+
+CREATE INDEX watches_topic_idx ON watches (topic_id);
 
 CREATE TABLE reactions (
     user_id UUID NOT NULL,

@@ -101,6 +101,7 @@ CREATE TABLE notifications (
     comment_id BINARY(16) NOT NULL,
     created_at TIMESTAMP(6) NOT NULL,
     read_at TIMESTAMP(6) NULL,
+    kind VARCHAR(16) NOT NULL DEFAULT 'reply',
     FOREIGN KEY (recipient_id) REFERENCES users (id),
     FOREIGN KEY (actor_id) REFERENCES users (id)
 );
@@ -115,6 +116,19 @@ CREATE TABLE bookmarks (
     FOREIGN KEY (user_id) REFERENCES users (id),
     FOREIGN KEY (topic_id) REFERENCES topics (id)
 );
+
+CREATE TABLE watches (
+    user_id BINARY(16) NOT NULL,
+    topic_id BINARY(16) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    PRIMARY KEY (user_id, topic_id),
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (topic_id) REFERENCES topics (id)
+);
+
+CREATE INDEX watches_user_idx ON watches (user_id, created_at DESC);
+
+CREATE INDEX watches_topic_idx ON watches (topic_id);
 
 CREATE TABLE reactions (
     user_id BINARY(16) NOT NULL,

@@ -6,21 +6,22 @@ use app::{
     CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
     EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
     PostCommentError, ReactionSummary, RegisterError, ReportError, SetPostscoreError, SignInError,
-    UpdateBioError, VoteError, acknowledge_warnings, active_ban, add_bookmark, ban_user,
-    block_address, cast_vote, change_password, clear_avatar, clear_reaction,
+    UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban, add_bookmark,
+    ban_user, block_address, cast_vote, change_password, clear_avatar, clear_reaction,
     clear_sign_in_failures, close_report, commit_topic, confirm_activation, confirm_email_change,
     count_open_for_topic, count_unread, create_group, create_poll, create_session, create_topic,
     delete_comment, delete_topic, deregister, edit_comment, edit_topic, end_every_session,
     enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts, get_avatar,
-    get_topic, ignore_user, ignored_by, is_bookmarked, lift_address_block, lift_ban,
+    get_topic, ignore_user, ignored_by, is_bookmarked, is_watching, lift_address_block, lift_ban,
     list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_notifications,
-    list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, mark_read,
-    move_topic, notice_of_new_network, poll_results, post_comment, promote_to_moderator,
-    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
-    remove_bookmark, remove_posts_from_address, report_content, reporter_of, request_activation,
-    request_email_change, request_password_reset, reset_password, search, set_avatar,
-    set_off_front, set_postscore, set_resolved, set_sticky, sign_in, sign_out as end_session,
-    stop_ignoring, summarize_reactions, uncommit_topic, update_bio, warn_user,
+    list_open_reports, list_sections, list_topics, list_topics_by_tag, list_warnings, list_watched,
+    mark_read, move_topic, notice_of_new_network, notify_watchers, poll_results, post_comment,
+    promote_to_moderator, publish_draft, react, recent_activity, record_post,
+    record_sign_in_failure, register, remove_bookmark, remove_posts_from_address, report_content,
+    reporter_of, request_activation, request_email_change, request_password_reset, reset_password,
+    search, set_avatar, set_off_front, set_postscore, set_resolved, set_sticky, sign_in,
+    sign_out as end_session, stop_ignoring, stop_watching, summarize_reactions, uncommit_topic,
+    update_bio, warn_user, watch_topic,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -958,6 +959,26 @@ pub async fn post_comment_handler(
         ),
         PostCommentError::Restricted => error(StatusCode::FORBIDDEN, "not allowed to comment"),
     })?;
+    let already_told = match comment.parent_id() {
+        Some(parent_id) => comments.find_by_id(parent_id).await.map(|c| c.author_id()),
+        None => topics
+            .find_by_id(TopicId::new(topic_id))
+            .await
+            .map(|t| t.author_id()),
+    }
+    .unwrap_or(author);
+    let watches = state.backend.watches();
+    notify_watchers(
+        &*watches,
+        &*notifications,
+        TopicId::new(topic_id),
+        comment.id(),
+        author,
+        already_told,
+        || domain::NotificationId::new(uuid::Uuid::new_v4()),
+        now,
+    )
+    .await;
     if let Some(addr) = &ip {
         record_post(
             &*abuse,
@@ -1168,6 +1189,7 @@ pub struct NotificationResponse {
     pub actor_username: String,
     pub created_at: String,
     pub read: bool,
+    pub kind: String,
 }
 
 #[derive(Serialize)]
@@ -1201,6 +1223,7 @@ async fn notification_response(
         actor_username: actor.username().as_str().to_owned(),
         created_at,
         read: notification.is_read(),
+        kind: notification.kind().as_str().to_owned(),
     })
 }
 
@@ -1303,6 +1326,69 @@ pub async fn list_bookmarks_handler(
     let page = to_page(&params)?;
     let bookmarks = state.backend.bookmarks();
     let mut list = list_bookmarked_topics(&*bookmarks, current.id(), page).await;
+    list.items.retain(|t| app::visible_to(t, Some(&current)));
+    let mut responses = Vec::with_capacity(list.items.len());
+    for topic in &list.items {
+        responses.push(topic_response(&state, topic).await?.0);
+    }
+    Ok(Json(paged(&list, responses)))
+}
+
+#[derive(Serialize)]
+pub struct WatchStateResponse {
+    pub watching: bool,
+}
+
+pub async fn watch_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<WatchStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let watches = state.backend.watches();
+    let topics = state.backend.topics();
+    watch_topic(
+        &*watches,
+        &*topics,
+        &current,
+        TopicId::new(id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        WatchError::TopicNotFound => error(StatusCode::NOT_FOUND, "topic not found"),
+    })?;
+    Ok(Json(WatchStateResponse { watching: true }))
+}
+
+pub async fn stop_watching_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> StatusCode {
+    let watches = state.backend.watches();
+    stop_watching(&*watches, &current, TopicId::new(id)).await;
+    StatusCode::NO_CONTENT
+}
+
+pub async fn watch_state_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Json<WatchStateResponse> {
+    let watches = state.backend.watches();
+    Json(WatchStateResponse {
+        watching: is_watching(&*watches, current.id(), TopicId::new(id)).await,
+    })
+}
+
+pub async fn list_watched_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
+    let watches = state.backend.watches();
+    let mut list = list_watched(&*watches, current.id(), page).await;
     list.items.retain(|t| app::visible_to(t, Some(&current)));
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {

@@ -71,7 +71,7 @@ pub use ports::{
     EnforcementRepository, GroupRepository, MailTokenRepository, Mailer, Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
-    TokenDigest, TopicRepository, UserRepository,
+    TokenDigest, TopicRepository, UserRepository, WatchRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};

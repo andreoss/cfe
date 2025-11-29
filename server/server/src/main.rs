@@ -25,6 +25,7 @@ mod search_repository;
 mod section_repository;
 mod session_repository;
 mod topic_repository;
+mod watch_repository;
 
 use axum::Router;
 use axum::http::{Method, header};
@@ -303,6 +304,13 @@ async fn main() {
             get(handlers::get_avatar_handler),
         )
         .route("/api/bookmarks", get(handlers::list_bookmarks_handler))
+        .route("/api/watched", get(handlers::list_watched_handler))
+        .route(
+            "/api/topics/{id}/watch",
+            get(handlers::watch_state_handler)
+                .post(handlers::watch_topic_handler)
+                .delete(handlers::stop_watching_handler),
+        )
         .route(
             "/api/topics/{id}/poll",
             get(handlers::get_poll_handler).post(handlers::create_poll_handler),

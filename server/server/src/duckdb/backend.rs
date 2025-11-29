@@ -17,11 +17,12 @@ use crate::duckdb::section::DuckSectionRepository;
 use crate::duckdb::session::DuckSessionRepository;
 use crate::duckdb::topic::DuckTopicRepository;
 use crate::duckdb::user::DuckUserRepository;
+use crate::duckdb::watch::DuckWatchRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
     PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository,
+    SessionRepository, TopicRepository, UserRepository, WatchRepository,
 };
 use std::sync::Arc;
 
@@ -106,6 +107,10 @@ impl Backend for DuckDbBackend {
 
     fn reports(&self) -> Arc<dyn ReportRepository + Send + Sync> {
         Arc::new(DuckReportRepository::new(self.db.clone()))
+    }
+
+    fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync> {
+        Arc::new(DuckWatchRepository::new(self.db.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

@@ -4,7 +4,7 @@ use crate::duckdb::topic::{
     uuid_value,
 };
 use app::NotificationRepository;
-use domain::{CommentId, Notification, NotificationId, Page, TopicId, UserId};
+use domain::{CommentId, Notification, NotificationId, NotificationKind, Page, TopicId, UserId};
 use duckdb::Row;
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -20,7 +20,7 @@ impl DuckNotificationRepository {
 }
 
 const NOTIFICATION_COLUMNS: &str =
-    "id, recipient_id, actor_id, topic_id, comment_id, created_at, read_at";
+    "id, recipient_id, actor_id, topic_id, comment_id, created_at, read_at, kind";
 
 struct NotificationRow {
     id: uuid::Uuid,
@@ -30,6 +30,7 @@ struct NotificationRow {
     comment_id: uuid::Uuid,
     created_at: OffsetDateTime,
     read_at: Option<OffsetDateTime>,
+    kind: String,
 }
 
 fn notification_row(row: &Row) -> NotificationRow {
@@ -41,6 +42,7 @@ fn notification_row(row: &Row) -> NotificationRow {
         comment_id: read_uuid(row, 4),
         created_at: read_time(row, 5),
         read_at: read_opt_time(row, 6),
+        kind: row.get(7).expect("read kind"),
     }
 }
 
@@ -54,6 +56,7 @@ fn to_notification(row: NotificationRow) -> Notification {
         row.created_at,
         row.read_at,
     )
+    .of_kind(NotificationKind::parse(&row.kind).unwrap_or_default())
 }
 
 async fn load_notifications(db: &Db, sql: String, params: Vec<Value>) -> Vec<Notification> {
@@ -81,12 +84,13 @@ impl NotificationRepository for DuckNotificationRepository {
             uuid_value(notification.topic_id().as_uuid()),
             uuid_value(notification.comment_id().as_uuid()),
             time_to_value(notification.created_at()),
+            Value::Text(notification.kind().as_str().to_owned()),
         ];
         self.db
             .execute(
                 "INSERT INTO notifications \
-                 (id, recipient_id, actor_id, topic_id, comment_id, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                 (id, recipient_id, actor_id, topic_id, comment_id, created_at, kind) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;

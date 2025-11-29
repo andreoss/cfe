@@ -16,11 +16,12 @@ use crate::search_repository::PgSearchRepository;
 use crate::section_repository::PgSectionRepository;
 use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
+use crate::watch_repository::PgWatchRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
     PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository,
+    SessionRepository, TopicRepository, UserRepository, WatchRepository,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -100,6 +101,10 @@ impl Backend for PostgresBackend {
 
     fn reports(&self) -> Arc<dyn ReportRepository + Send + Sync> {
         Arc::new(PgReportRepository::new(self.pool.clone()))
+    }
+
+    fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync> {
+        Arc::new(PgWatchRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

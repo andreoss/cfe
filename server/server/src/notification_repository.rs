@@ -1,5 +1,5 @@
 use app::NotificationRepository;
-use domain::{CommentId, Notification, NotificationId, Page, TopicId, UserId};
+use domain::{CommentId, Notification, NotificationId, NotificationKind, Page, TopicId, UserId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -14,7 +14,7 @@ impl PgNotificationRepository {
 }
 
 const SELECT_COLUMNS: &str =
-    "id, recipient_id, actor_id, topic_id, comment_id, created_at, read_at";
+    "id, recipient_id, actor_id, topic_id, comment_id, created_at, read_at, kind";
 
 #[derive(FromRow)]
 struct Row {
@@ -25,6 +25,7 @@ struct Row {
     comment_id: uuid::Uuid,
     created_at: OffsetDateTime,
     read_at: Option<OffsetDateTime>,
+    kind: String,
 }
 
 fn to_notification(row: Row) -> Notification {
@@ -37,6 +38,7 @@ fn to_notification(row: Row) -> Notification {
         row.created_at,
         row.read_at,
     )
+    .of_kind(NotificationKind::parse(&row.kind).unwrap_or_default())
 }
 
 #[async_trait::async_trait]
@@ -44,8 +46,8 @@ impl NotificationRepository for PgNotificationRepository {
     async fn save(&self, notification: &Notification) {
         sqlx::query(
             "INSERT INTO notifications \
-             (id, recipient_id, actor_id, topic_id, comment_id, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
+             (id, recipient_id, actor_id, topic_id, comment_id, created_at, kind) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(notification.id().as_uuid())
         .bind(notification.recipient_id().as_uuid())
@@ -53,6 +55,7 @@ impl NotificationRepository for PgNotificationRepository {
         .bind(notification.topic_id().as_uuid())
         .bind(notification.comment_id().as_uuid())
         .bind(notification.created_at())
+        .bind(notification.kind().as_str())
         .execute(&self.pool)
         .await
         .expect("insert notification");

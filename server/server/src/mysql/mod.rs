@@ -15,13 +15,14 @@ mod section;
 mod session;
 mod topic;
 mod user;
+mod watch;
 
 use crate::backend::Backend;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
     PollRepository, ReactionRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TopicRepository, UserRepository,
+    SessionRepository, TopicRepository, UserRepository, WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -105,6 +106,10 @@ impl Backend for MySqlBackend {
 
     fn reports(&self) -> Arc<dyn ReportRepository + Send + Sync> {
         Arc::new(report::MySqlReportRepository::new(self.pool.clone()))
+    }
+
+    fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync> {
+        Arc::new(watch::MySqlWatchRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {
