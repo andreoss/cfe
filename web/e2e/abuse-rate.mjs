@@ -80,6 +80,7 @@ async function openNewTopic(driver) {
       return
     } catch (err) {
       last = err
+      await driver.navigate().refresh()
     }
   }
   throw last

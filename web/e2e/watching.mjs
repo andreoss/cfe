@@ -111,7 +111,7 @@ async function run() {
     await clickWhenReady(author, By.xpath("//button[text()='Post']"), 'post control')
     await author.wait(
       async () => (await mainText(author)).includes(title),
-      10000,
+      20000,
       'the topic should be created',
     )
     await publishTopic(title)

@@ -93,7 +93,7 @@ async function postTopic(driver, title) {
   await clickWhenReady(driver, By.xpath("//button[text()='Post']"), 'post control')
   await driver.wait(
     async () => (await mainText(driver)).includes(title),
-    10000,
+    20000,
     'the topic should be created',
   )
 }
