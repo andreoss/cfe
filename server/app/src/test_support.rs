@@ -3,7 +3,7 @@
 use crate::ports::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
     CommentRepository,
-    EnforcementRepository,
+    EnforcementRepository, InvitationRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     TokenDigest,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
@@ -12,7 +12,7 @@ use crate::ports::{
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
-    CommentId, Email, MailToken,
+    CommentId, Email, Invitation, InvitationCode, MailToken,
     Notification, NotificationId, Page,
     Query,
     Reaction, Warning,
@@ -1320,6 +1320,66 @@ impl WatchRepository for FakeWatchRepo {
             .unwrap()
             .iter()
             .filter(|w| w.user_id() == user_id)
+            .count() as u64
+    }
+}
+
+pub struct FakeInvitationRepo {
+    invitations: Mutex<Vec<Invitation>>,
+}
+
+impl FakeInvitationRepo {
+    pub fn new() -> Self {
+        Self {
+            invitations: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl InvitationRepository for FakeInvitationRepo {
+    async fn save(&self, invitation: &Invitation) {
+        let mut stored = self.invitations.lock().unwrap();
+        stored.retain(|i| i.id() != invitation.id());
+        stored.push(invitation.clone());
+    }
+
+    async fn find_by_code(&self, code: &InvitationCode) -> Option<Invitation> {
+        self.invitations
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| i.code() == code)
+            .cloned()
+    }
+
+    async fn list_by_issuer(&self, issuer_id: UserId, page: Page) -> Vec<Invitation> {
+        self.invitations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|i| i.issuer_id() == issuer_id)
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_by_issuer(&self, issuer_id: UserId) -> u64 {
+        self.invitations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|i| i.issuer_id() == issuer_id)
+            .count() as u64
+    }
+
+    async fn count_outstanding(&self, issuer_id: UserId, now: OffsetDateTime) -> u64 {
+        self.invitations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|i| i.issuer_id() == issuer_id && i.is_spendable_at(now))
             .count() as u64
     }
 }

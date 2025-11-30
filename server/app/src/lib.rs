@@ -7,6 +7,7 @@ mod comments;
 mod editing;
 mod enforcement;
 mod groups;
+mod invitations;
 mod lifecycle;
 mod lifecycle_flags;
 mod maintenance;
@@ -103,3 +104,7 @@ pub use topics::{
     move_topic, set_postscore, uncommit_topic,
 };
 pub use groups::{CreateGroupError, create_group, list_groups};
+pub use invitations::{
+    InvitationSettings, IssueError, SpendError, issue_invitation, list_invitations,
+    spend_invitation,
+};

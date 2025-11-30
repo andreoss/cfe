@@ -3,6 +3,7 @@ mod avatar;
 mod address;
 mod bio;
 mod group;
+mod invitation;
 mod bookmark;
 mod body;
 mod client_string;
@@ -47,6 +48,10 @@ pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use enforcement::{AddressBlock, Ban, BlockMode, BlockModeError, Warning, WarningId};
 pub use group::{Group, GroupId};
+pub use invitation::{
+    CODE_LENGTH as INVITATION_CODE_LENGTH, Invitation, InvitationCode, InvitationCodeError,
+    InvitationId,
+};
 pub use mail_token::{MailToken, MailTokenId, TokenPurpose, TokenPurposeError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};
