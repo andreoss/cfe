@@ -6,6 +6,7 @@ import {
   getComments,
   postComment,
   deleteTopic,
+  restoreTopic,
   editTopic,
   getBookmarkState,
   addBookmark,
@@ -61,6 +62,7 @@ const deleting = ref(false)
 const deleteReason = ref('')
 const deletePenalty = ref(DEFAULT_DELETION_PENALTY)
 const deleteError = ref('')
+const restoreError = ref('')
 const postscoreOpen = ref(false)
 const postscoreError = ref('')
 
@@ -359,6 +361,7 @@ async function load() {
   reportError.value = ''
   lifecycleError.value = ''
   placementError.value = ''
+  restoreError.value = ''
   const result = await getTopic(props.id)
   if (result.ok) {
     topic.value = result.value
@@ -425,6 +428,16 @@ async function onDelete() {
   }
   topic.value = result.value
   deleting.value = false
+}
+
+async function onRestore() {
+  restoreError.value = ''
+  const result = await restoreTopic(props.id)
+  if (!result.ok) {
+    restoreError.value = result.error
+    return
+  }
+  topic.value = result.value
 }
 
 async function onSetPostscore(value: number) {
@@ -515,6 +528,11 @@ async function onUnsave() {
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
+
+      <template v-if="isModerator && topic.deleted">
+        <button type="button" @click="onRestore">Restore topic</button>
+        <p v-if="restoreError" role="alert">{{ restoreError }}</p>
+      </template>
 
       <PollPanel :poll="poll" :can-vote="auth.currentUser !== null" :on-vote="onVote" />
 

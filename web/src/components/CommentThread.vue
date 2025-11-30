@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   postComment,
   deleteComment,
+  restoreComment,
   editComment,
   getCommentReactions,
   reactToComment,
@@ -34,6 +35,8 @@ const deletingId = ref<string | null>(null)
 const deleteReason = ref('')
 const deletePenalty = ref(DEFAULT_DELETION_PENALTY)
 const deleteError = ref('')
+const restoreErrorId = ref<string | null>(null)
+const restoreError = ref('')
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
 const editError = ref('')
@@ -164,6 +167,18 @@ async function onDelete(commentId: string) {
   props.onPosted()
 }
 
+async function onRestore(commentId: string) {
+  restoreErrorId.value = null
+  restoreError.value = ''
+  const result = await restoreComment(props.topicId, commentId)
+  if (!result.ok) {
+    restoreErrorId.value = commentId
+    restoreError.value = result.error
+    return
+  }
+  props.onPosted()
+}
+
 async function onEdit(commentId: string) {
   editError.value = ''
   const result = await editComment(props.topicId, commentId, editDraft.value)
@@ -192,6 +207,13 @@ async function onEdit(commentId: string) {
       <p v-if="comment.edited && !comment.deleted && !comment.ignored" class="edited">
         (edited)
       </p>
+
+      <template v-if="auth.currentUser?.role === 'moderator' && comment.deleted">
+        <button type="button" @click="onRestore(comment.id)">Restore comment</button>
+        <p v-if="restoreErrorId === comment.id && restoreError" role="alert">
+          {{ restoreError }}
+        </p>
+      </template>
 
       <template v-if="!comment.deleted && !comment.ignored">
         <ReactionBar

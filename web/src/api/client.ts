@@ -609,6 +609,13 @@ export async function deleteTopic(
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
 
+export async function restoreTopic(id: string): Promise<ApiResult<Topic>> {
+  const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+  })
+  return result.ok ? { ok: true, value: toTopic(result.value) } : result
+}
+
 export async function setPostscore(id: string, postscore: number): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/postscore`, {
     method: 'POST',
@@ -630,6 +637,19 @@ export async function deleteComment(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(deletionPayload(reason, penalty)),
+    },
+  )
+  return result.ok ? { ok: true, value: toComment(result.value) } : result
+}
+
+export async function restoreComment(
+  topicId: string,
+  id: string,
+): Promise<ApiResult<Comment>> {
+  const result = await request<RawComment>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(id)}/restore`,
+    {
+      method: 'POST',
     },
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result

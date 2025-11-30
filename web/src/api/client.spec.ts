@@ -16,6 +16,8 @@ import {
   postComment,
   deleteTopic,
   deleteComment,
+  restoreTopic,
+  restoreComment,
   editTopic,
   editComment,
   search,
@@ -1020,6 +1022,60 @@ describe('deleteComment', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'penalty out of range' }))
     const result = await deleteComment('t1', 'c1', 'off-topic', 5)
     expect(result).toEqual({ ok: false, error: 'penalty out of range' })
+  })
+})
+
+describe('restoreTopic', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the restored topic without a deletion reason', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, rawTopic({ deleted: false, deleted_reason: null })),
+    )
+    const result = await restoreTopic('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/restore'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.deleted).toBe(false)
+    expect(result.ok && result.value.deletedReason).toBe(null)
+  })
+
+  it('returns the not deleted error verbatim', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not deleted' }))
+    const result = await restoreTopic('t1')
+    expect(result).toEqual({ ok: false, error: 'not deleted' })
+  })
+})
+
+describe('restoreComment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the restored comment without a deletion reason', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, rawComment({ deleted: false, deleted_reason: null })),
+    )
+    const result = await restoreComment('t1', 'c1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/restore'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.value.deleted).toBe(false)
+    expect(result.ok && result.value.deletedReason).toBe(null)
+  })
+
+  it('returns the not deleted error verbatim', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'not deleted' }))
+    const result = await restoreComment('t1', 'c1')
+    expect(result).toEqual({ ok: false, error: 'not deleted' })
   })
 })
 
