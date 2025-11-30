@@ -142,6 +142,49 @@ async fn with_tags(pool: &MySqlPool, rows: Vec<TopicRow>) -> Vec<Topic> {
 
 #[async_trait::async_trait]
 impl TopicRepository for MySqlTopicRepository {
+    async fn all_for_archive(&self) -> Vec<Topic> {
+        let rows = sqlx::query_as::<_, TopicRow>(&format!(
+            "SELECT {TOPIC_COLUMNS} FROM topics ORDER BY created_at DESC"
+        ))
+        .fetch_all(&self.pool)
+        .await
+        .expect("query all_for_archive");
+        with_tags(&self.pool, rows).await
+    }
+
+    async fn list_between(
+        &self,
+        from: OffsetDateTime,
+        until: OffsetDateTime,
+        page: Page,
+    ) -> Vec<Topic> {
+        let rows = sqlx::query_as::<_, TopicRow>(&format!(
+            "SELECT {TOPIC_COLUMNS} FROM topics \
+             WHERE created_at >= ? AND created_at < ? \
+             ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        ))
+        .bind(from)
+        .bind(until)
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query list_between");
+        with_tags(&self.pool, rows).await
+    }
+
+    async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ?",
+        )
+        .bind(from)
+        .bind(until)
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics between");
+        count as u64
+    }
+
     async fn save(&self, topic: &Topic) {
         sqlx::query(
             "INSERT INTO topics (id, section_id, group_id, author_id, title, body, created_at, \

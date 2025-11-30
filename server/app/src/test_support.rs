@@ -245,6 +245,41 @@ impl FakeTopicRepo {
 
 #[async_trait::async_trait]
 impl TopicRepository for FakeTopicRepo {
+    async fn all_for_archive(&self) -> Vec<Topic> {
+        self.topics.lock().unwrap().clone()
+    }
+
+    async fn list_between(
+        &self,
+        from: OffsetDateTime,
+        until: OffsetDateTime,
+        page: Page,
+    ) -> Vec<Topic> {
+        let mut found: Vec<Topic> = self
+            .topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.created_at() >= from && t.created_at() < until)
+            .cloned()
+            .collect();
+        found.sort_by_key(|t| std::cmp::Reverse(t.created_at()));
+        found
+            .into_iter()
+            .skip(page.offset() as usize)
+            .take(page.limit() as usize)
+            .collect()
+    }
+
+    async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.created_at() >= from && t.created_at() < until)
+            .count() as u64
+    }
+
     async fn save(&self, topic: &Topic) {
         self.topics.lock().unwrap().push(topic.clone());
     }

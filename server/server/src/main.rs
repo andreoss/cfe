@@ -299,6 +299,11 @@ async fn main() {
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
+        .route("/api/archive", get(handlers::list_archive_handler))
+        .route(
+            "/api/archive/{year}/{month}",
+            get(handlers::list_archive_month_handler),
+        )
         .route("/api/activity", get(handlers::activity_handler))
         .route(
             "/api/sections/{slug}/feed",

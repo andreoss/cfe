@@ -17,15 +17,14 @@ use app::{
     is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
     list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
     list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
-    list_watched, mark_read, may_start_topic, move_topic, notice_of_new_network, notify_watchers,
-    poll_results,
-    post_comment, promote_to_moderator, publish_draft, react, recent_activity, record_post,
-    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
-    rename_group, rename_section, report_content, reporter_of, request_activation,
-    request_email_change, request_password_reset, reset_password, search, set_avatar,
-    set_off_front, set_postscore, set_remark, set_resolved, set_section_score, set_sticky, sign_in,
-    sign_out as end_session, stop_ignoring, stop_watching, summarize_reactions, uncommit_topic,
-    update_bio, warn_user, watch_topic,
+    list_watched, mark_read, may_start_topic, months_with_topics, move_topic,
+    notice_of_new_network, notify_watchers, poll_results, post_comment, promote_to_moderator,
+    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
+    remark_about, remove_bookmark, remove_posts_from_address, rename_group, rename_section,
+    report_content, reporter_of, request_activation, request_email_change, request_password_reset,
+    reset_password, search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved,
+    set_section_score, set_sticky, sign_in, sign_out as end_session, stop_ignoring, stop_watching,
+    summarize_reactions, topics_in_month, uncommit_topic, update_bio, warn_user, watch_topic,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -731,6 +730,52 @@ pub async fn rename_group_handler(
         name: group.name().as_str().to_owned(),
         slug: group.slug().as_str().to_owned(),
     }))
+}
+
+#[derive(Serialize)]
+pub struct ArchiveMonthResponse {
+    pub year: i32,
+    pub month: u8,
+    pub topics: u64,
+}
+
+pub async fn list_archive_handler(
+    State(state): State<AppState>,
+    OptionalUser(current): OptionalUser,
+) -> Json<Vec<ArchiveMonthResponse>> {
+    let topics = state.backend.topics();
+    let visibility = app::Visibility::of(current.as_ref());
+    Json(
+        months_with_topics(&*topics, visibility)
+            .await
+            .into_iter()
+            .map(|c| ArchiveMonthResponse {
+                year: c.month.year,
+                month: c.month.month,
+                topics: c.topics,
+            })
+            .collect(),
+    )
+}
+
+pub async fn list_archive_month_handler(
+    State(state): State<AppState>,
+    Path((year, month)): Path<(i32, u8)>,
+    OptionalUser(current): OptionalUser,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let month = app::ArchiveMonth::new(year, month)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "no such month"))?;
+    let page = to_page(&params)?;
+    let topics = state.backend.topics();
+    let visibility = app::Visibility::of(current.as_ref());
+    let mut list = topics_in_month(&*topics, month, page, visibility).await;
+    list.items.retain(|t| app::visible_to(t, current.as_ref()));
+    let mut responses = Vec::with_capacity(list.items.len());
+    for topic in &list.items {
+        responses.push(topic_response(&state, topic).await?.0);
+    }
+    Ok(Json(paged(&list, responses)))
 }
 
 pub async fn list_topics_handler(

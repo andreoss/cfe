@@ -109,6 +109,53 @@ fn tag_strings(topic: &Topic) -> Vec<String> {
 
 #[async_trait::async_trait]
 impl TopicRepository for PgTopicRepository {
+    async fn all_for_archive(&self) -> Vec<Topic> {
+        sqlx::query_as::<_, TopicRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM topics ORDER BY created_at DESC"
+        ))
+        .fetch_all(&self.pool)
+        .await
+        .expect("query all_for_archive")
+        .into_iter()
+        .map(to_topic)
+        .collect()
+    }
+
+    async fn list_between(
+        &self,
+        from: OffsetDateTime,
+        until: OffsetDateTime,
+        page: Page,
+    ) -> Vec<Topic> {
+        sqlx::query_as::<_, TopicRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM topics \
+             WHERE created_at >= $1 AND created_at < $2 \
+             ORDER BY created_at DESC LIMIT $3 OFFSET $4"
+        ))
+        .bind(from)
+        .bind(until)
+        .bind(page.limit() as i64)
+        .bind(page.offset() as i64)
+        .fetch_all(&self.pool)
+        .await
+        .expect("query list_between")
+        .into_iter()
+        .map(to_topic)
+        .collect()
+    }
+
+    async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM topics WHERE created_at >= $1 AND created_at < $2",
+        )
+        .bind(from)
+        .bind(until)
+        .fetch_one(&self.pool)
+        .await
+        .expect("count topics between");
+        count as u64
+    }
+
     async fn save(&self, topic: &Topic) {
         sqlx::query(
             "INSERT INTO topics (id, section_id, author_id, title, body, tags, created_at, \

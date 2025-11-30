@@ -48,6 +48,14 @@ pub trait SectionRepository {
 
 #[async_trait::async_trait]
 pub trait TopicRepository {
+    async fn all_for_archive(&self) -> Vec<Topic>;
+    async fn list_between(
+        &self,
+        from: OffsetDateTime,
+        until: OffsetDateTime,
+        page: Page,
+    ) -> Vec<Topic>;
+    async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64;
     async fn save(&self, topic: &Topic);
     async fn update(&self, topic: &Topic);
     async fn find_by_id(&self, id: TopicId) -> Option<Topic>;

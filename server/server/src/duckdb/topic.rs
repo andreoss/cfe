@@ -268,6 +268,47 @@ pub async fn load_topics(db: &Db, sql: String, params: Vec<Value>) -> Vec<Topic>
 
 #[async_trait::async_trait]
 impl TopicRepository for DuckTopicRepository {
+    async fn all_for_archive(&self) -> Vec<Topic> {
+        load_topics(
+            &self.db,
+            format!("SELECT {TOPIC_COLUMNS} FROM topics ORDER BY created_at DESC"),
+            Vec::new(),
+        )
+        .await
+    }
+
+    async fn list_between(
+        &self,
+        from: OffsetDateTime,
+        until: OffsetDateTime,
+        page: Page,
+    ) -> Vec<Topic> {
+        load_topics(
+            &self.db,
+            format!(
+                "SELECT {TOPIC_COLUMNS} FROM topics \
+                 WHERE created_at >= ? AND created_at < ? \
+                 ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            ),
+            vec![
+                time_to_value(from),
+                time_to_value(until),
+                limit_value(page),
+                offset_value(page),
+            ],
+        )
+        .await
+    }
+
+    async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
+        count(
+            &self.db,
+            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ?",
+            vec![time_to_value(from), time_to_value(until)],
+        )
+        .await
+    }
+
     async fn save(&self, topic: &Topic) {
         let params = vec![
             uuid_value(topic.id().as_uuid()),

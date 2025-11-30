@@ -1,6 +1,7 @@
 mod abuse;
 mod account;
 mod activity;
+mod archive;
 mod avatars;
 mod bookmarks;
 mod bootstrap;
@@ -33,6 +34,9 @@ mod topics;
 mod watches;
 
 pub use activity::recent_activity;
+pub use archive::{
+    ArchiveMonth, MonthCount, MonthError, months_with_topics, topics_in_month,
+};
 pub use abuse::{
     ACCOUNT_RATE_LIMIT_MAX, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, SLOW_MODE_INTERVAL,
     SLOW_MODE_SCORE_FLOOR, AbuseError, ChallengeRules, Limits, enforce_registration_challenge,
