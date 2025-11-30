@@ -63,6 +63,11 @@ async function run() {
 
     await owner.get(`${baseUrl}/s/general`)
     await owner.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
+    await owner.wait(
+      until.elementLocated(By.xpath("//button[text()='New topic']")),
+      10000,
+      'the new topic control should appear once posting is known to be allowed',
+    )
     await owner.findElement(By.xpath("//button[text()='New topic']")).click()
     await owner.wait(until.elementLocated(By.name('title')), 10000)
     await owner.findElement(By.name('title')).sendKeys(topicTitle)

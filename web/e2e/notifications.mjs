@@ -33,15 +33,18 @@ async function register(driver, username) {
 async function navText(driver) {
   await driver.get(`${baseUrl}/`)
   await driver.wait(until.elementLocated(By.css('nav')), 5000)
+  let settled = ''
   await driver.wait(
     async () => {
       const text = await driver.findElement(By.css('nav')).getText()
-      return text.includes('Notifications') || text.includes('Sign in')
+      if (!text.includes('Notifications') && !text.includes('Sign in')) return false
+      settled = text
+      return true
     },
     10000,
     'the navigation should settle before it is read',
   )
-  return driver.findElement(By.css('nav')).getText()
+  return settled
 }
 
 async function run() {
@@ -59,6 +62,11 @@ async function run() {
 
     await author.findElement(By.linkText('General')).click()
     await author.wait(until.urlIs(`${baseUrl}/s/general`), 5000)
+    await author.wait(
+      until.elementLocated(By.xpath("//button[text()='New topic']")),
+      10000,
+      'the new topic control should appear once posting is known to be allowed',
+    )
     await author.findElement(By.xpath("//button[text()='New topic']")).click()
     await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)

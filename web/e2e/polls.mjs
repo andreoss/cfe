@@ -56,6 +56,11 @@ async function run() {
 
     await author.get(`${baseUrl}/s/general`)
     await author.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
+    await author.wait(
+      until.elementLocated(By.xpath("//button[text()='New topic']")),
+      10000,
+      'the new topic control should appear once posting is known to be allowed',
+    )
     await author.findElement(By.xpath("//button[text()='New topic']")).click()
     await author.wait(until.elementLocated(By.name('title')), 10000)
     await author.findElement(By.name('title')).sendKeys(topicTitle)

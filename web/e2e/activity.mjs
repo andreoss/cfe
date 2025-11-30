@@ -33,6 +33,11 @@ async function register(driver, username) {
 async function postTopic(driver, section, title, body) {
   await driver.get(`${baseUrl}/s/${section}`)
   await driver.wait(until.elementLocated(By.xpath("//button[text()='New topic']")), 5000)
+  await driver.wait(
+    until.elementLocated(By.xpath("//button[text()='New topic']")),
+    10000,
+    'the new topic control should appear once posting is known to be allowed',
+  )
   await driver.findElement(By.xpath("//button[text()='New topic']")).click()
   await driver.wait(until.elementLocated(By.name('title')), 10000)
   await driver.findElement(By.name('title')).sendKeys(title)
