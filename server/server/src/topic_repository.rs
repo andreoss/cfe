@@ -111,7 +111,9 @@ fn tag_strings(topic: &Topic) -> Vec<String> {
 impl TopicRepository for PgTopicRepository {
     async fn all_for_archive(&self) -> Vec<Topic> {
         sqlx::query_as::<_, TopicRow>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM topics ORDER BY created_at DESC"
+            "SELECT {SELECT_COLUMNS} FROM topics \
+             WHERE deleted_at IS NULL AND draft = FALSE AND pending = FALSE \
+             ORDER BY created_at DESC"
         ))
         .fetch_all(&self.pool)
         .await
@@ -130,6 +132,7 @@ impl TopicRepository for PgTopicRepository {
         sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM topics \
              WHERE created_at >= $1 AND created_at < $2 \
+             AND deleted_at IS NULL AND draft = FALSE AND pending = FALSE \
              ORDER BY created_at DESC LIMIT $3 OFFSET $4"
         ))
         .bind(from)
@@ -146,7 +149,8 @@ impl TopicRepository for PgTopicRepository {
 
     async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM topics WHERE created_at >= $1 AND created_at < $2",
+            "SELECT COUNT(*) FROM topics WHERE created_at >= $1 AND created_at < $2 \
+             AND deleted_at IS NULL AND draft = FALSE AND pending = FALSE",
         )
         .bind(from)
         .bind(until)

@@ -76,6 +76,17 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/archive',
+      name: 'archive',
+      component: () => import('../views/ArchiveView.vue'),
+    },
+    {
+      path: '/archive/:year/:month',
+      name: 'archiveMonth',
+      component: () => import('../views/ArchiveMonthView.vue'),
+      props: true,
+    },
+    {
       path: '/notifications',
       name: 'notifications',
       component: () => import('../views/NotificationsView.vue'),

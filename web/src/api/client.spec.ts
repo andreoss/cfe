@@ -92,6 +92,8 @@ import {
   renameSection,
   setSectionScore,
   renameGroup,
+  getArchiveMonths,
+  getArchiveMonth,
   TOPICS_SCORES,
 } from './client'
 
@@ -3987,5 +3989,131 @@ describe('renameGroup', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid title' }))
     const result = await renameGroup('general', 'announcements', '')
     expect(result).toEqual({ ok: false, error: 'invalid title', status: 422 })
+  })
+})
+
+describe('getArchiveMonths', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('reads the months with GET on the archive path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getArchiveMonths()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/archive',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    )
+  })
+
+  it('returns the months newest first as the server sent them', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { year: 2024, month: 7, topics: 2 },
+        { year: 2024, month: 6, topics: 1 },
+      ]),
+    )
+    const result = await getArchiveMonths()
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { year: 2024, month: 7, topics: 2 },
+        { year: 2024, month: 6, topics: 1 },
+      ],
+    })
+  })
+
+  it('returns an empty listing when nothing is archived', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getArchiveMonths()
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('reports the status when the request fails', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(500, { error: 'archive unavailable' }))
+    const result = await getArchiveMonths()
+    expect(result).toEqual({ ok: false, error: 'archive unavailable', status: 500 })
+  })
+})
+
+describe('getArchiveMonth', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Topic type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawTopic()])))
+    const result = await getArchiveMonth(2024, 6)
+    expect(result.ok && result.value.items).toEqual([
+      {
+        id: '1',
+        sectionSlug: 'general',
+        title: 'Hello',
+        body: 'World',
+        tags: ['rust'],
+        authorUsername: 'alice_01',
+        createdAt: '2026-09-03T00:00:00Z',
+        deleted: false,
+        deletedReason: null,
+      },
+    ])
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawTopic()], {
+          number: 2,
+          size: 25,
+          total: 51,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getArchiveMonth(2024, 6, 2)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 25,
+      total: 51,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('omits the query string when no page is asked for', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getArchiveMonth(2024, 6)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/archive/2024/6',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('carries the page and size in the query string', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getArchiveMonth(2024, 12, 3, 50)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/archive/2024/12?page=3&size=50'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an empty listing for a month that holds nothing', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([], { total_pages: 0 })))
+    const result = await getArchiveMonth(2024, 6)
+    expect(result.ok && result.value.items).toEqual([])
+  })
+
+  it('reports the status when the month is outside the calendar', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid month' }))
+    const result = await getArchiveMonth(2024, 13)
+    expect(result).toEqual({ ok: false, error: 'invalid month', status: 422 })
   })
 })

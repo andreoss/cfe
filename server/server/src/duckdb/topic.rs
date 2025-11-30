@@ -271,7 +271,11 @@ impl TopicRepository for DuckTopicRepository {
     async fn all_for_archive(&self) -> Vec<Topic> {
         load_topics(
             &self.db,
-            format!("SELECT {TOPIC_COLUMNS} FROM topics ORDER BY created_at DESC"),
+            format!(
+                "SELECT {TOPIC_COLUMNS} FROM topics \
+                 WHERE deleted_at IS NULL AND draft = FALSE AND pending = FALSE \
+                 ORDER BY created_at DESC"
+            ),
             Vec::new(),
         )
         .await
@@ -288,6 +292,7 @@ impl TopicRepository for DuckTopicRepository {
             format!(
                 "SELECT {TOPIC_COLUMNS} FROM topics \
                  WHERE created_at >= ? AND created_at < ? \
+                 AND deleted_at IS NULL AND draft = FALSE AND pending = FALSE \
                  ORDER BY created_at DESC LIMIT ? OFFSET ?"
             ),
             vec![
@@ -303,7 +308,8 @@ impl TopicRepository for DuckTopicRepository {
     async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
         count(
             &self.db,
-            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ?",
+            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ? \
+             AND deleted_at IS NULL AND draft = FALSE AND pending = FALSE",
             vec![time_to_value(from), time_to_value(until)],
         )
         .await

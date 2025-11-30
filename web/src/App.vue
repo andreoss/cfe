@@ -33,6 +33,7 @@ onMounted(() => {
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/search">Search</RouterLink>
       <RouterLink to="/activity">Activity</RouterLink>
+      <RouterLink to="/archive">Archive</RouterLink>
       <template v-if="auth.currentUser">
         <RouterLink to="/notifications">{{
           unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'

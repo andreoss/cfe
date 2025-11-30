@@ -739,14 +739,10 @@ pub struct ArchiveMonthResponse {
     pub topics: u64,
 }
 
-pub async fn list_archive_handler(
-    State(state): State<AppState>,
-    OptionalUser(current): OptionalUser,
-) -> Json<Vec<ArchiveMonthResponse>> {
+pub async fn list_archive_handler(State(state): State<AppState>) -> Json<Vec<ArchiveMonthResponse>> {
     let topics = state.backend.topics();
-    let visibility = app::Visibility::of(current.as_ref());
     Json(
-        months_with_topics(&*topics, visibility)
+        months_with_topics(&*topics)
             .await
             .into_iter()
             .map(|c| ArchiveMonthResponse {
@@ -761,16 +757,13 @@ pub async fn list_archive_handler(
 pub async fn list_archive_month_handler(
     State(state): State<AppState>,
     Path((year, month)): Path<(i32, u8)>,
-    OptionalUser(current): OptionalUser,
     axum::extract::Query(params): axum::extract::Query<PageParams>,
 ) -> Result<Json<PagedResponse<TopicResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let month = app::ArchiveMonth::new(year, month)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "no such month"))?;
     let page = to_page(&params)?;
     let topics = state.backend.topics();
-    let visibility = app::Visibility::of(current.as_ref());
-    let mut list = topics_in_month(&*topics, month, page, visibility).await;
-    list.items.retain(|t| app::visible_to(t, current.as_ref()));
+    let list = topics_in_month(&*topics, month, page).await;
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
         responses.push(topic_response(&state, topic).await?.0);

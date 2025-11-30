@@ -1273,6 +1273,22 @@ export function getInvitations(
   )
 }
 
+export type ArchiveMonth = { year: number; month: number; topics: number }
+
+export function getArchiveMonths(): Promise<ApiResult<ArchiveMonth[]>> {
+  return request<ArchiveMonth[]>('/api/archive', { method: 'GET' })
+}
+
+export function getArchiveMonth(
+  year: number,
+  month: number,
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Topic>>> {
+  const path = `/api/archive/${encodeURIComponent(year)}/${encodeURIComponent(month)}`
+  return requestPage<RawTopic, Topic>(`${path}${pageQuery(page, size)}`, toTopic)
+}
+
 export type MaintenanceReport = { blocked: number; dropped: number }
 
 export function runMaintenance(): Promise<ApiResult<MaintenanceReport>> {

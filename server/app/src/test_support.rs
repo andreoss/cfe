@@ -225,6 +225,10 @@ impl SectionRepository for FakeSectionRepo {
     }
 }
 
+fn is_archived(topic: &Topic) -> bool {
+    !topic.is_deleted() && !topic.is_draft() && !topic.is_pending()
+}
+
 pub struct FakeTopicRepo {
     topics: Mutex<Vec<Topic>>,
 }
@@ -246,7 +250,13 @@ impl FakeTopicRepo {
 #[async_trait::async_trait]
 impl TopicRepository for FakeTopicRepo {
     async fn all_for_archive(&self) -> Vec<Topic> {
-        self.topics.lock().unwrap().clone()
+        self.topics
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| is_archived(t))
+            .cloned()
+            .collect()
     }
 
     async fn list_between(
@@ -260,7 +270,7 @@ impl TopicRepository for FakeTopicRepo {
             .lock()
             .unwrap()
             .iter()
-            .filter(|t| t.created_at() >= from && t.created_at() < until)
+            .filter(|t| is_archived(t) && t.created_at() >= from && t.created_at() < until)
             .cloned()
             .collect();
         found.sort_by_key(|t| std::cmp::Reverse(t.created_at()));
@@ -276,7 +286,7 @@ impl TopicRepository for FakeTopicRepo {
             .lock()
             .unwrap()
             .iter()
-            .filter(|t| t.created_at() >= from && t.created_at() < until)
+            .filter(|t| is_archived(t) && t.created_at() >= from && t.created_at() < until)
             .count() as u64
     }
 

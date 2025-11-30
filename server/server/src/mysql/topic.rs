@@ -144,7 +144,9 @@ async fn with_tags(pool: &MySqlPool, rows: Vec<TopicRow>) -> Vec<Topic> {
 impl TopicRepository for MySqlTopicRepository {
     async fn all_for_archive(&self) -> Vec<Topic> {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
-            "SELECT {TOPIC_COLUMNS} FROM topics ORDER BY created_at DESC"
+            "SELECT {TOPIC_COLUMNS} FROM topics \
+             WHERE deleted_at IS NULL AND draft = 0 AND pending = 0 \
+             ORDER BY created_at DESC"
         ))
         .fetch_all(&self.pool)
         .await
@@ -161,6 +163,7 @@ impl TopicRepository for MySqlTopicRepository {
         let rows = sqlx::query_as::<_, TopicRow>(&format!(
             "SELECT {TOPIC_COLUMNS} FROM topics \
              WHERE created_at >= ? AND created_at < ? \
+             AND deleted_at IS NULL AND draft = 0 AND pending = 0 \
              ORDER BY created_at DESC LIMIT ? OFFSET ?"
         ))
         .bind(from)
@@ -175,7 +178,8 @@ impl TopicRepository for MySqlTopicRepository {
 
     async fn count_between(&self, from: OffsetDateTime, until: OffsetDateTime) -> u64 {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ?",
+            "SELECT COUNT(*) FROM topics WHERE created_at >= ? AND created_at < ? \
+             AND deleted_at IS NULL AND draft = 0 AND pending = 0",
         )
         .bind(from)
         .bind(until)

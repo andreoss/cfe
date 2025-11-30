@@ -1,6 +1,5 @@
 use crate::paging::Paged;
 use crate::ports::TopicRepository;
-use crate::topics::Visibility;
 use domain::{Page, Topic};
 use time::{Date, Month, OffsetDateTime, Time, UtcOffset};
 
@@ -64,13 +63,9 @@ pub struct MonthCount {
 
 pub async fn months_with_topics(
     topics: &(impl TopicRepository + ?Sized),
-    visibility: Visibility,
 ) -> Vec<MonthCount> {
     let mut counted: Vec<MonthCount> = Vec::new();
     for topic in topics.all_for_archive().await {
-        if !visibility.allows(&topic) {
-            continue;
-        }
         let month = ArchiveMonth::of(topic.created_at());
         match counted.iter_mut().find(|c| c.month == month) {
             Some(entry) => entry.topics += 1,
@@ -85,16 +80,14 @@ pub async fn topics_in_month(
     topics: &(impl TopicRepository + ?Sized),
     month: ArchiveMonth,
     page: Page,
-    visibility: Visibility,
 ) -> Paged<Topic> {
     let found = topics
         .list_between(month.starts_at(), month.ends_before(), page)
         .await;
-    let visible: Vec<Topic> = found.into_iter().filter(|t| visibility.allows(t)).collect();
     let total = topics
         .count_between(month.starts_at(), month.ends_before())
         .await;
-    Paged::new(visible, page, total)
+    Paged::new(found, page, total)
 }
 
 #[cfg(test)]
@@ -162,7 +155,7 @@ mod tests {
         repo.save(&topic(1, at(2024, 6, 2))).await;
         repo.save(&topic(2, at(2024, 6, 20))).await;
         repo.save(&topic(3, at(2024, 5, 9))).await;
-        let months = months_with_topics(&repo, Visibility::moderator()).await;
+        let months = months_with_topics(&repo).await;
         assert_eq!(
             months,
             vec![
@@ -182,20 +175,22 @@ mod tests {
     async fn a_month_nobody_posted_in_is_not_listed() {
         let repo = FakeTopicRepo::new();
         repo.save(&topic(1, at(2024, 6, 2))).await;
-        let months = months_with_topics(&repo, Visibility::moderator()).await;
+        let months = months_with_topics(&repo).await;
         assert_eq!(months.len(), 1);
     }
 
     #[tokio::test]
-    async fn a_queued_subject_is_counted_only_for_those_who_may_see_it() {
+    async fn only_what_was_published_is_archived() {
         let repo = FakeTopicRepo::new();
         repo.save(&topic(1, at(2024, 6, 2))).await;
         repo.save(&topic(2, at(2024, 6, 3)).with_pending(true))
             .await;
-        let seen_by_anyone = months_with_topics(&repo, Visibility::anonymous()).await;
-        assert_eq!(seen_by_anyone[0].topics, 1);
-        let seen_by_moderator = months_with_topics(&repo, Visibility::moderator()).await;
-        assert_eq!(seen_by_moderator[0].topics, 2);
+        repo.save(&topic(3, at(2024, 6, 4)).with_draft(true)).await;
+        let months = months_with_topics(&repo).await;
+        assert_eq!(months[0].topics, 1);
+        let june = topics_in_month(&repo, ArchiveMonth::new(2024, 6).unwrap(), Page::first()).await;
+        assert_eq!(june.items.len(), 1);
+        assert_eq!(june.total, 1);
     }
 
     #[tokio::test]
@@ -210,7 +205,6 @@ mod tests {
             &repo,
             ArchiveMonth::new(2024, 6).unwrap(),
             Page::first(),
-            Visibility::moderator(),
         )
         .await;
         assert_eq!(june.items.len(), 2);
@@ -226,7 +220,6 @@ mod tests {
             &repo,
             ArchiveMonth::new(2024, 6).unwrap(),
             Page::first(),
-            Visibility::moderator(),
         )
         .await;
         assert_eq!(june.items.len(), 1);
@@ -234,19 +227,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_queued_subject_stays_out_of_a_month_for_a_stranger() {
+    async fn the_count_and_the_listing_agree() {
         let repo = FakeTopicRepo::new();
         repo.save(&topic(1, at(2024, 6, 2))).await;
         repo.save(&topic(2, at(2024, 6, 3)).with_pending(true))
             .await;
-        let seen = topics_in_month(
-            &repo,
-            ArchiveMonth::new(2024, 6).unwrap(),
-            Page::first(),
-            Visibility::anonymous(),
-        )
-        .await;
-        assert_eq!(seen.items.len(), 1);
+        let june = topics_in_month(&repo, ArchiveMonth::new(2024, 6).unwrap(), Page::first()).await;
+        assert_eq!(june.total as usize, june.items.len());
+        let months = months_with_topics(&repo).await;
+        assert_eq!(months[0].topics, june.total);
     }
 
     #[tokio::test]
@@ -256,7 +245,6 @@ mod tests {
             &repo,
             ArchiveMonth::new(2024, 6).unwrap(),
             Page::first(),
-            Visibility::moderator(),
         )
         .await;
         assert!(empty.items.is_empty());
