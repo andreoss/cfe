@@ -1,3 +1,4 @@
+use crate::invitations::Admission;
 use crate::ports::{PasswordHasher, UserRepository};
 use domain::{Email, User, UserId, Username};
 
@@ -14,6 +15,7 @@ pub async fn register(
     username: Username,
     email: Email,
     plain_password: &str,
+    _admission: &Admission,
 ) -> Result<User, RegisterError> {
     if repo.find_by_username(&username).await.is_some() {
         return Err(RegisterError::UsernameTaken);
@@ -33,7 +35,20 @@ pub async fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeHasher, FakeUserRepo};
+    use crate::invitations::{InvitationSettings, admit};
+    use crate::test_support::{FakeHasher, FakeInvitationRepo, FakeUserRepo};
+    use time::OffsetDateTime;
+
+    async fn open_admission() -> Admission {
+        admit(
+            &FakeInvitationRepo::new(),
+            &InvitationSettings::default(),
+            None,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap()
+    }
 
     fn username(raw: &str) -> Username {
         Username::parse(raw).unwrap()
@@ -55,6 +70,7 @@ mod tests {
             username("alice_01"),
             email("alice@example.com"),
             "secret",
+            &open_admission().await,
         )
         .await
         .unwrap();
@@ -73,6 +89,7 @@ mod tests {
             username("alice_01"),
             email("alice@example.com"),
             "secret",
+            &open_admission().await,
         )
         .await
         .unwrap();
@@ -96,6 +113,7 @@ mod tests {
             username("bob_02"),
             email("bob@example.com"),
             "secret",
+            &open_admission().await,
         )
         .await
         .unwrap();
@@ -119,6 +137,7 @@ mod tests {
             username("alice_01"),
             email("other@example.com"),
             "secret",
+            &open_admission().await,
         )
         .await;
         assert_eq!(result, Err(RegisterError::UsernameTaken));
@@ -141,6 +160,7 @@ mod tests {
             username("bob_02"),
             email("alice@example.com"),
             "secret",
+            &open_admission().await,
         )
         .await;
         assert_eq!(result, Err(RegisterError::EmailTaken));

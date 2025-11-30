@@ -121,6 +121,18 @@ CREATE TABLE remarks (
 
 CREATE INDEX remarks_author_idx ON remarks (author_id, created_at DESC);
 
+CREATE TABLE invitations (
+    id UUID PRIMARY KEY,
+    code VARCHAR NOT NULL UNIQUE,
+    issuer_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    spent_at TIMESTAMPTZ,
+    spent_by UUID
+);
+
+CREATE INDEX invitations_issuer_idx ON invitations (issuer_id, created_at DESC);
+
 CREATE TABLE reactions (
     user_id UUID NOT NULL,
     target_kind VARCHAR NOT NULL,

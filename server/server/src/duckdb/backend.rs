@@ -7,6 +7,7 @@ use crate::duckdb::comment::DuckCommentRepository;
 use crate::duckdb::conn::{Db, path_from_url};
 use crate::duckdb::enforcement::DuckEnforcementRepository;
 use crate::duckdb::group::DuckGroupRepository;
+use crate::duckdb::invitation::DuckInvitationRepository;
 use crate::duckdb::mail_token::DuckMailTokenRepository;
 use crate::duckdb::notification::DuckNotificationRepository;
 use crate::duckdb::poll::DuckPollRepository;
@@ -21,9 +22,10 @@ use crate::duckdb::user::DuckUserRepository;
 use crate::duckdb::watch::DuckWatchRepository;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
-    PollRepository, ReactionRepository, RemarkRepository, ReportRepository, SearchRepository,
-    SectionRepository, SessionRepository, TopicRepository, UserRepository, WatchRepository,
+    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
+    NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
+    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    WatchRepository,
 };
 use std::sync::Arc;
 
@@ -116,6 +118,10 @@ impl Backend for DuckDbBackend {
 
     fn remarks(&self) -> Arc<dyn RemarkRepository + Send + Sync> {
         Arc::new(DuckRemarkRepository::new(self.db.clone()))
+    }
+
+    fn invitations(&self) -> Arc<dyn InvitationRepository + Send + Sync> {
+        Arc::new(DuckInvitationRepository::new(self.db.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

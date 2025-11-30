@@ -2,25 +2,26 @@ use crate::auth::{ClientAgent, ClientIp, CurrentUser, OptionalUser, SESSION_COOK
 use crate::backend::Backend;
 use crate::hasher::Argon2Hasher;
 use app::{
-    AbuseError, AvatarLookupError, BookmarkError, ChangeEmailError, ChangePasswordError,
-    CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError, DeleteError, EditError,
-    EnforcementError, ListTopicsError, MarkReadError, MoveTopicError, PollResults,
-    PostCommentError, ReactionSummary, RegisterError, RemarkError, ReportError, SetPostscoreError,
-    SignInError, UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban,
-    add_bookmark, ban_user, block_address, cast_vote, change_password, clear_avatar,
-    clear_reaction, clear_remark, clear_sign_in_failures, close_report, commit_topic,
-    confirm_activation, confirm_email_change, count_open_for_topic, count_unread, create_group,
-    create_poll, create_session, create_topic, delete_comment, delete_topic, deregister,
-    edit_comment, edit_topic, end_every_session, enforce_posting, enforce_registration_challenge,
-    enforce_sign_in_attempts, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
-    is_watching, lift_address_block, lift_ban, list_address_blocks, list_bookmarked_topics,
-    list_comments, list_groups, list_notifications, list_open_reports, list_remarks, list_sections,
-    list_topics, list_topics_by_tag, list_warnings, list_watched, mark_read, move_topic,
-    notice_of_new_network, notify_watchers, poll_results, post_comment, promote_to_moderator,
-    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
-    remark_about, remove_bookmark, remove_posts_from_address, report_content, reporter_of,
-    request_activation, request_email_change, request_password_reset, reset_password, search,
-    set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_sticky, sign_in,
+    AbuseError, AdmissionError, AvatarLookupError, BookmarkError, ChangeEmailError,
+    ChangePasswordError, CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError,
+    DeleteError, EditError, EnforcementError, IssueError, ListTopicsError, MarkReadError,
+    MoveTopicError, PollResults, PostCommentError, ReactionSummary, RegisterError, RemarkError,
+    ReportError, SetPostscoreError, SignInError, SpendError, UpdateBioError, VoteError, WatchError,
+    acknowledge_warnings, active_ban, add_bookmark, admit, ban_user, block_address, cast_vote,
+    change_password, clear_avatar, clear_reaction, clear_remark, clear_sign_in_failures,
+    close_report, commit_topic, confirm_activation, confirm_email_change, count_open_for_topic,
+    count_unread, create_group, create_poll, create_session, create_topic, delete_comment,
+    delete_topic, deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
+    enforce_registration_challenge, enforce_sign_in_attempts, get_avatar, get_topic, ignore_user,
+    ignored_by, is_bookmarked, is_watching, issue_invitation, lift_address_block, lift_ban,
+    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
+    list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
+    list_topics_by_tag, list_warnings, list_watched, mark_read, move_topic, notice_of_new_network,
+    notify_watchers, poll_results, post_comment, promote_to_moderator, publish_draft, react,
+    recent_activity, record_post, record_sign_in_failure, register, remark_about, remove_bookmark,
+    remove_posts_from_address, report_content, reporter_of, request_activation,
+    request_email_change, request_password_reset, reset_password, search, set_avatar,
+    set_off_front, set_postscore, set_remark, set_resolved, set_sticky, sign_in,
     sign_out as end_session, stop_ignoring, stop_watching, summarize_reactions, uncommit_topic,
     update_bio, warn_user, watch_topic,
 };
@@ -33,9 +34,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use domain::{
     Address, Avatar, AvatarError, Bio, BlockMode, Body, CommentId, ContentItem, Email, GroupId,
-    Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget, Reason, RemarkText,
-    ReportId, ReportKind, Revision, Session, SessionId, SessionToken, Slug, TagSet, Title, TopicId,
-    UserId, Username,
+    InvitationCode, Page, Password, PollId, PollOption, PollOptionId, Question, ReactionTarget,
+    Reason, RemarkText, ReportId, ReportKind, Revision, Session, SessionId, SessionToken, Slug,
+    TagSet, Title, TopicId, UserId, Username,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -48,6 +49,7 @@ pub struct AppState {
     pub mailer: Arc<dyn app::Mailer + Send + Sync>,
     pub challenge: Arc<dyn app::Challenge + Send + Sync>,
     pub challenge_rules: app::ChallengeRules,
+    pub invitation_settings: app::InvitationSettings,
     pub limits: app::Limits,
     pub maintenance: app::MaintenanceSettings,
     pub sign_in_limits: app::SignInLimits,
@@ -60,6 +62,8 @@ pub struct RegisterRequest {
     pub password: String,
     #[serde(default)]
     pub challenge: Option<String>,
+    #[serde(default)]
+    pub invitation: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -357,12 +361,54 @@ pub async fn register_handler(
     let id = UserId::new(uuid::Uuid::new_v4());
     Password::parse(&body.password)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "password too short"))?;
-    let user = register(&*repo, &hasher, id, username, email, &body.password)
-        .await
-        .map_err(|e| match e {
-            RegisterError::UsernameTaken => error(StatusCode::CONFLICT, "username taken"),
-            RegisterError::EmailTaken => error(StatusCode::CONFLICT, "email taken"),
-        })?;
+    let invitations = state.backend.invitations();
+    let offered = match body.invitation.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            InvitationCode::parse(raw)
+                .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid invitation"))?,
+        ),
+    };
+    let admission = admit(
+        &*invitations,
+        &state.invitation_settings,
+        offered.as_ref(),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(admission_error)?;
+    if let Some(invitation) = admission.invitation()
+        && !invitations
+            .claim(invitation.id(), OffsetDateTime::now_utc())
+            .await
+    {
+        return Err(error(StatusCode::CONFLICT, "invitation already used"));
+    }
+    let registered = register(
+        &*repo,
+        &hasher,
+        id,
+        username,
+        email,
+        &body.password,
+        &admission,
+    )
+    .await;
+    let user = match registered {
+        Ok(user) => user,
+        Err(e) => {
+            if let Some(invitation) = admission.invitation() {
+                invitations.release(invitation.id()).await;
+            }
+            return Err(match e {
+                RegisterError::UsernameTaken => error(StatusCode::CONFLICT, "username taken"),
+                RegisterError::EmailTaken => error(StatusCode::CONFLICT, "email taken"),
+            });
+        }
+    };
+    if let Some(invitation) = admission.invitation() {
+        invitations.attribute(invitation.id(), user.id()).await;
+    }
     let tokens = state.backend.mail_tokens();
     request_activation(
         &*tokens,
@@ -2240,6 +2286,107 @@ pub async fn list_remarks_handler(
                 .format(&Rfc3339)
                 .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
         });
+    }
+    Ok(Json(paged(&list, responses)))
+}
+
+#[derive(Serialize)]
+pub struct InvitationResponse {
+    pub code: String,
+    pub expires_at: String,
+    pub spent: bool,
+    pub spent_by: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct InvitationPolicyResponse {
+    pub required: bool,
+}
+
+fn admission_error(e: AdmissionError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        AdmissionError::CodeRequired => {
+            error(StatusCode::FORBIDDEN, "an invitation code is required")
+        }
+        AdmissionError::CodeNotUsable(SpendError::Unknown) => {
+            error(StatusCode::FORBIDDEN, "unknown invitation code")
+        }
+        AdmissionError::CodeNotUsable(SpendError::AlreadySpent) => {
+            error(StatusCode::FORBIDDEN, "invitation already used")
+        }
+        AdmissionError::CodeNotUsable(SpendError::Expired) => {
+            error(StatusCode::FORBIDDEN, "invitation expired")
+        }
+    }
+}
+
+async fn to_invitation_response(
+    state: &AppState,
+    invitation: &domain::Invitation,
+) -> Result<InvitationResponse, (StatusCode, Json<ErrorResponse>)> {
+    let spent_by = match invitation.spent_by() {
+        Some(id) => state
+            .backend
+            .users()
+            .find_by_id(id)
+            .await
+            .map(|u| u.username().as_str().to_owned()),
+        None => None,
+    };
+    Ok(InvitationResponse {
+        code: invitation.code().as_str().to_owned(),
+        expires_at: invitation
+            .expires_at()
+            .format(&Rfc3339)
+            .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
+        spent: invitation.is_spent(),
+        spent_by,
+    })
+}
+
+pub async fn invitation_policy_handler(
+    State(state): State<AppState>,
+) -> Json<InvitationPolicyResponse> {
+    Json(InvitationPolicyResponse {
+        required: state.invitation_settings.required,
+    })
+}
+
+pub async fn issue_invitation_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Result<(StatusCode, Json<InvitationResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let invitations = state.backend.invitations();
+    let invitation = issue_invitation(
+        &*invitations,
+        &current,
+        &state.invitation_settings,
+        domain::InvitationId::new(uuid::Uuid::new_v4()),
+        InvitationCode::from_bytes(&crate::mail::generate_code_bytes()),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(|e| match e {
+        IssueError::TooManyOutstanding => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "too many unused invitations",
+        ),
+    })?;
+    let response = to_invitation_response(&state, &invitation).await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn list_invitations_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<PageParams>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<PagedResponse<InvitationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let page = to_page(&params)?;
+    let invitations = state.backend.invitations();
+    let list = list_invitations(&*invitations, &current, page).await;
+    let mut responses = Vec::with_capacity(list.items.len());
+    for invitation in &list.items {
+        responses.push(to_invitation_response(&state, invitation).await?);
     }
     Ok(Json(paged(&list, responses)))
 }

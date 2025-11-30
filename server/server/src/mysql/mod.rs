@@ -5,6 +5,7 @@ mod bookmark;
 mod comment;
 mod enforcement;
 mod group;
+mod invitation;
 mod mail_token;
 mod notification;
 mod poll;
@@ -21,9 +22,10 @@ mod watch;
 use crate::backend::Backend;
 use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, GroupRepository, MailTokenRepository, NotificationRepository,
-    PollRepository, ReactionRepository, RemarkRepository, ReportRepository, SearchRepository,
-    SectionRepository, SessionRepository, TopicRepository, UserRepository, WatchRepository,
+    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
+    NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
+    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
+    WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -115,6 +117,12 @@ impl Backend for MySqlBackend {
 
     fn remarks(&self) -> Arc<dyn RemarkRepository + Send + Sync> {
         Arc::new(remark::MySqlRemarkRepository::new(self.pool.clone()))
+    }
+
+    fn invitations(&self) -> Arc<dyn InvitationRepository + Send + Sync> {
+        Arc::new(invitation::MySqlInvitationRepository::new(
+            self.pool.clone(),
+        ))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

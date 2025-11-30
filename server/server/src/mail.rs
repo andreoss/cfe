@@ -19,6 +19,12 @@ impl TokenDigest for Sha256Digest {
     }
 }
 
+pub fn generate_code_bytes() -> [u8; domain::INVITATION_CODE_LENGTH] {
+    let mut bytes = [0u8; domain::INVITATION_CODE_LENGTH];
+    OsRng.fill_bytes(&mut bytes);
+    bytes
+}
+
 pub fn generate_secret() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);

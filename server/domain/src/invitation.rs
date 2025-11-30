@@ -147,6 +147,28 @@ impl Invitation {
             ..self.clone()
         }
     }
+
+    pub fn claimed(&self, at: OffsetDateTime) -> Self {
+        Self {
+            spent_at: Some(at),
+            ..self.clone()
+        }
+    }
+
+    pub fn attributed(&self, by: UserId) -> Self {
+        Self {
+            spent_by: Some(by),
+            ..self.clone()
+        }
+    }
+
+    pub fn released(&self) -> Self {
+        Self {
+            spent_at: None,
+            spent_by: None,
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +278,31 @@ mod tests {
     fn a_spent_invitation_cannot_be_spent_again() {
         let spent = invitation().spent(invitee(), OffsetDateTime::UNIX_EPOCH);
         assert!(!spent.is_spendable_at(OffsetDateTime::UNIX_EPOCH));
+    }
+
+    #[test]
+    fn a_claim_holds_it_before_anyone_is_named() {
+        let claimed = invitation().claimed(OffsetDateTime::UNIX_EPOCH);
+        assert!(claimed.is_spent());
+        assert!(!claimed.is_spendable_at(OffsetDateTime::UNIX_EPOCH));
+        assert_eq!(claimed.spent_by(), None);
+    }
+
+    #[test]
+    fn naming_the_taker_completes_a_claim() {
+        let taken = invitation()
+            .claimed(OffsetDateTime::UNIX_EPOCH)
+            .attributed(invitee());
+        assert_eq!(taken.spent_by(), Some(invitee()));
+        assert_eq!(taken.spent_at(), Some(OffsetDateTime::UNIX_EPOCH));
+    }
+
+    #[test]
+    fn releasing_a_claim_makes_it_spendable_again() {
+        let released = invitation().claimed(OffsetDateTime::UNIX_EPOCH).released();
+        assert!(!released.is_spent());
+        assert!(released.is_spendable_at(OffsetDateTime::UNIX_EPOCH));
+        assert_eq!(released.spent_by(), None);
     }
 
     #[test]

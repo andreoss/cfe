@@ -1,6 +1,6 @@
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Bookmark, ClientString, Comment, CommentId,
-    Email, Group, GroupId, Invitation, InvitationCode, PostRef,
+    Email, Group, GroupId, Invitation, InvitationCode, InvitationId, PostRef,
     MailToken, Notification, NotificationId, Page, Poll,
     PollId,
     PollOptionId,
@@ -228,6 +228,9 @@ pub trait WatchRepository {
 #[async_trait::async_trait]
 pub trait InvitationRepository {
     async fn save(&self, invitation: &Invitation);
+    async fn claim(&self, id: InvitationId, at: OffsetDateTime) -> bool;
+    async fn attribute(&self, id: InvitationId, by: UserId);
+    async fn release(&self, id: InvitationId);
     async fn find_by_code(&self, code: &InvitationCode) -> Option<Invitation>;
     async fn list_by_issuer(&self, issuer_id: UserId, page: Page) -> Vec<Invitation>;
     async fn count_by_issuer(&self, issuer_id: UserId) -> u64;

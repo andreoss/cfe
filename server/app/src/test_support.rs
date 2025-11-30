@@ -12,7 +12,7 @@ use crate::ports::{
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
-    CommentId, Email, Invitation, InvitationCode, MailToken,
+    CommentId, Email, Invitation, InvitationCode, InvitationId, MailToken,
     Notification, NotificationId, Page,
     Query,
     Reaction, Warning,
@@ -1342,6 +1342,32 @@ impl InvitationRepository for FakeInvitationRepo {
         let mut stored = self.invitations.lock().unwrap();
         stored.retain(|i| i.id() != invitation.id());
         stored.push(invitation.clone());
+    }
+
+    async fn claim(&self, id: InvitationId, at: OffsetDateTime) -> bool {
+        let mut stored = self.invitations.lock().unwrap();
+        let Some(found) = stored.iter_mut().find(|i| i.id() == id) else {
+            return false;
+        };
+        if found.is_spent() {
+            return false;
+        }
+        *found = found.claimed(at);
+        true
+    }
+
+    async fn attribute(&self, id: InvitationId, by: UserId) {
+        let mut stored = self.invitations.lock().unwrap();
+        if let Some(found) = stored.iter_mut().find(|i| i.id() == id) {
+            *found = found.attributed(by);
+        }
+    }
+
+    async fn release(&self, id: InvitationId) {
+        let mut stored = self.invitations.lock().unwrap();
+        if let Some(found) = stored.iter_mut().find(|i| i.id() == id) {
+            *found = found.released();
+        }
     }
 
     async fn find_by_code(&self, code: &InvitationCode) -> Option<Invitation> {

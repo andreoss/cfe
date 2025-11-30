@@ -142,6 +142,20 @@ CREATE TABLE remarks (
 
 CREATE INDEX remarks_author_idx ON remarks (author_id, created_at DESC);
 
+CREATE TABLE invitations (
+    id BINARY(16) PRIMARY KEY,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    issuer_id BINARY(16) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    expires_at TIMESTAMP(6) NOT NULL,
+    spent_at TIMESTAMP(6) NULL,
+    spent_by BINARY(16) NULL,
+    FOREIGN KEY (issuer_id) REFERENCES users (id),
+    FOREIGN KEY (spent_by) REFERENCES users (id)
+);
+
+CREATE INDEX invitations_issuer_idx ON invitations (issuer_id, created_at DESC);
+
 CREATE TABLE reactions (
     user_id BINARY(16) NOT NULL,
     target_kind VARCHAR(16) NOT NULL,

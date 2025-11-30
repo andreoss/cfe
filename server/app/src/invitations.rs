@@ -32,6 +32,50 @@ pub enum SpendError {
     Expired,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum AdmissionError {
+    CodeRequired,
+    CodeNotUsable(SpendError),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Admission {
+    invitation: Option<Invitation>,
+}
+
+impl Admission {
+    pub fn invitation(&self) -> Option<&Invitation> {
+        self.invitation.as_ref()
+    }
+}
+
+pub async fn admit(
+    invitations: &(impl InvitationRepository + ?Sized),
+    settings: &InvitationSettings,
+    code: Option<&InvitationCode>,
+    now: OffsetDateTime,
+) -> Result<Admission, AdmissionError> {
+    let Some(code) = code else {
+        if settings.required {
+            return Err(AdmissionError::CodeRequired);
+        }
+        return Ok(Admission { invitation: None });
+    };
+    let invitation = invitations
+        .find_by_code(code)
+        .await
+        .ok_or(AdmissionError::CodeNotUsable(SpendError::Unknown))?;
+    if invitation.is_spent() {
+        return Err(AdmissionError::CodeNotUsable(SpendError::AlreadySpent));
+    }
+    if !invitation.is_spendable_at(now) {
+        return Err(AdmissionError::CodeNotUsable(SpendError::Expired));
+    }
+    Ok(Admission {
+        invitation: Some(invitation),
+    })
+}
+
 pub async fn issue_invitation(
     invitations: &(impl InvitationRepository + ?Sized),
     issuer: &User,
@@ -65,9 +109,11 @@ pub async fn spend_invitation(
     if !invitation.is_spendable_at(now) {
         return Err(SpendError::Expired);
     }
-    let spent = invitation.spent(invitee, now);
-    invitations.save(&spent).await;
-    Ok(spent)
+    if !invitations.claim(invitation.id(), now).await {
+        return Err(SpendError::AlreadySpent);
+    }
+    invitations.attribute(invitation.id(), invitee).await;
+    Ok(invitation.spent(invitee, now))
 }
 
 pub async fn list_invitations(
@@ -169,6 +215,52 @@ mod tests {
             .await,
             Err(SpendError::AlreadySpent)
         );
+    }
+
+    #[tokio::test]
+    async fn only_the_first_writer_claims_it() {
+        let repo = FakeInvitationRepo::new();
+        let issuer = user(1, "issuer_01");
+        let invitation = issued(&repo, &issuer, 1, "ABCDEFGHJKLM").await.unwrap();
+        let first = UserId::new(uuid::Uuid::from_u128(2));
+        assert!(
+            repo.claim(invitation.id(), OffsetDateTime::UNIX_EPOCH)
+                .await
+        );
+        assert!(
+            !repo
+                .claim(invitation.id(), OffsetDateTime::UNIX_EPOCH)
+                .await
+        );
+        repo.attribute(invitation.id(), first).await;
+        assert_eq!(
+            repo.find_by_code(&code("ABCDEFGHJKLM"))
+                .await
+                .and_then(|i| i.spent_by()),
+            Some(first)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_released_claim_can_be_taken_by_someone_else() {
+        let repo = FakeInvitationRepo::new();
+        let issuer = user(1, "issuer_01");
+        let invitation = issued(&repo, &issuer, 1, "ABCDEFGHJKLM").await.unwrap();
+        assert!(
+            repo.claim(invitation.id(), OffsetDateTime::UNIX_EPOCH)
+                .await
+        );
+        repo.release(invitation.id()).await;
+        let later = UserId::new(uuid::Uuid::from_u128(3));
+        let spent = spend_invitation(
+            &repo,
+            &code("ABCDEFGHJKLM"),
+            later,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(spent.spent_by(), Some(later));
     }
 
     #[tokio::test]
@@ -310,5 +402,116 @@ mod tests {
     #[test]
     fn registration_is_open_unless_the_operator_closes_it() {
         assert!(!InvitationSettings::default().required);
+    }
+
+    fn closed() -> InvitationSettings {
+        InvitationSettings {
+            required: true,
+            ..InvitationSettings::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn nobody_needs_a_code_while_registration_is_open() {
+        let repo = FakeInvitationRepo::new();
+        let admitted = admit(&repo, &settings(), None, OffsetDateTime::UNIX_EPOCH)
+            .await
+            .unwrap();
+        assert!(admitted.invitation().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_code_is_demanded_once_the_operator_closes_registration() {
+        let repo = FakeInvitationRepo::new();
+        assert_eq!(
+            admit(&repo, &closed(), None, OffsetDateTime::UNIX_EPOCH).await,
+            Err(AdmissionError::CodeRequired)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_valid_code_admits_whoever_holds_it() {
+        let repo = FakeInvitationRepo::new();
+        let issuer = user(1, "issuer_01");
+        issued(&repo, &issuer, 1, "ABCDEFGHJKLM").await.unwrap();
+        let admitted = admit(
+            &repo,
+            &closed(),
+            Some(&code("ABCDEFGHJKLM")),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            admitted.invitation().map(|i| i.code().as_str()),
+            Some("ABCDEFGHJKLM")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_code_that_cannot_be_spent_admits_nobody() {
+        let repo = FakeInvitationRepo::new();
+        let issuer = user(1, "issuer_01");
+        issued(&repo, &issuer, 1, "ABCDEFGHJKLM").await.unwrap();
+        spend_invitation(
+            &repo,
+            &code("ABCDEFGHJKLM"),
+            UserId::new(uuid::Uuid::from_u128(2)),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            admit(
+                &repo,
+                &closed(),
+                Some(&code("ABCDEFGHJKLM")),
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .await,
+            Err(AdmissionError::CodeNotUsable(SpendError::AlreadySpent))
+        );
+        assert_eq!(
+            admit(
+                &repo,
+                &closed(),
+                Some(&code("ZZZZZZZZZZZZ")),
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .await,
+            Err(AdmissionError::CodeNotUsable(SpendError::Unknown))
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_code_admits_nobody() {
+        let repo = FakeInvitationRepo::new();
+        let issuer = user(1, "issuer_01");
+        issued(&repo, &issuer, 1, "ABCDEFGHJKLM").await.unwrap();
+        assert_eq!(
+            admit(
+                &repo,
+                &closed(),
+                Some(&code("ABCDEFGHJKLM")),
+                OffsetDateTime::UNIX_EPOCH + Duration::days(7)
+            )
+            .await,
+            Err(AdmissionError::CodeNotUsable(SpendError::Expired))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wrong_code_is_refused_even_while_registration_is_open() {
+        let repo = FakeInvitationRepo::new();
+        assert_eq!(
+            admit(
+                &repo,
+                &settings(),
+                Some(&code("ZZZZZZZZZZZZ")),
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .await,
+            Err(AdmissionError::CodeNotUsable(SpendError::Unknown))
+        );
     }
 }

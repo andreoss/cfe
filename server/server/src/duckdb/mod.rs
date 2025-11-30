@@ -7,6 +7,7 @@ mod comment;
 mod conn;
 mod enforcement;
 mod group;
+mod invitation;
 mod mail_token;
 mod notification;
 mod poll;

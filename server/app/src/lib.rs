@@ -70,7 +70,8 @@ pub use paging::Paged;
 pub use ports::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
     CommentRepository,
-    EnforcementRepository, GroupRepository, MailTokenRepository, Mailer, Message,
+    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository, Mailer,
+    Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
     RemarkRepository, TokenDigest, TopicRepository, UserRepository, WatchRepository,
@@ -105,6 +106,6 @@ pub use topics::{
 };
 pub use groups::{CreateGroupError, create_group, list_groups};
 pub use invitations::{
-    InvitationSettings, IssueError, SpendError, issue_invitation, list_invitations,
-    spend_invitation,
+    Admission, AdmissionError, InvitationSettings, IssueError, SpendError, admit,
+    issue_invitation, list_invitations, spend_invitation,
 };

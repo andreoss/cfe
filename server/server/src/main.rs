@@ -12,6 +12,7 @@ mod feed;
 mod group_repository;
 mod handlers;
 mod hasher;
+mod invitation_repository;
 mod mail;
 mod mail_token_repository;
 mod mysql;
@@ -115,6 +116,24 @@ fn sign_in_limits_from_env() -> app::SignInLimits {
     limits
 }
 
+fn invitation_settings_from_env() -> app::InvitationSettings {
+    let mut settings = app::InvitationSettings::default();
+    if let Ok(raw) = std::env::var("INVITATION_REQUIRED") {
+        settings.required = raw == "1" || raw.eq_ignore_ascii_case("true");
+    }
+    if let Ok(raw) = std::env::var("INVITATION_LIFETIME_SECONDS") {
+        if let Ok(value) = raw.parse() {
+            settings.lifetime = time::Duration::seconds(value);
+        }
+    }
+    if let Ok(raw) = std::env::var("INVITATION_MAX_OUTSTANDING") {
+        if let Ok(value) = raw.parse() {
+            settings.max_outstanding = value;
+        }
+    }
+    settings
+}
+
 fn maintenance_interval() -> Option<std::time::Duration> {
     let seconds: u64 = std::env::var("MAINTENANCE_INTERVAL_SECONDS")
         .ok()
@@ -135,6 +154,7 @@ async fn main() {
         mailer: mail::build(),
         challenge: challenge::build(),
         challenge_rules: challenge::rules_from_env(),
+        invitation_settings: invitation_settings_from_env(),
         limits: limits_from_env(),
         maintenance: maintenance_from_env(),
         sign_in_limits: sign_in_limits_from_env(),
@@ -288,6 +308,14 @@ async fn main() {
                 .delete(handlers::delete_remark_handler),
         )
         .route("/api/remarks", get(handlers::list_remarks_handler))
+        .route(
+            "/api/invitations",
+            get(handlers::list_invitations_handler).post(handlers::issue_invitation_handler),
+        )
+        .route(
+            "/api/invitations/policy",
+            get(handlers::invitation_policy_handler),
+        )
         .route(
             "/api/address-blocks",
             get(list_address_blocks_handler).post(block_address_handler),
