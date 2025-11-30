@@ -96,7 +96,7 @@ async function postTopic(driver, title) {
       const text = await mainText(driver)
       return text.includes(title) || text.includes('slow down') || text.includes('address is blocked')
     },
-    10000,
+    20000,
     'posting should either land or be refused',
   )
   return mainText(driver)

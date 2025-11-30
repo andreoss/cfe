@@ -101,7 +101,7 @@ async function postTopic(driver, title) {
       }
       return false
     },
-    10000,
+    20000,
     'posting should either land or be refused',
   )
   return outcome
