@@ -579,11 +579,32 @@ export async function postComment(
   return result.ok ? { ok: true, value: toComment(result.value) } : result
 }
 
-export async function deleteTopic(id: string, reason: string): Promise<ApiResult<Topic>> {
+export const DELETION_PENALTIES: { value: number; label: string }[] = [
+  { value: 0, label: 'No penalty' },
+  { value: -5, label: 'Lose 5' },
+  { value: -10, label: 'Lose 10' },
+  { value: -20, label: 'Lose 20' },
+  { value: -30, label: 'Lose 30' },
+  { value: -50, label: 'Lose 50' },
+]
+
+export const DEFAULT_DELETION_PENALTY = -10
+
+function deletionPayload(reason: string, penalty?: number): Record<string, unknown> {
+  const payload: Record<string, unknown> = { reason }
+  if (penalty !== undefined) payload.penalty = penalty
+  return payload
+}
+
+export async function deleteTopic(
+  id: string,
+  reason: string,
+  penalty?: number,
+): Promise<ApiResult<Topic>> {
   const result = await request<RawTopic>(`/api/topics/${encodeURIComponent(id)}/delete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(deletionPayload(reason, penalty)),
   })
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
@@ -601,13 +622,14 @@ export async function deleteComment(
   topicId: string,
   id: string,
   reason: string,
+  penalty?: number,
 ): Promise<ApiResult<Comment>> {
   const result = await request<RawComment>(
     `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(id)}/delete`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify(deletionPayload(reason, penalty)),
     },
   )
   return result.ok ? { ok: true, value: toComment(result.value) } : result

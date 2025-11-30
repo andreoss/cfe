@@ -910,10 +910,52 @@ describe('deleteTopic', () => {
     expect(result.ok && result.value.deletedReason).toBe('spam')
   })
 
+  it('sends only the reason when no penalty is chosen', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ deleted: true })))
+    await deleteTopic('t1', 'spam')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/delete'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'spam' }),
+      }),
+    )
+  })
+
+  it('sends the penalty when one is chosen', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ deleted: true })))
+    await deleteTopic('t1', 'spam', -50)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/delete'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'spam', penalty: -50 }),
+      }),
+    )
+  })
+
+  it('sends a zero penalty rather than omitting it', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTopic({ deleted: true })))
+    await deleteTopic('t1', 'spam', 0)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: JSON.stringify({ reason: 'spam', penalty: 0 }) }),
+    )
+  })
+
   it('returns an error when not a moderator', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'moderator role required' }))
     const result = await deleteTopic('t1', 'spam')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+
+  it('returns the out of range error verbatim', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'penalty out of range' }))
+    const result = await deleteTopic('t1', 'spam', -60)
+    expect(result).toEqual({ ok: false, error: 'penalty out of range' })
   })
 })
 
@@ -932,10 +974,52 @@ describe('deleteComment', () => {
     expect(result.ok && result.value.deletedReason).toBe('off-topic')
   })
 
+  it('sends only the reason when no penalty is chosen', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment({ deleted: true })))
+    await deleteComment('t1', 'c1', 'off-topic')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/delete'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'off-topic' }),
+      }),
+    )
+  })
+
+  it('sends the penalty when one is chosen', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment({ deleted: true })))
+    await deleteComment('t1', 'c1', 'off-topic', -20)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/topics/t1/comments/c1/delete'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'off-topic', penalty: -20 }),
+      }),
+    )
+  })
+
+  it('sends a zero penalty rather than omitting it', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawComment({ deleted: true })))
+    await deleteComment('t1', 'c1', 'off-topic', 0)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: JSON.stringify({ reason: 'off-topic', penalty: 0 }) }),
+    )
+  })
+
   it('returns an error when not a moderator', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'moderator role required' }))
     const result = await deleteComment('t1', 'c1', 'off-topic')
     expect(result).toEqual({ ok: false, error: 'moderator role required' })
+  })
+
+  it('returns the out of range error verbatim', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'penalty out of range' }))
+    const result = await deleteComment('t1', 'c1', 'off-topic', 5)
+    expect(result).toEqual({ ok: false, error: 'penalty out of range' })
   })
 })
 

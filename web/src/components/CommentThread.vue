@@ -9,6 +9,8 @@ import {
   reactToComment,
   clearCommentReaction,
   reportComment,
+  DELETION_PENALTIES,
+  DEFAULT_DELETION_PENALTY,
   type Comment,
   type ReactionSummary,
   type ReportKind,
@@ -30,6 +32,7 @@ const draft = ref('')
 const formError = ref('')
 const deletingId = ref<string | null>(null)
 const deleteReason = ref('')
+const deletePenalty = ref(DEFAULT_DELETION_PENALTY)
 const deleteError = ref('')
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
@@ -145,13 +148,19 @@ async function onReply(parentId: string) {
 
 async function onDelete(commentId: string) {
   deleteError.value = ''
-  const result = await deleteComment(props.topicId, commentId, deleteReason.value)
+  const result = await deleteComment(
+    props.topicId,
+    commentId,
+    deleteReason.value,
+    deletePenalty.value,
+  )
   if (!result.ok) {
     deleteError.value = result.error
     return
   }
   deletingId.value = null
   deleteReason.value = ''
+  deletePenalty.value = DEFAULT_DELETION_PENALTY
   props.onPosted()
 }
 
@@ -260,6 +269,14 @@ async function onEdit(commentId: string) {
             <label>
               Reason
               <input v-model="deleteReason" name="delete-reason" type="text" />
+            </label>
+            <label>
+              Penalty
+              <select v-model="deletePenalty" name="penalty">
+                <option v-for="p in DELETION_PENALTIES" :key="p.value" :value="p.value">
+                  {{ p.label }}
+                </option>
+              </select>
             </label>
             <p v-if="deleteError" role="alert">{{ deleteError }}</p>
             <button type="submit">Confirm delete</button>

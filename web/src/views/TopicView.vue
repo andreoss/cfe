@@ -29,6 +29,8 @@ import {
   setSticky,
   setOffFront,
   setResolved,
+  DELETION_PENALTIES,
+  DEFAULT_DELETION_PENALTY,
   type ReportKind,
   type Topic,
   type Comment,
@@ -57,6 +59,7 @@ const challengeNeeded = ref(false)
 const challengeAnswer = ref('')
 const deleting = ref(false)
 const deleteReason = ref('')
+const deletePenalty = ref(DEFAULT_DELETION_PENALTY)
 const deleteError = ref('')
 const postscoreOpen = ref(false)
 const postscoreError = ref('')
@@ -415,7 +418,7 @@ async function onPostComment() {
 
 async function onDelete() {
   deleteError.value = ''
-  const result = await deleteTopic(props.id, deleteReason.value)
+  const result = await deleteTopic(props.id, deleteReason.value, deletePenalty.value)
   if (!result.ok) {
     deleteError.value = result.error
     return
@@ -580,6 +583,14 @@ async function onUnsave() {
           <label>
             Reason
             <input v-model="deleteReason" name="delete-reason" type="text" />
+          </label>
+          <label>
+            Penalty
+            <select v-model="deletePenalty" name="penalty">
+              <option v-for="p in DELETION_PENALTIES" :key="p.value" :value="p.value">
+                {{ p.label }}
+              </option>
+            </select>
           </label>
           <p v-if="deleteError" role="alert">{{ deleteError }}</p>
           <button type="submit">Confirm delete</button>
