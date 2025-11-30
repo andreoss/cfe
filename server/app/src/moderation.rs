@@ -9,6 +9,13 @@ pub enum DeleteError {
     NotAuthorized,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum RestoreError {
+    NotFound,
+    NotAuthorized,
+    NotDeleted,
+}
+
 pub async fn delete_topic(
     topics: &(impl TopicRepository + ?Sized),
     users: &(impl UserRepository + ?Sized),
@@ -25,7 +32,7 @@ pub async fn delete_topic(
         .find_by_id(topic_id)
         .await
         .ok_or(DeleteError::NotFound)?;
-    let deletion = Deletion::new(moderator.id(), reason, now);
+    let deletion = Deletion::new(moderator.id(), reason, penalty, now);
     let deleted = topic.with_deletion(deletion);
     topics.update(&deleted).await;
     reputation::apply_deletion(users, deleted.author_id(), penalty).await;
@@ -48,11 +55,51 @@ pub async fn delete_comment(
         .find_by_id(comment_id)
         .await
         .ok_or(DeleteError::NotFound)?;
-    let deletion = Deletion::new(moderator.id(), reason, now);
+    let deletion = Deletion::new(moderator.id(), reason, penalty, now);
     let deleted = comment.with_deletion(deletion);
     comments.update(&deleted).await;
     reputation::apply_deletion(users, deleted.author_id(), penalty).await;
     Ok(deleted)
+}
+
+pub async fn restore_topic(
+    topics: &(impl TopicRepository + ?Sized),
+    users: &(impl UserRepository + ?Sized),
+    moderator: &User,
+    topic_id: TopicId,
+) -> Result<Topic, RestoreError> {
+    if !moderator.role().is_moderator() {
+        return Err(RestoreError::NotAuthorized);
+    }
+    let topic = topics
+        .find_by_id(topic_id)
+        .await
+        .ok_or(RestoreError::NotFound)?;
+    let deletion = topic.deletion().ok_or(RestoreError::NotDeleted)?.clone();
+    let restored = topic.restored();
+    topics.update(&restored).await;
+    reputation::give_back(users, restored.author_id(), deletion.penalty()).await;
+    Ok(restored)
+}
+
+pub async fn restore_comment(
+    comments: &(impl CommentRepository + ?Sized),
+    users: &(impl UserRepository + ?Sized),
+    moderator: &User,
+    comment_id: CommentId,
+) -> Result<Comment, RestoreError> {
+    if !moderator.role().is_moderator() {
+        return Err(RestoreError::NotAuthorized);
+    }
+    let comment = comments
+        .find_by_id(comment_id)
+        .await
+        .ok_or(RestoreError::NotFound)?;
+    let deletion = comment.deletion().ok_or(RestoreError::NotDeleted)?.clone();
+    let restored = comment.restored();
+    comments.update(&restored).await;
+    reputation::give_back(users, restored.author_id(), deletion.penalty()).await;
+    Ok(restored)
 }
 
 #[cfg(test)]
@@ -272,6 +319,69 @@ mod tests {
         .unwrap();
         let stored = users.find_by_id(author.id()).await.unwrap();
         assert_eq!(stored.score().value(), 0);
+    }
+
+    #[tokio::test]
+    async fn restoring_gives_back_exactly_what_was_taken() {
+        let topics = FakeTopicRepo::with(topic());
+        let users = FakeUserRepo::new();
+        let author = User::register(
+            UserId::new(uuid::Uuid::nil()),
+            Username::parse("author_01").unwrap(),
+            Email::parse("author@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        users.save(&author).await;
+        delete_topic(
+            &topics,
+            &users,
+            &moderator(),
+            topic().id(),
+            Reason::parse("spam").unwrap(),
+            Penalty::parse(-30).unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            users.find_by_id(author.id()).await.unwrap().score().value(),
+            -30
+        );
+        let restored = restore_topic(&topics, &users, &moderator(), topic().id())
+            .await
+            .unwrap();
+        assert!(!restored.is_deleted());
+        assert_eq!(
+            users.find_by_id(author.id()).await.unwrap().score().value(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn restoring_something_that_was_never_deleted_is_refused() {
+        let topics = FakeTopicRepo::with(topic());
+        assert_eq!(
+            restore_topic(&topics, &FakeUserRepo::new(), &moderator(), topic().id()).await,
+            Err(RestoreError::NotDeleted)
+        );
+    }
+
+    #[tokio::test]
+    async fn only_a_moderator_may_restore() {
+        let topics = FakeTopicRepo::with(topic());
+        assert_eq!(
+            restore_topic(&topics, &FakeUserRepo::new(), &plain_user(), topic().id()).await,
+            Err(RestoreError::NotAuthorized)
+        );
+    }
+
+    #[tokio::test]
+    async fn restoring_something_that_is_not_there_is_refused() {
+        let topics = FakeTopicRepo::new();
+        assert_eq!(
+            restore_topic(&topics, &FakeUserRepo::new(), &moderator(), topic().id()).await,
+            Err(RestoreError::NotFound)
+        );
     }
 
     #[tokio::test]

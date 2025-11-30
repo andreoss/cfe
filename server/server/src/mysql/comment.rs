@@ -1,6 +1,6 @@
-use crate::mysql::topic::revision;
+use crate::mysql::topic::{revision, stored_penalty};
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Page, Reason, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Page, Penalty, Reason, TopicId, UserId};
 use sqlx::{FromRow, MySqlPool};
 use time::OffsetDateTime;
 
@@ -15,7 +15,7 @@ impl MySqlCommentRepository {
 }
 
 pub const COMMENT_COLUMNS: &str = "id, topic_id, author_id, parent_id, body, created_at, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    deleted_reason, deleted_by, deleted_at, deletion_penalty, edited_by, edited_at";
 
 #[derive(FromRow)]
 pub struct CommentRow {
@@ -28,6 +28,7 @@ pub struct CommentRow {
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
+    pub deletion_penalty: i32,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
 }
@@ -37,6 +38,7 @@ pub fn to_comment(row: CommentRow) -> Comment {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
             Reason::parse(reason).expect("stored reason is valid"),
+            Penalty::parse(row.deletion_penalty).unwrap_or_default(),
             deleted_at,
         )),
         _ => None,
@@ -58,8 +60,8 @@ pub fn to_comment(row: CommentRow) -> Comment {
 impl CommentRepository for MySqlCommentRepository {
     async fn save(&self, comment: &Comment) {
         sqlx::query(
-            "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at, \
+             deletion_penalty) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(comment.id().as_uuid())
         .bind(comment.topic_id().as_uuid())
@@ -67,6 +69,7 @@ impl CommentRepository for MySqlCommentRepository {
         .bind(comment.parent_id().map(|p| p.as_uuid()))
         .bind(comment.body().as_str())
         .bind(comment.created_at())
+        .bind(stored_penalty(comment.deletion()))
         .execute(&self.pool)
         .await
         .expect("insert comment");
@@ -75,7 +78,7 @@ impl CommentRepository for MySqlCommentRepository {
     async fn update(&self, comment: &Comment) {
         sqlx::query(
             "UPDATE comments SET body = ?, deleted_reason = ?, deleted_by = ?, deleted_at = ?, \
-             edited_by = ?, edited_at = ? WHERE id = ?",
+             edited_by = ?, edited_at = ?, deletion_penalty = ? WHERE id = ?",
         )
         .bind(comment.body().as_str())
         .bind(comment.deletion().map(|d| d.reason().as_str()))
@@ -83,6 +86,7 @@ impl CommentRepository for MySqlCommentRepository {
         .bind(comment.deletion().map(|d| d.deleted_at()))
         .bind(comment.revision().map(|r| r.editor_id().as_uuid()))
         .bind(comment.revision().map(|r| r.edited_at()))
+        .bind(stored_penalty(comment.deletion()))
         .bind(comment.id().as_uuid())
         .execute(&self.pool)
         .await

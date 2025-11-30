@@ -1,4 +1,4 @@
-use crate::UserId;
+use crate::{Penalty, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -33,16 +33,27 @@ impl Reason {
 pub struct Deletion {
     moderator_id: UserId,
     reason: Reason,
+    penalty: Penalty,
     deleted_at: OffsetDateTime,
 }
 
 impl Deletion {
-    pub fn new(moderator_id: UserId, reason: Reason, deleted_at: OffsetDateTime) -> Self {
+    pub fn new(
+        moderator_id: UserId,
+        reason: Reason,
+        penalty: Penalty,
+        deleted_at: OffsetDateTime,
+    ) -> Self {
         Self {
             moderator_id,
             reason,
+            penalty,
             deleted_at,
         }
+    }
+
+    pub fn penalty(&self) -> Penalty {
+        self.penalty
     }
 
     pub fn moderator_id(&self) -> UserId {
@@ -61,6 +72,7 @@ impl Deletion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Penalty;
 
     #[test]
     fn parses_a_valid_reason() {
@@ -85,7 +97,7 @@ mod tests {
         let moderator_id = UserId::new(uuid::Uuid::nil());
         let reason = Reason::parse("spam").unwrap();
         let now = OffsetDateTime::UNIX_EPOCH;
-        let deletion = Deletion::new(moderator_id, reason.clone(), now);
+        let deletion = Deletion::new(moderator_id, reason.clone(), Penalty::default(), now);
         assert_eq!(deletion.moderator_id(), moderator_id);
         assert_eq!(deletion.reason(), &reason);
         assert_eq!(deletion.deleted_at(), now);

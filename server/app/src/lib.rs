@@ -68,7 +68,9 @@ pub use maintenance::{
     CONFIRMATION_WINDOW, FALLEN_REASON, MaintenanceReport, MaintenanceSettings, default_floor,
     drop_unconfirmed, run_maintenance, settle_standing,
 };
-pub use moderation::{DeleteError, delete_comment, delete_topic};
+pub use moderation::{
+    DeleteError, RestoreError, delete_comment, delete_topic, restore_comment, restore_topic,
+};
 pub use notifications::{MarkReadError, count_unread, list_notifications, mark_read};
 pub use polls::{
     CreatePollError, PollResults, VoteError, cast_vote, create_poll, poll_results,

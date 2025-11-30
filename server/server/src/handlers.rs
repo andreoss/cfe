@@ -6,24 +6,25 @@ use app::{
     ChangePasswordError, CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError,
     DeleteError, EditError, EnforcementError, GroupEditError, IssueError, ListTopicsError,
     MarkReadError, MoveTopicError, PollResults, PostCommentError, ReactionSummary, RegisterError,
-    RemarkError, ReportError, SectionError, SetPostscoreError, SignInError, SpendError,
-    UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban, add_bookmark, admit,
-    ban_user, block_address, cast_vote, change_password, clear_avatar, clear_reaction,
-    clear_remark, clear_sign_in_failures, close_report, commit_topic, confirm_activation,
-    confirm_email_change, count_open_for_topic, count_unread, create_group, create_poll,
-    create_section, create_session, create_topic, delete_comment, delete_topic, deregister,
-    edit_comment, edit_topic, end_every_session, enforce_posting, enforce_registration_challenge,
-    enforce_sign_in_attempts, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
-    is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
-    list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
-    list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
-    list_watched, mark_read, may_start_topic, months_with_topics, move_topic,
-    notice_of_new_network, notify_watchers, poll_results, post_comment, promote_to_moderator,
-    publish_draft, react, recent_activity, record_post, record_sign_in_failure, register,
-    remark_about, remove_bookmark, remove_posts_from_address, rename_group, rename_section,
-    report_content, reporter_of, request_activation, request_email_change, request_password_reset,
-    reset_password, search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved,
-    set_section_score, set_sticky, sign_in, sign_out as end_session, stop_ignoring, stop_watching,
+    RemarkError, ReportError, RestoreError, SectionError, SetPostscoreError, SignInError,
+    SpendError, UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban,
+    add_bookmark, admit, ban_user, block_address, cast_vote, change_password, clear_avatar,
+    clear_reaction, clear_remark, clear_sign_in_failures, close_report, commit_topic,
+    confirm_activation, confirm_email_change, count_open_for_topic, count_unread, create_group,
+    create_poll, create_section, create_session, create_topic, delete_comment, delete_topic,
+    deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
+    enforce_registration_challenge, enforce_sign_in_attempts, get_avatar, get_topic, ignore_user,
+    ignored_by, is_bookmarked, is_watching, issue_invitation, lift_address_block, lift_ban,
+    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
+    list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
+    list_topics_by_tag, list_warnings, list_watched, mark_read, may_start_topic,
+    months_with_topics, move_topic, notice_of_new_network, notify_watchers, poll_results,
+    post_comment, promote_to_moderator, publish_draft, react, recent_activity, record_post,
+    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
+    rename_group, rename_section, report_content, reporter_of, request_activation,
+    request_email_change, request_password_reset, reset_password, restore_comment, restore_topic,
+    search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_section_score,
+    set_sticky, sign_in, sign_out as end_session, stop_ignoring, stop_watching,
     summarize_reactions, topics_in_month, uncommit_topic, update_bio, warn_user, watch_topic,
 };
 use axum::Json;
@@ -785,6 +786,27 @@ pub async fn list_archive_month_handler(
     Ok(Json(paged(&list, responses)))
 }
 
+pub async fn restore_topic_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let users = state.backend.users();
+    let topic = restore_topic(&*topics, &*users, &current, TopicId::new(id))
+        .await
+        .map_err(restore_error)?;
+    Ok(Json(topic_response(&state, &topic).await?.0))
+}
+
+fn restore_error(e: RestoreError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        RestoreError::NotFound => error(StatusCode::NOT_FOUND, "not found"),
+        RestoreError::NotAuthorized => error(StatusCode::FORBIDDEN, "not authorized"),
+        RestoreError::NotDeleted => error(StatusCode::UNPROCESSABLE_ENTITY, "not deleted"),
+    }
+}
+
 pub async fn list_topics_handler(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -1280,6 +1302,19 @@ pub async fn delete_comment_handler(
         DeleteError::NotFound => error(StatusCode::NOT_FOUND, "comment not found"),
         DeleteError::NotAuthorized => error(StatusCode::FORBIDDEN, "moderator role required"),
     })?;
+    Ok(Json(comment_response(&state, &comment).await?))
+}
+
+pub async fn restore_comment_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let comments = state.backend.comments();
+    let users = state.backend.users();
+    let comment = restore_comment(&*comments, &*users, &current, CommentId::new(id))
+        .await
+        .map_err(restore_error)?;
     Ok(Json(comment_response(&state, &comment).await?))
 }
 

@@ -22,7 +22,10 @@ pub async fn edit_topic(
     tags: TagSet,
     now: OffsetDateTime,
 ) -> Result<Topic, EditError> {
-    let topic = topics.find_by_id(topic_id).await.ok_or(EditError::NotFound)?;
+    let topic = topics
+        .find_by_id(topic_id)
+        .await
+        .ok_or(EditError::NotFound)?;
     if !may_edit(user, topic.author_id()) {
         return Err(EditError::NotAuthorized);
     }
@@ -199,6 +202,7 @@ mod tests {
         let deletion = Deletion::new(
             UserId::new(uuid::Uuid::max()),
             Reason::parse("spam").unwrap(),
+            domain::Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         );
         let topics = FakeTopicRepo::with(topic().with_deletion(deletion));
@@ -252,6 +256,7 @@ mod tests {
         let deletion = Deletion::new(
             UserId::new(uuid::Uuid::max()),
             Reason::parse("spam").unwrap(),
+            domain::Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         );
         let comments = FakeCommentRepo::new();

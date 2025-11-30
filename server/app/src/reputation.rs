@@ -27,6 +27,14 @@ pub async fn apply_reaction(
     adjust(users, author_id, added - removed).await;
 }
 
+pub async fn give_back(
+    users: &(impl UserRepository + ?Sized),
+    author_id: UserId,
+    penalty: Penalty,
+) {
+    adjust(users, author_id, -penalty.value()).await;
+}
+
 pub async fn apply_deletion(
     users: &(impl UserRepository + ?Sized),
     author_id: UserId,

@@ -156,6 +156,13 @@ impl Topic {
         }
     }
 
+    pub fn restored(&self) -> Self {
+        Self {
+            deleted: None,
+            ..self.clone()
+        }
+    }
+
     pub fn revision(&self) -> Option<&Revision> {
         self.edited.as_ref()
     }
@@ -307,10 +314,7 @@ mod tests {
         let title = Title::parse("After").unwrap();
         let body = Body::parse("New body").unwrap();
         let tags = TagSet::parse(&["rust".to_string()]).unwrap();
-        let revision = Revision::new(
-            UserId::new(uuid::Uuid::max()),
-            OffsetDateTime::UNIX_EPOCH,
-        );
+        let revision = Revision::new(UserId::new(uuid::Uuid::max()), OffsetDateTime::UNIX_EPOCH);
         let edited = topic.with_edit(title.clone(), body.clone(), tags.clone(), revision.clone());
         assert_eq!(edited.id(), topic.id());
         assert_eq!(edited.created_at(), topic.created_at());
@@ -340,6 +344,43 @@ mod tests {
     }
 
     #[test]
+    fn restoring_clears_the_deletion_and_keeps_everything_else() {
+        let topic = Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            SectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        let deleted = topic.with_deletion(Deletion::new(
+            UserId::new(uuid::Uuid::max()),
+            Reason::parse("spam").unwrap(),
+            crate::Penalty::parse(-30).unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        ));
+        assert!(deleted.is_deleted());
+        let restored = deleted.restored();
+        assert!(!restored.is_deleted());
+        assert_eq!(restored.deletion(), None);
+        assert_eq!(restored.id(), topic.id());
+        assert_eq!(restored.title(), topic.title());
+        assert_eq!(restored.body(), topic.body());
+    }
+
+    #[test]
+    fn a_deletion_remembers_what_it_cost() {
+        let deletion = Deletion::new(
+            UserId::new(uuid::Uuid::max()),
+            Reason::parse("spam").unwrap(),
+            crate::Penalty::parse(-30).unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        assert_eq!(deletion.penalty().value(), -30);
+    }
+
+    #[test]
     fn with_deletion_marks_deleted_and_keeps_identity() {
         let id = TopicId::new(uuid::Uuid::nil());
         let section_id = SectionId::new(uuid::Uuid::nil());
@@ -356,6 +397,7 @@ mod tests {
         let deletion = Deletion::new(
             UserId::new(uuid::Uuid::max()),
             Reason::parse("spam").unwrap(),
+            crate::Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         );
         let deleted = topic.with_deletion(deletion.clone());

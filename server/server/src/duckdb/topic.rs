@@ -1,8 +1,8 @@
 use crate::duckdb::conn::Db;
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, GroupId, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title,
-    Topic, TopicId, UserId,
+    Body, Deletion, GroupId, Page, Penalty, PostScore, Reason, Revision, SectionId, Slug, TagSet,
+    Title, Topic, TopicId, UserId,
 };
 use duckdb::Row;
 use duckdb::types::Value;
@@ -19,8 +19,8 @@ impl DuckTopicRepository {
 }
 
 pub const TOPIC_COLUMNS: &str = "id, section_id, author_id, title, body, created_at, postscore, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at, group_id, pending, draft, \
-    sticky, off_front, resolved, minor";
+    deleted_reason, deleted_by, deleted_at, deletion_penalty, edited_by, edited_at, group_id, \
+    pending, draft, sticky, off_front, resolved, minor";
 pub struct TopicRow {
     pub id: uuid::Uuid,
     pub section_id: uuid::Uuid,
@@ -32,6 +32,7 @@ pub struct TopicRow {
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
+    pub deletion_penalty: i32,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
     pub group_id: Option<uuid::Uuid>,
@@ -138,15 +139,16 @@ pub fn topic_row(row: &Row) -> TopicRow {
         deleted_reason: row.get(7).expect("read reason"),
         deleted_by: read_opt_uuid(row, 8),
         deleted_at: read_opt_time(row, 9),
-        edited_by: read_opt_uuid(row, 10),
-        edited_at: read_opt_time(row, 11),
-        group_id: read_opt_uuid(row, 12),
-        pending: row.get(13).expect("read pending"),
-        draft: row.get(14).expect("read draft"),
-        sticky: row.get(15).expect("read sticky"),
-        off_front: row.get(16).expect("read off front"),
-        resolved: row.get(17).expect("read resolved"),
-        minor: row.get(18).expect("read minor"),
+        deletion_penalty: row.get(10).expect("read penalty"),
+        edited_by: read_opt_uuid(row, 11),
+        edited_at: read_opt_time(row, 12),
+        group_id: read_opt_uuid(row, 13),
+        pending: row.get(14).expect("read pending"),
+        draft: row.get(15).expect("read draft"),
+        sticky: row.get(16).expect("read sticky"),
+        off_front: row.get(17).expect("read off front"),
+        resolved: row.get(18).expect("read resolved"),
+        minor: row.get(19).expect("read minor"),
     }
 }
 
@@ -179,11 +181,16 @@ pub fn is_minor(topic: &Topic) -> bool {
     topic.revision().map(|r| r.is_minor()).unwrap_or(false)
 }
 
+pub fn penalty_value(deletion: Option<&Deletion>) -> Value {
+    Value::Int(deletion.map(|d| d.penalty()).unwrap_or_default().value())
+}
+
 pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
     let deleted = match (&row.deleted_reason, row.deleted_by, row.deleted_at) {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
             Reason::parse(reason).expect("stored reason is valid"),
+            Penalty::parse(row.deletion_penalty).unwrap_or_default(),
             deleted_at,
         )),
         _ => None,
@@ -330,12 +337,14 @@ impl TopicRepository for DuckTopicRepository {
             Value::Boolean(topic.is_off_front()),
             Value::Boolean(topic.is_resolved()),
             Value::Boolean(is_minor(topic)),
+            penalty_value(topic.deletion()),
         ];
         self.db
             .execute(
                 "INSERT INTO topics (id, section_id, author_id, title, body, created_at, \
-                 group_id, pending, draft, sticky, off_front, resolved, minor) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 group_id, pending, draft, sticky, off_front, resolved, minor, \
+                 deletion_penalty) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;
@@ -359,14 +368,15 @@ impl TopicRepository for DuckTopicRepository {
             Value::Boolean(topic.is_off_front()),
             Value::Boolean(topic.is_resolved()),
             Value::Boolean(is_minor(topic)),
+            penalty_value(topic.deletion()),
             uuid_value(topic.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE topics SET title = ?, body = ?, postscore = ?, deleted_reason = ?, \
                  deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, group_id = ?, \
-                 pending = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ? \
-                 WHERE id = ?",
+                 pending = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ?, \
+                 deletion_penalty = ? WHERE id = ?",
                 params,
             )
             .await;

@@ -1,5 +1,7 @@
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Page, Reason, Revision, TopicId, UserId};
+use domain::{
+    Body, Comment, CommentId, Deletion, Page, Penalty, Reason, Revision, TopicId, UserId,
+};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 
@@ -14,7 +16,7 @@ impl PgCommentRepository {
 }
 
 const SELECT_COLUMNS: &str = "id, topic_id, author_id, parent_id, body, created_at, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    deleted_reason, deleted_by, deleted_at, deletion_penalty, edited_by, edited_at";
 
 #[derive(FromRow)]
 struct Row {
@@ -27,6 +29,7 @@ struct Row {
     deleted_reason: Option<String>,
     deleted_by: Option<uuid::Uuid>,
     deleted_at: Option<OffsetDateTime>,
+    deletion_penalty: i32,
     edited_by: Option<uuid::Uuid>,
     edited_at: Option<OffsetDateTime>,
 }
@@ -45,10 +48,15 @@ fn to_deletion(row: &Row) -> Option<Deletion> {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
             Reason::parse(reason).expect("stored reason is valid"),
+            Penalty::parse(row.deletion_penalty).unwrap_or_default(),
             deleted_at,
         )),
         _ => None,
     }
+}
+
+fn stored_penalty(deletion: Option<&Deletion>) -> i32 {
+    deletion.map(|d| d.penalty()).unwrap_or_default().value()
 }
 
 fn to_comment(row: Row) -> Comment {
@@ -70,8 +78,8 @@ fn to_comment(row: Row) -> Comment {
 impl CommentRepository for PgCommentRepository {
     async fn save(&self, comment: &Comment) {
         sqlx::query(
-            "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at, \
+             deletion_penalty) VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(comment.id().as_uuid())
         .bind(comment.topic_id().as_uuid())
@@ -79,6 +87,7 @@ impl CommentRepository for PgCommentRepository {
         .bind(comment.parent_id().map(|p| p.as_uuid()))
         .bind(comment.body().as_str())
         .bind(comment.created_at())
+        .bind(stored_penalty(comment.deletion()))
         .execute(&self.pool)
         .await
         .expect("insert comment");
@@ -87,7 +96,8 @@ impl CommentRepository for PgCommentRepository {
     async fn update(&self, comment: &Comment) {
         sqlx::query(
             "UPDATE comments SET body = $2, deleted_reason = $3, deleted_by = $4, \
-             deleted_at = $5, edited_by = $6, edited_at = $7 WHERE id = $1",
+             deleted_at = $5, edited_by = $6, edited_at = $7, deletion_penalty = $8 \
+             WHERE id = $1",
         )
         .bind(comment.id().as_uuid())
         .bind(comment.body().as_str())
@@ -96,6 +106,7 @@ impl CommentRepository for PgCommentRepository {
         .bind(comment.deletion().map(|d| d.deleted_at()))
         .bind(comment.revision().map(|r| r.editor_id().as_uuid()))
         .bind(comment.revision().map(|r| r.edited_at()))
+        .bind(stored_penalty(comment.deletion()))
         .execute(&self.pool)
         .await
         .expect("update comment");

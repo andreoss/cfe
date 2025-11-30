@@ -42,6 +42,7 @@ CREATE TABLE topics (
     deleted_reason VARCHAR,
     deleted_by UUID,
     deleted_at TIMESTAMPTZ,
+    deletion_penalty INTEGER NOT NULL DEFAULT -10,
     edited_by UUID,
     edited_at TIMESTAMPTZ,
     group_id UUID,
@@ -74,6 +75,7 @@ CREATE TABLE comments (
     deleted_reason VARCHAR,
     deleted_by UUID,
     deleted_at TIMESTAMPTZ,
+    deletion_penalty INTEGER NOT NULL DEFAULT -10,
     edited_by UUID,
     edited_at TIMESTAMPTZ
 );

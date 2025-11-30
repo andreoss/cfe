@@ -252,6 +252,10 @@ async fn main() {
             get(get_topic_handler).patch(handlers::edit_topic_handler),
         )
         .route("/api/topics/{id}/delete", post(delete_topic_handler))
+        .route(
+            "/api/topics/{id}/restore",
+            post(handlers::restore_topic_handler),
+        )
         .route("/api/topics/{id}/postscore", post(set_postscore_handler))
         .route("/api/topics/{id}/commit", post(commit_topic_handler))
         .route("/api/topics/{id}/uncommit", post(uncommit_topic_handler))
@@ -296,6 +300,10 @@ async fn main() {
         .route(
             "/api/topics/{topic_id}/comments/{id}/delete",
             post(delete_comment_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/comments/{id}/restore",
+            post(handlers::restore_comment_handler),
         )
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))

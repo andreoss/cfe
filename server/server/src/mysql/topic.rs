@@ -1,7 +1,7 @@
 use app::TopicRepository;
 use domain::{
-    Body, Deletion, GroupId, Page, PostScore, Reason, Revision, SectionId, Slug, TagSet, Title,
-    Topic, TopicId, UserId,
+    Body, Deletion, GroupId, Page, Penalty, PostScore, Reason, Revision, SectionId, Slug, TagSet,
+    Title, Topic, TopicId, UserId,
 };
 use sqlx::{FromRow, MySqlPool, Row};
 use time::OffsetDateTime;
@@ -17,8 +17,8 @@ impl MySqlTopicRepository {
 }
 
 pub const TOPIC_COLUMNS: &str = "id, section_id, group_id, author_id, title, body, created_at, \
-    postscore, pending, deleted_reason, deleted_by, deleted_at, edited_by, edited_at, draft, \
-    sticky, off_front, resolved, minor";
+    postscore, pending, deleted_reason, deleted_by, deleted_at, deletion_penalty, edited_by, \
+    edited_at, draft, sticky, off_front, resolved, minor";
 #[derive(FromRow)]
 pub struct TopicRow {
     pub id: uuid::Uuid,
@@ -33,6 +33,7 @@ pub struct TopicRow {
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
+    pub deletion_penalty: i32,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
     pub draft: bool,
@@ -46,6 +47,7 @@ pub fn deletion(row: &TopicRow) -> Option<Deletion> {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
             Reason::parse(reason).expect("stored reason is valid"),
+            Penalty::parse(row.deletion_penalty).unwrap_or_default(),
             deleted_at,
         )),
         _ => None,
@@ -79,6 +81,10 @@ pub fn edit_revision(
 
 pub fn is_minor(topic: &Topic) -> bool {
     topic.revision().map(|r| r.is_minor()).unwrap_or(false)
+}
+
+pub fn stored_penalty(deletion: Option<&Deletion>) -> i32 {
+    deletion.map(|d| d.penalty()).unwrap_or_default().value()
 }
 
 pub fn to_topic(row: TopicRow, tags: TagSet) -> Topic {
@@ -192,8 +198,8 @@ impl TopicRepository for MySqlTopicRepository {
     async fn save(&self, topic: &Topic) {
         sqlx::query(
             "INSERT INTO topics (id, section_id, group_id, author_id, title, body, created_at, \
-             pending, draft, sticky, off_front, resolved, minor) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             pending, draft, sticky, off_front, resolved, minor, deletion_penalty) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(topic.id().as_uuid())
         .bind(topic.section_id().as_uuid())
@@ -208,6 +214,7 @@ impl TopicRepository for MySqlTopicRepository {
         .bind(topic.is_off_front())
         .bind(topic.is_resolved())
         .bind(is_minor(topic))
+        .bind(stored_penalty(topic.deletion()))
         .execute(&self.pool)
         .await
         .expect("insert topic");
@@ -218,8 +225,8 @@ impl TopicRepository for MySqlTopicRepository {
         sqlx::query(
             "UPDATE topics SET title = ?, body = ?, postscore = ?, pending = ?, \
              deleted_reason = ?, deleted_by = ?, deleted_at = ?, edited_by = ?, edited_at = ?, \
-             group_id = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ? \
-             WHERE id = ?",
+             group_id = ?, draft = ?, sticky = ?, off_front = ?, resolved = ?, minor = ?, \
+             deletion_penalty = ? WHERE id = ?",
         )
         .bind(topic.title().as_str())
         .bind(topic.body().as_str())
@@ -236,6 +243,7 @@ impl TopicRepository for MySqlTopicRepository {
         .bind(topic.is_off_front())
         .bind(topic.is_resolved())
         .bind(is_minor(topic))
+        .bind(stored_penalty(topic.deletion()))
         .bind(topic.id().as_uuid())
         .execute(&self.pool)
         .await

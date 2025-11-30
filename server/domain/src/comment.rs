@@ -108,6 +108,13 @@ impl Comment {
         }
     }
 
+    pub fn restored(&self) -> Self {
+        Self {
+            deleted: None,
+            ..self.clone()
+        }
+    }
+
     pub fn revision(&self) -> Option<&Revision> {
         self.edited.as_ref()
     }
@@ -173,10 +180,7 @@ mod tests {
         assert!(!comment.is_edited());
         assert_eq!(comment.revision(), None);
         let body = Body::parse("New body").unwrap();
-        let revision = Revision::new(
-            UserId::new(uuid::Uuid::max()),
-            OffsetDateTime::UNIX_EPOCH,
-        );
+        let revision = Revision::new(UserId::new(uuid::Uuid::max()), OffsetDateTime::UNIX_EPOCH);
         let edited = comment.with_edit(body.clone(), revision.clone());
         assert_eq!(edited.id(), comment.id());
         assert_eq!(edited.created_at(), comment.created_at());
@@ -199,6 +203,7 @@ mod tests {
         let deletion = Deletion::new(
             UserId::new(uuid::Uuid::max()),
             Reason::parse("spam").unwrap(),
+            crate::Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         );
         let deleted = comment.with_deletion(deletion.clone());

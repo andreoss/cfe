@@ -1,10 +1,10 @@
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{
-    count, limit_value, offset_value, opt_text, opt_time, opt_uuid, read_opt_time, read_opt_uuid,
-    read_time, read_uuid, revision, time_to_value, uuid_value,
+    count, limit_value, offset_value, opt_text, opt_time, opt_uuid, penalty_value, read_opt_time,
+    read_opt_uuid, read_time, read_uuid, revision, time_to_value, uuid_value,
 };
 use app::CommentRepository;
-use domain::{Body, Comment, CommentId, Deletion, Page, Reason, TopicId, UserId};
+use domain::{Body, Comment, CommentId, Deletion, Page, Penalty, Reason, TopicId, UserId};
 use duckdb::Row;
 use duckdb::types::Value;
 use time::OffsetDateTime;
@@ -20,7 +20,7 @@ impl DuckCommentRepository {
 }
 
 pub const COMMENT_COLUMNS: &str = "id, topic_id, author_id, parent_id, body, created_at, \
-    deleted_reason, deleted_by, deleted_at, edited_by, edited_at";
+    deleted_reason, deleted_by, deleted_at, deletion_penalty, edited_by, edited_at";
 
 pub struct CommentRow {
     pub id: uuid::Uuid,
@@ -32,6 +32,7 @@ pub struct CommentRow {
     pub deleted_reason: Option<String>,
     pub deleted_by: Option<uuid::Uuid>,
     pub deleted_at: Option<OffsetDateTime>,
+    pub deletion_penalty: i32,
     pub edited_by: Option<uuid::Uuid>,
     pub edited_at: Option<OffsetDateTime>,
 }
@@ -47,8 +48,9 @@ pub fn comment_row(row: &Row) -> CommentRow {
         deleted_reason: row.get(6).expect("read reason"),
         deleted_by: read_opt_uuid(row, 7),
         deleted_at: read_opt_time(row, 8),
-        edited_by: read_opt_uuid(row, 9),
-        edited_at: read_opt_time(row, 10),
+        deletion_penalty: row.get(9).expect("read penalty"),
+        edited_by: read_opt_uuid(row, 10),
+        edited_at: read_opt_time(row, 11),
     }
 }
 
@@ -57,6 +59,7 @@ pub fn to_comment(row: CommentRow) -> Comment {
         (Some(reason), Some(moderator_id), Some(deleted_at)) => Some(Deletion::new(
             UserId::new(moderator_id),
             Reason::parse(reason).expect("stored reason is valid"),
+            Penalty::parse(row.deletion_penalty).unwrap_or_default(),
             deleted_at,
         )),
         _ => None,
@@ -99,11 +102,12 @@ impl CommentRepository for DuckCommentRepository {
             opt_uuid(comment.parent_id().map(|p| p.as_uuid())),
             Value::Text(comment.body().as_str().to_owned()),
             time_to_value(comment.created_at()),
+            penalty_value(comment.deletion()),
         ];
         self.db
             .execute(
-                "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO comments (id, topic_id, author_id, parent_id, body, created_at, \
+                 deletion_penalty) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 params,
             )
             .await;
@@ -117,12 +121,14 @@ impl CommentRepository for DuckCommentRepository {
             opt_time(comment.deletion().map(|d| d.deleted_at())),
             opt_uuid(comment.revision().map(|r| r.editor_id().as_uuid())),
             opt_time(comment.revision().map(|r| r.edited_at())),
+            penalty_value(comment.deletion()),
             uuid_value(comment.id().as_uuid()),
         ];
         self.db
             .execute(
                 "UPDATE comments SET body = ?, deleted_reason = ?, deleted_by = ?, \
-                 deleted_at = ?, edited_by = ?, edited_at = ? WHERE id = ?",
+                 deleted_at = ?, edited_by = ?, edited_at = ?, deletion_penalty = ? \
+                 WHERE id = ?",
                 params,
             )
             .await;
