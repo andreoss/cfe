@@ -89,7 +89,9 @@ impl InvitationRepository for DuckInvitationRepository {
                 "INSERT INTO invitations \
                  (id, code, issuer_id, created_at, expires_at, spent_at, spent_by) \
                  VALUES (?, ?, ?, ?, ?, ?, ?) \
-                 ON CONFLICT (id) DO UPDATE SET spent_at = EXCLUDED.spent_at, \
+                 ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, \
+                 issuer_id = EXCLUDED.issuer_id, created_at = EXCLUDED.created_at, \
+                 expires_at = EXCLUDED.expires_at, spent_at = EXCLUDED.spent_at, \
                  spent_by = EXCLUDED.spent_by",
                 params,
             )

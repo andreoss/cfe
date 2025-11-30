@@ -1380,14 +1380,18 @@ impl InvitationRepository for FakeInvitationRepo {
     }
 
     async fn list_by_issuer(&self, issuer_id: UserId, page: Page) -> Vec<Invitation> {
-        self.invitations
+        let mut mine: Vec<Invitation> = self
+            .invitations
             .lock()
             .unwrap()
             .iter()
             .filter(|i| i.issuer_id() == issuer_id)
+            .cloned()
+            .collect();
+        mine.sort_by_key(|i| std::cmp::Reverse(i.created_at()));
+        mine.into_iter()
             .skip(page.offset() as usize)
             .take(page.limit() as usize)
-            .cloned()
             .collect()
     }
 
