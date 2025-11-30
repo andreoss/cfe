@@ -24,10 +24,7 @@ pub async fn register(
         return Err(RegisterError::EmailTaken);
     }
     let password_hash = hasher.hash(plain_password);
-    let mut user = User::register(new_id, username, email, password_hash);
-    if repo.count().await == 0 {
-        user = user.promoted_to_moderator();
-    }
+    let user = User::register(new_id, username, email, password_hash);
     repo.save(&user).await;
     Ok(user)
 }
@@ -79,7 +76,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_registered_user_is_a_moderator() {
+    async fn nobody_becomes_an_operator_by_registering_first() {
         let repo = FakeUserRepo::new();
         let hasher = FakeHasher;
         let user = register(
@@ -93,7 +90,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(user.role(), domain::Role::Moderator);
+        assert_eq!(user.role(), domain::Role::User);
     }
 
     #[tokio::test]

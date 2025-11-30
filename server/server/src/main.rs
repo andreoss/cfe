@@ -134,6 +134,24 @@ fn invitation_settings_from_env() -> app::InvitationSettings {
     settings
 }
 
+fn chosen(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|raw| !raw.is_empty())
+}
+
+fn operator_from_env() -> app::OperatorSettings {
+    let mut settings = app::OperatorSettings::default();
+    if let Some(raw) = chosen("OPERATOR_USERNAME") {
+        settings.username = raw;
+    }
+    if let Some(raw) = chosen("OPERATOR_PASSWORD") {
+        settings.password = raw;
+    }
+    if let Some(raw) = chosen("OPERATOR_EMAIL") {
+        settings.email = raw;
+    }
+    settings
+}
+
 fn maintenance_interval() -> Option<std::time::Duration> {
     let seconds: u64 = std::env::var("MAINTENANCE_INTERVAL_SECONDS")
         .ok()
@@ -159,6 +177,19 @@ async fn main() {
         maintenance: maintenance_from_env(),
         sign_in_limits: sign_in_limits_from_env(),
     };
+    match app::ensure_operator(
+        &*state.backend.users(),
+        &hasher::Argon2Hasher,
+        &operator_from_env(),
+        domain::UserId::new(uuid::Uuid::new_v4()),
+        time::OffsetDateTime::now_utc(),
+    )
+    .await
+    {
+        Ok(Some(operator)) => println!("operator: {} created", operator.username().as_str()),
+        Ok(None) => {}
+        Err(_) => panic!("OPERATOR_USERNAME and OPERATOR_EMAIL must be usable"),
+    }
     if let Some(interval) = maintenance_interval() {
         let scheduled = state.clone();
         tokio::spawn(async move {

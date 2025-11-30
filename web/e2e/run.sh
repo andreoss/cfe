@@ -110,10 +110,8 @@ done
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
 export API_URL="http://127.0.0.1:$API_PORT"
 export MAIL_LOG
-export E2E_ROOT_USER="e2e_root"
-export E2E_ROOT_PASS="correcthorse"
-curl -s -o /dev/null -X POST "$API_URL/api/register" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"$E2E_ROOT_USER\",\"email\":\"root@example.com\",\"password\":\"$E2E_ROOT_PASS\"}"
+export E2E_ROOT_USER="${OPERATOR_USERNAME:-admin}"
+export E2E_ROOT_PASS="${OPERATOR_PASSWORD:-admin}"
 if [ -n "$SPEC" ]; then
   case "$SPEC" in
     abuse-slow) restart_api 100000 1000 3600 ;;

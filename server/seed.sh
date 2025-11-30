@@ -70,14 +70,14 @@ curl -s -o /dev/null -X POST "$API/api/sign-in" -H 'Content-Type: application/js
   -d "{\"username\":\"$LOUD\",\"password\":\"wrong-on-purpose\"}"
 
 say "a moderator"
-if [ -n "$SEED_MOD_USER" ]; then
-  curl -s -o /dev/null -c "$(jar "$SEED_MOD_USER")" -X POST "$API/api/sign-in" \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$SEED_MOD_USER\",\"password\":\"${SEED_MOD_PASS:-$PASS}\"}"
-  api POST "/api/users/$MOD/promote" "$SEED_MOD_USER" >/dev/null
-fi
+OPERATOR="${SEED_MOD_USER:-admin}"
+OPERATOR_PASS="${SEED_MOD_PASS:-admin}"
+curl -s -o /dev/null -c "$(jar "$OPERATOR")" -X POST "$API/api/sign-in" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$OPERATOR\",\"password\":\"$OPERATOR_PASS\"}"
+api POST "/api/users/$MOD/promote" "$OPERATOR" >/dev/null
 if ! api GET "/api/me" "$MOD" | grep -q '"role":"moderator"'; then
-  say "no moderator: seed an empty database, or set SEED_MOD_USER and SEED_MOD_PASS"
+  say "could not sign in as $OPERATOR: set SEED_MOD_USER and SEED_MOD_PASS"
   exit 1
 fi
 api POST "/api/users/$CARL/role" "$MOD" "{\"role\":\"corrector\"}" >/dev/null

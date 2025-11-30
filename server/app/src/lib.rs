@@ -3,6 +3,7 @@ mod account;
 mod activity;
 mod avatars;
 mod bookmarks;
+mod bootstrap;
 mod comments;
 mod editing;
 mod enforcement;
@@ -40,6 +41,7 @@ pub use abuse::{
 };
 pub use account::{ChangePasswordError, change_password, deregister};
 pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
+pub use bootstrap::{OperatorError, OperatorSettings, ensure_operator};
 pub use bookmarks::{
     BookmarkError, add_bookmark, is_bookmarked, list_bookmarked_topics, remove_bookmark,
 };
