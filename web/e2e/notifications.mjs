@@ -30,7 +30,7 @@ async function register(driver, username) {
   await driver.wait(until.urlIs(`${baseUrl}/`), 5000)
 }
 
-async function navText(driver) {
+async function navText(driver, expected) {
   await driver.get(`${baseUrl}/`)
   await driver.wait(until.elementLocated(By.css('nav')), 5000)
   let settled = ''
@@ -38,11 +38,14 @@ async function navText(driver) {
     async () => {
       const text = await driver.findElement(By.css('nav')).getText()
       if (!text.includes('Notifications') && !text.includes('Sign in')) return false
+      if (expected !== undefined && !text.includes(expected)) return false
       settled = text
       return true
     },
     10000,
-    'the navigation should settle before it is read',
+    expected === undefined
+      ? 'the navigation should settle before it is read'
+      : `the navigation should come to show ${expected}`,
   )
   return settled
 }
@@ -103,7 +106,7 @@ async function run() {
       5000,
     )
 
-    nav = await navText(author)
+    nav = await navText(author, 'Notifications (1)')
     assert(nav.includes('Notifications (1)'), `author should have one unread, nav was: ${nav}`)
 
     const readerNav = await navText(reader)
