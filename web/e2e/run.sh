@@ -157,6 +157,7 @@ node e2e/corrector.mjs
 node e2e/watching.mjs
 node e2e/notes.mjs
 node e2e/invitations.mjs
+node e2e/section-settings.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs

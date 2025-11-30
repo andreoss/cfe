@@ -88,6 +88,11 @@ import {
   getInvitationPolicy,
   issueInvitation,
   getInvitations,
+  createSection,
+  renameSection,
+  setSectionScore,
+  renameGroup,
+  TOPICS_SCORES,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -419,10 +424,44 @@ describe('getSections', () => {
 
   it('returns the section list', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(true, [{ slug: 'general', title: 'General' }]),
+      jsonResponse(true, [
+        { slug: 'general', title: 'General', topics_score: 'unrestricted', may_post: true },
+      ]),
     )
     const result = await getSections()
-    expect(result).toEqual({ ok: true, value: [{ slug: 'general', title: 'General' }] })
+    expect(result).toEqual({
+      ok: true,
+      value: [{ slug: 'general', title: 'General', topicsScore: 'unrestricted', mayPost: true }],
+    })
+  })
+
+  it('maps snake_case fields to the Section type', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { slug: 'staff', title: 'Staff', topics_score: 'moderators-only', may_post: false },
+      ]),
+    )
+    const result = await getSections()
+    const [first] = result.ok ? result.value : []
+    expect(first?.topicsScore).toBe('moderators-only')
+    expect(first?.mayPost).toBe(false)
+  })
+
+  it('carries the standing the server computed for each section', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { slug: 'general', title: 'General', topics_score: 'unrestricted', may_post: true },
+        { slug: 'staff', title: 'Staff', topics_score: 'moderators-only', may_post: false },
+      ]),
+    )
+    const result = await getSections()
+    expect(result.ok && result.value.map((s) => s.mayPost)).toEqual([true, false])
+  })
+
+  it('returns the server error when the listing cannot be read', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'service unavailable' }))
+    const result = await getSections()
+    expect(result).toEqual({ ok: false, error: 'service unavailable' })
   })
 })
 
@@ -604,6 +643,34 @@ describe('groups and premoderation', () => {
     const result = await getGroups('general')
     expect(result.ok).toBe(true)
     expect(result.ok && result.value[0]?.slug).toBe('announcements')
+  })
+
+  it('getGroups maps snake_case fields to the Group type', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { id: 'g1', section_slug: 'general', name: 'Announcements', slug: 'announcements' },
+      ]),
+    )
+    const result = await getGroups('general')
+    expect(result.ok && result.value).toEqual([
+      { id: 'g1', sectionSlug: 'general', name: 'Announcements', slug: 'announcements' },
+    ])
+  })
+
+  it('createGroup maps snake_case fields to the Group type', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Announcements',
+        slug: 'announcements',
+      }),
+    )
+    const result = await createGroup('general', 'Announcements', 'announcements')
+    expect(result).toEqual({
+      ok: true,
+      value: { id: 'g1', sectionSlug: 'general', name: 'Announcements', slug: 'announcements' },
+    })
   })
 
   it('createGroup posts the name and slug', async () => {
@@ -3648,5 +3715,277 @@ describe('register with an invitation', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'invitation expired' }))
     const result = await register('alice_01', 'alice@example.com', 'correcthorse', '', 'old')
     expect(result).toEqual({ ok: false, error: 'invitation expired', status: 403 })
+  })
+})
+
+function rawSectionSettings(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    slug: 'general',
+    title: 'General',
+    topics_score: 'unrestricted',
+    ...overrides,
+  }
+}
+
+describe('TOPICS_SCORES', () => {
+  it('offers exactly the standings the server accepts', () => {
+    expect([...TOPICS_SCORES]).toEqual([
+      'unrestricted',
+      'registered',
+      'moderator-or-author',
+      'moderators-only',
+      'no-comments',
+      'floor-50',
+      'floor-100',
+      'floor-200',
+      'floor-300',
+      'floor-400',
+      'floor-500',
+    ])
+  })
+})
+
+describe('createSection', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the SectionSettings type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawSectionSettings()))
+    const result = await createSection('general', 'General')
+    expect(result).toEqual({
+      ok: true,
+      value: { slug: 'general', title: 'General', topicsScore: 'unrestricted' },
+    })
+  })
+
+  it('posts the slug and title to the sections path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawSectionSettings()))
+    await createSection('general', 'General')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sections',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ slug: 'general', title: 'General' }),
+      }),
+    )
+  })
+
+  it('reports the status when the slug is taken', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(409, { error: 'slug taken' }))
+    const result = await createSection('general', 'General')
+    expect(result).toEqual({ ok: false, error: 'slug taken', status: 409 })
+  })
+
+  it('reports the status when the slug is invalid', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid slug' }))
+    const result = await createSection('Not A Slug', 'General')
+    expect(result).toEqual({ ok: false, error: 'invalid slug', status: 422 })
+  })
+
+  it('reports the status when the caller is not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not authorized' }))
+    const result = await createSection('general', 'General')
+    expect(result).toEqual({ ok: false, error: 'not authorized', status: 403 })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await createSection('general', 'General')
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('renameSection', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('patches the title on the settings path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawSectionSettings({ title: 'Chatter' })))
+    const result = await renameSection('general', 'Chatter')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sections/general/settings',
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ title: 'Chatter' }),
+      }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { slug: 'general', title: 'Chatter', topicsScore: 'unrestricted' },
+    })
+  })
+
+  it('url-encodes the slug', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawSectionSettings()))
+    await renameSection('gen eral/x', 'General')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/gen%20eral%2Fx/settings'),
+      expect.anything(),
+    )
+  })
+
+  it('reports the status when the section is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'section not found' }))
+    const result = await renameSection('nope', 'Nope')
+    expect(result).toEqual({ ok: false, error: 'section not found', status: 404 })
+  })
+
+  it('reports the status when the title is invalid', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid title' }))
+    const result = await renameSection('general', '')
+    expect(result).toEqual({ ok: false, error: 'invalid title', status: 422 })
+  })
+
+  it('reports the status when the caller is not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not authorized' }))
+    const result = await renameSection('general', 'Chatter')
+    expect(result).toEqual({ ok: false, error: 'not authorized', status: 403 })
+  })
+})
+
+describe('setSectionScore', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the standing name to the topics-score path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, rawSectionSettings({ topics_score: 'floor-100' })),
+    )
+    const result = await setSectionScore('general', 'floor-100')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sections/general/topics-score',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ topics_score: 'floor-100' }),
+      }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { slug: 'general', title: 'General', topicsScore: 'floor-100' },
+    })
+  })
+
+  it('url-encodes the slug', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawSectionSettings()))
+    await setSectionScore('gen eral/x', 'registered')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/gen%20eral%2Fx/topics-score'),
+      expect.anything(),
+    )
+  })
+
+  it('reports the status when the standing name is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid topics score' }))
+    const result = await setSectionScore('general', '100')
+    expect(result).toEqual({ ok: false, error: 'invalid topics score', status: 422 })
+  })
+
+  it('reports the status when the caller is not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not authorized' }))
+    const result = await setSectionScore('general', 'moderators-only')
+    expect(result).toEqual({ ok: false, error: 'not authorized', status: 403 })
+  })
+})
+
+describe('renameGroup', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('patches the title on the group path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Notices',
+        slug: 'announcements',
+      }),
+    )
+    const result = await renameGroup('general', 'announcements', 'Notices')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sections/general/groups/announcements',
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ title: 'Notices' }),
+      }),
+    )
+    expect(result.ok && result.value.name).toBe('Notices')
+  })
+
+  it('keeps the group slug when the name changes', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Notices',
+        slug: 'announcements',
+      }),
+    )
+    const result = await renameGroup('general', 'announcements', 'Notices')
+    expect(result.ok && result.value.slug).toBe('announcements')
+  })
+
+  it('maps snake_case fields to the Group type', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Notices',
+        slug: 'announcements',
+      }),
+    )
+    const result = await renameGroup('general', 'announcements', 'Notices')
+    expect(result).toEqual({
+      ok: true,
+      value: { id: 'g1', sectionSlug: 'general', name: 'Notices', slug: 'announcements' },
+    })
+  })
+
+  it('url-encodes both slugs', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(
+      jsonResponse(true, {
+        id: 'g1',
+        section_slug: 'general',
+        name: 'Notices',
+        slug: 'announcements',
+      }),
+    )
+    await renameGroup('gen eral/x', 'ann ounce/y', 'Notices')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sections/gen%20eral%2Fx/groups/ann%20ounce%2Fy'),
+      expect.anything(),
+    )
+  })
+
+  it('reports the status when the group is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'group not found' }))
+    const result = await renameGroup('general', 'nope', 'Notices')
+    expect(result).toEqual({ ok: false, error: 'group not found', status: 404 })
+  })
+
+  it('reports the status when the caller is not a moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'not authorized' }))
+    const result = await renameGroup('general', 'announcements', 'Notices')
+    expect(result).toEqual({ ok: false, error: 'not authorized', status: 403 })
+  })
+
+  it('reports the status when the title is invalid', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid title' }))
+    const result = await renameGroup('general', 'announcements', '')
+    expect(result).toEqual({ ok: false, error: 'invalid title', status: 422 })
   })
 })

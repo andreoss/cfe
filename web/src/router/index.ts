@@ -115,6 +115,11 @@ const router = createRouter({
       name: 'addresses',
       component: () => import('../views/AddressView.vue'),
     },
+    {
+      path: '/section-settings',
+      name: 'sectionSettings',
+      component: () => import('../views/SectionSettingsView.vue'),
+    },
   ],
 })
 

@@ -5,12 +5,14 @@ import {
   getTopics,
   createTopic,
   getGroups,
+  getSections,
   commitTopic,
   uncommitTopic,
   sectionFeedUrl,
   type PageInfo,
   type Topic,
   type Group,
+  type Section,
 } from '@/api/client'
 
 const props = defineProps<{ slug: string }>()
@@ -27,6 +29,7 @@ const tagsDraft = ref('')
 const groupDraft = ref('')
 const asDraft = ref(false)
 const groups = ref<Group[]>([])
+const section = ref<Section | null>(null)
 const moderationError = ref('')
 const formError = ref('')
 const challengeNeeded = ref(false)
@@ -42,6 +45,11 @@ function parseTags(raw: string): string[] {
 async function loadGroups() {
   const result = await getGroups(props.slug)
   if (result.ok) groups.value = result.value
+}
+
+async function loadSection() {
+  const result = await getSections()
+  if (result.ok) section.value = result.value.find((s) => s.slug === props.slug) ?? null
 }
 
 async function load() {
@@ -72,11 +80,15 @@ watch(
   () => props.slug,
   () => {
     groups.value = []
+    section.value = null
     void loadGroups()
+    void loadSection()
     void goToPage(1)
   },
   { immediate: true },
 )
+
+watch(() => auth.currentUser, loadSection)
 
 async function onCommit(id: string) {
   moderationError.value = ''
@@ -168,7 +180,7 @@ async function onCreate() {
       <button type="button" :disabled="!page.hasNext" @click="nextPage">Next</button>
     </nav>
 
-    <template v-if="auth.currentUser">
+    <template v-if="section?.mayPost">
       <button v-if="!creating" type="button" @click="creating = true">New topic</button>
       <form v-else @submit.prevent="onCreate">
         <label>

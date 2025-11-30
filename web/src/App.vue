@@ -48,6 +48,9 @@ onMounted(() => {
         <RouterLink v-if="auth.currentUser.role === 'moderator'" to="/addresses"
           >Addresses</RouterLink
         >
+        <RouterLink v-if="auth.currentUser.role === 'moderator'" to="/section-settings"
+          >Sections</RouterLink
+        >
         <RouterLink to="/settings">Settings</RouterLink>
         <button type="button" @click="auth.doSignOut()">Sign out</button>
       </template>

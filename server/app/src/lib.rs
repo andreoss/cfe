@@ -108,7 +108,7 @@ pub use topics::{
     CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,
     Visibility,
     commit_topic, create_topic, get_topic, list_sections, list_topics, list_topics_by_tag,
-    move_topic, set_postscore, uncommit_topic,
+    may_start_topic, move_topic, set_postscore, uncommit_topic,
 };
 pub use groups::{CreateGroupError, create_group, list_groups};
 pub use invitations::{

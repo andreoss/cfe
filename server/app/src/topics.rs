@@ -42,6 +42,12 @@ pub enum CreateTopicError {
     Restricted,
 }
 
+pub fn may_start_topic(section: &domain::Section, author: &User) -> bool {
+    section
+        .topics_score()
+        .allows(author.score(), author.role().is_moderator(), false)
+}
+
 pub async fn create_topic(
     sections: &(impl SectionRepository + ?Sized),
     topics: &(impl TopicRepository + ?Sized),
@@ -58,10 +64,7 @@ pub async fn create_topic(
         .find_by_slug(slug)
         .await
         .ok_or(CreateTopicError::SectionNotFound)?;
-    let allowed = section
-        .topics_score()
-        .allows(author.score(), author.role().is_moderator(), false);
-    if !allowed {
+    if !may_start_topic(&section, author) {
         return Err(CreateTopicError::Restricted);
     }
     let pending = !author.role().is_moderator();

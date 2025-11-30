@@ -7,7 +7,12 @@ export type Profile = {
   score: number
   role: Role
 }
-export type Section = { slug: string; title: string }
+export type Section = {
+  slug: string
+  title: string
+  topicsScore: string
+  mayPost: boolean
+}
 export type Group = {
   id: string
   sectionSlug: string
@@ -310,8 +315,25 @@ function toTopic(raw: RawTopic): Topic {
   }
 }
 
-export function getSections(): Promise<ApiResult<Section[]>> {
-  return request<Section[]>('/api/sections', { method: 'GET' })
+type RawSection = {
+  slug: string
+  title: string
+  topics_score: string
+  may_post: boolean
+}
+
+function toSection(raw: RawSection): Section {
+  return {
+    slug: raw.slug,
+    title: raw.title,
+    topicsScore: raw.topics_score,
+    mayPost: raw.may_post,
+  }
+}
+
+export async function getSections(): Promise<ApiResult<Section[]>> {
+  const result = await request<RawSection[]>('/api/sections', { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toSection) } : result
 }
 
 export function getTopics(
@@ -351,8 +373,27 @@ export async function getTopic(id: string): Promise<ApiResult<Topic>> {
   return result.ok ? { ok: true, value: toTopic(result.value) } : result
 }
 
-export function getGroups(slug: string): Promise<ApiResult<Group[]>> {
-  return request<Group[]>(`/api/sections/${encodeURIComponent(slug)}/groups`, { method: 'GET' })
+type RawGroup = {
+  id: string
+  section_slug: string
+  name: string
+  slug: string
+}
+
+function toGroup(raw: RawGroup): Group {
+  return {
+    id: raw.id,
+    sectionSlug: raw.section_slug,
+    name: raw.name,
+    slug: raw.slug,
+  }
+}
+
+export async function getGroups(slug: string): Promise<ApiResult<Group[]>> {
+  const result = await request<RawGroup[]>(`/api/sections/${encodeURIComponent(slug)}/groups`, {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.map(toGroup) } : result
 }
 
 export async function createGroup(
@@ -360,11 +401,92 @@ export async function createGroup(
   name: string,
   groupSlug: string,
 ): Promise<ApiResult<Group>> {
-  return request<Group>(`/api/sections/${encodeURIComponent(slug)}/groups`, {
+  const result = await request<RawGroup>(`/api/sections/${encodeURIComponent(slug)}/groups`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, slug: groupSlug }),
   })
+  return result.ok ? { ok: true, value: toGroup(result.value) } : result
+}
+
+export const TOPICS_SCORES = [
+  'unrestricted',
+  'registered',
+  'moderator-or-author',
+  'moderators-only',
+  'no-comments',
+  'floor-50',
+  'floor-100',
+  'floor-200',
+  'floor-300',
+  'floor-400',
+  'floor-500',
+] as const
+
+export type SectionSettings = { slug: string; title: string; topicsScore: string }
+
+type RawSectionSettings = { slug: string; title: string; topics_score: string }
+
+function toSectionSettings(raw: RawSectionSettings): SectionSettings {
+  return { slug: raw.slug, title: raw.title, topicsScore: raw.topics_score }
+}
+
+export async function createSection(
+  slug: string,
+  title: string,
+): Promise<ApiResult<SectionSettings>> {
+  const result = await request<RawSectionSettings>('/api/sections', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug, title }),
+  })
+  return result.ok ? { ok: true, value: toSectionSettings(result.value) } : result
+}
+
+export async function renameSection(
+  slug: string,
+  title: string,
+): Promise<ApiResult<SectionSettings>> {
+  const result = await request<RawSectionSettings>(
+    `/api/sections/${encodeURIComponent(slug)}/settings`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    },
+  )
+  return result.ok ? { ok: true, value: toSectionSettings(result.value) } : result
+}
+
+export async function setSectionScore(
+  slug: string,
+  topicsScore: string,
+): Promise<ApiResult<SectionSettings>> {
+  const result = await request<RawSectionSettings>(
+    `/api/sections/${encodeURIComponent(slug)}/topics-score`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topics_score: topicsScore }),
+    },
+  )
+  return result.ok ? { ok: true, value: toSectionSettings(result.value) } : result
+}
+
+export async function renameGroup(
+  slug: string,
+  groupSlug: string,
+  title: string,
+): Promise<ApiResult<Group>> {
+  const result = await request<RawGroup>(
+    `/api/sections/${encodeURIComponent(slug)}/groups/${encodeURIComponent(groupSlug)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    },
+  )
+  return result.ok ? { ok: true, value: toGroup(result.value) } : result
 }
 
 export async function commitTopic(id: string): Promise<ApiResult<Topic>> {

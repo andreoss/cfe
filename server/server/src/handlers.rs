@@ -17,7 +17,8 @@ use app::{
     is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
     list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
     list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
-    list_watched, mark_read, move_topic, notice_of_new_network, notify_watchers, poll_results,
+    list_watched, mark_read, may_start_topic, move_topic, notice_of_new_network, notify_watchers,
+    poll_results,
     post_comment, promote_to_moderator, publish_draft, react, recent_activity, record_post,
     record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
     rename_group, rename_section, report_content, reporter_of, request_activation,
@@ -103,6 +104,8 @@ pub struct ProfileResponse {
 pub struct SectionResponse {
     pub slug: String,
     pub title: String,
+    pub topics_score: String,
+    pub may_post: bool,
 }
 
 #[derive(Serialize)]
@@ -585,7 +588,10 @@ async fn topic_response(
     }))
 }
 
-pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<SectionResponse>> {
+pub async fn list_sections_handler(
+    State(state): State<AppState>,
+    OptionalUser(viewer): OptionalUser,
+) -> Json<Vec<SectionResponse>> {
     let repo = state.backend.sections();
     let sections = list_sections(&*repo).await;
     Json(
@@ -594,6 +600,11 @@ pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<Se
             .map(|s| SectionResponse {
                 slug: s.slug().as_str().to_owned(),
                 title: s.title().as_str().to_owned(),
+                topics_score: s.topics_score().label(),
+                may_post: viewer
+                    .as_ref()
+                    .map(|u| may_start_topic(&s, u))
+                    .unwrap_or(false),
             })
             .collect(),
     )
