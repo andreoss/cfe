@@ -77,6 +77,8 @@ start_api() {
     MAINTENANCE_INTERVAL_SECONDS=0 \
     MAINTENANCE_SCORE_FLOOR="${MAINTENANCE_SCORE_FLOOR:--50}" \
     CONFIRMATION_WINDOW_SECONDS="${CONFIRMATION_WINDOW_SECONDS:-604800}" \
+    INVITATION_REQUIRED="${INVITATION_REQUIRED:-0}" \
+    INVITATION_MAX_OUTSTANDING="${INVITATION_MAX_OUTSTANDING:-5}" \
     cargo run -p server) &
   SERVER_PID=$!
   until curl -s -o /dev/null "http://127.0.0.1:$API_PORT/api/sign-in" \
@@ -95,7 +97,15 @@ start_api "${RATE_LIMIT_MAX:-100000}" "${SLOW_MODE_SCORE_FLOOR:--1000}"
 npx serve -s -l "$WEB_PORT" dist &
 WEB_PID=$!
 
-until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do sleep 1; done
+waited=0
+until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do
+  waited=$((waited + 1))
+  if [ "$waited" -gt 30 ]; then
+    echo "the static server did not take port $WEB_PORT; set WEB_PORT to a free one" >&2
+    exit 1
+  fi
+  sleep 1
+done
 
 export BASE_URL="http://127.0.0.1:$WEB_PORT"
 export API_URL="http://127.0.0.1:$API_PORT"
@@ -110,6 +120,7 @@ if [ -n "$SPEC" ]; then
     abuse-rate) ACCOUNT_RATE_LIMIT_MAX=2 restart_api 100 -1000 120 5 ;;
     maintenance) CONFIRMATION_WINDOW_SECONDS=1 restart_api ;;
     sessions) SIGN_IN_ATTEMPT_MAX=3 restart_api ;;
+    invitations-only) INVITATION_REQUIRED=1 restart_api ;;
     challenge)
       CHALLENGE_TRANSPORT=secret CHALLENGE_SECRET="open sesame" \
         CHALLENGE_ON_REGISTER=1 CHALLENGE_BELOW_FLOOR=1 restart_api 100000 5 1
@@ -147,6 +158,7 @@ node e2e/lifecycle.mjs
 node e2e/corrector.mjs
 node e2e/watching.mjs
 node e2e/notes.mjs
+node e2e/invitations.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs
@@ -161,6 +173,9 @@ node e2e/addresses.mjs
 
 SIGN_IN_ATTEMPT_MAX=3 restart_api
 node e2e/sessions.mjs
+
+INVITATION_REQUIRED=1 restart_api
+node e2e/invitations-only.mjs
 
 CHALLENGE_TRANSPORT=secret CHALLENGE_SECRET="open sesame" \
   CHALLENGE_ON_REGISTER=1 CHALLENGE_BELOW_FLOOR=1 restart_api 100000 5 1

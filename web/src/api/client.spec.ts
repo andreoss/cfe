@@ -85,6 +85,9 @@ import {
   setRemark,
   clearRemark,
   getRemarks,
+  getInvitationPolicy,
+  issueInvitation,
+  getInvitations,
 } from './client'
 
 function rawComment(overrides: Partial<Record<string, unknown>> = {}) {
@@ -3374,5 +3377,276 @@ describe('getRemarks', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'missing session' }))
     const result = await getRemarks()
     expect(result).toEqual({ ok: false, error: 'missing session' })
+  })
+})
+
+function rawInvitation(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    code: 'ABCD1234',
+    expires_at: '2026-09-10T00:00:00Z',
+    spent: false,
+    spent_by: null,
+    ...overrides,
+  }
+}
+
+describe('getInvitationPolicy', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('unwraps the required envelope to a plain boolean', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { required: true }))
+    const result = await getInvitationPolicy()
+    expect(result).toEqual({ ok: true, value: true })
+  })
+
+  it('reports an open forum when no code is required', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, { required: false }))
+    const result = await getInvitationPolicy()
+    expect(result).toEqual({ ok: true, value: false })
+  })
+
+  it('reads the policy with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { required: false }))
+    await getInvitationPolicy()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/invitations/policy',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    )
+  })
+
+  it('returns the server error when the policy cannot be read', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'service unavailable' }))
+    const result = await getInvitationPolicy()
+    expect(result).toEqual({ ok: false, error: 'service unavailable' })
+  })
+})
+
+describe('issueInvitation', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Invitation type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawInvitation()))
+    const result = await issueInvitation()
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        code: 'ABCD1234',
+        expiresAt: '2026-09-10T00:00:00Z',
+        spent: false,
+        spentBy: null,
+      },
+    })
+  })
+
+  it('posts to the invitations path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawInvitation()))
+    await issueInvitation()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/invitations',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+  })
+
+  it('reports the status when too many codes are outstanding', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(422, { error: 'too many unused invitations' }),
+    )
+    const result = await issueInvitation()
+    expect(result).toEqual({
+      ok: false,
+      error: 'too many unused invitations',
+      status: 422,
+    })
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await issueInvitation()
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('getInvitations', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Invitation type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([rawInvitation()])))
+    const result = await getInvitations()
+    expect(result.ok && result.value.items).toEqual([
+      {
+        code: 'ABCD1234',
+        expiresAt: '2026-09-10T00:00:00Z',
+        spent: false,
+        spentBy: null,
+      },
+    ])
+  })
+
+  it('carries the username that spent a code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, pagedBody([rawInvitation({ spent: true, spent_by: 'bob_02' })])),
+    )
+    const result = await getInvitations()
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const [first] = result.value.items
+    expect(first?.spent).toBe(true)
+    expect(first?.spentBy).toBe('bob_02')
+  })
+
+  it('maps the page envelope to camelCase', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        true,
+        pagedBody([rawInvitation()], {
+          number: 2,
+          size: 25,
+          total: 51,
+          total_pages: 3,
+          has_next: true,
+          has_previous: true,
+        }),
+      ),
+    )
+    const result = await getInvitations(2)
+    expect(result.ok && result.value.page).toEqual({
+      number: 2,
+      size: 25,
+      total: 51,
+      totalPages: 3,
+      hasNext: true,
+      hasPrevious: true,
+    })
+  })
+
+  it('reads the listing with GET and carries the page and size', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getInvitations(4, 100)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/invitations?page=4&size=100'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('omits the query string when no page is asked for', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, pagedBody([])))
+    await getInvitations()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.not.stringContaining('?'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('returns an empty listing for an issuer with no codes', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, pagedBody([], { total_pages: 0 })))
+    const result = await getInvitations()
+    expect(result.ok && result.value.items).toEqual([])
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await getInvitations()
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('register with an invitation', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends the invitation when one is supplied', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse', undefined, 'ABCD1234')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+          invitation: 'ABCD1234',
+        }),
+      }),
+    )
+  })
+
+  it('sends both the invitation and the challenge', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse', 'a blue moon', 'ABCD1234')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+          invitation: 'ABCD1234',
+          challenge: 'a blue moon',
+        }),
+      }),
+    )
+  })
+
+  it('omits the invitation when it is empty', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, { id: '1', username: 'alice_01' }))
+    await register('alice_01', 'alice@example.com', 'correcthorse', '', '')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/register'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          username: 'alice_01',
+          email: 'alice@example.com',
+          password: 'correcthorse',
+        }),
+      }),
+    )
+  })
+
+  it('reports the status when a code is required but missing', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(403, { error: 'an invitation code is required' }),
+    )
+    const result = await register('alice_01', 'alice@example.com', 'correcthorse')
+    expect(result).toEqual({
+      ok: false,
+      error: 'an invitation code is required',
+      status: 403,
+    })
+  })
+
+  it('reports an unknown code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(403, { error: 'unknown invitation code' }),
+    )
+    const result = await register('alice_01', 'alice@example.com', 'correcthorse', '', 'nope')
+    expect(result).toEqual({ ok: false, error: 'unknown invitation code', status: 403 })
+  })
+
+  it('reports a spent code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(403, { error: 'invitation already used' }),
+    )
+    const result = await register('alice_01', 'alice@example.com', 'correcthorse', '', 'used')
+    expect(result).toEqual({ ok: false, error: 'invitation already used', status: 403 })
+  })
+
+  it('reports an expired code', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'invitation expired' }))
+    const result = await register('alice_01', 'alice@example.com', 'correcthorse', '', 'old')
+    expect(result).toEqual({ ok: false, error: 'invitation expired', status: 403 })
   })
 })

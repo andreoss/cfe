@@ -11,8 +11,9 @@ export const useAuthStore = defineStore('auth', () => {
     email: string,
     password: string,
     challenge?: string,
+    invitation?: string,
   ) {
-    const result = await register(username, email, password, challenge)
+    const result = await register(username, email, password, challenge, invitation)
     if (result.ok) currentUser.value = result.value
     return result
   }

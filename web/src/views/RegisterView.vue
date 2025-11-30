@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { validateUsername, validateEmail, validatePassword } from '@/api/validation'
+import { getInvitationPolicy } from '@/api/client'
 
 const username = ref('')
 const email = ref('')
 const password = ref('')
+const invitation = ref('')
+const invitationRequired = ref(false)
 const formError = ref('')
 const challengeNeeded = ref(false)
 const challengeAnswer = ref('')
 const auth = useAuthStore()
 const router = useRouter()
+
+async function loadPolicy() {
+  const result = await getInvitationPolicy()
+  if (result.ok) invitationRequired.value = result.value
+}
+
+onMounted(loadPolicy)
 
 async function onSubmit() {
   formError.value = ''
@@ -35,6 +45,7 @@ async function onSubmit() {
     email.value,
     password.value,
     challengeAnswer.value,
+    invitation.value,
   )
   if (!result.ok) {
     if (result.status === 428 && !challengeNeeded.value) {
@@ -52,7 +63,8 @@ async function onSubmit() {
 <template>
   <main>
     <h1>Register</h1>
-    <form @submit.prevent="onSubmit">
+    <p v-if="invitationRequired">An invitation code is required to register.</p>
+    <form novalidate @submit.prevent="onSubmit">
       <label>
         Username
         <input v-model="username" name="username" type="text" />
@@ -64,6 +76,16 @@ async function onSubmit() {
       <label>
         Password
         <input v-model="password" name="password" type="password" />
+      </label>
+      <label>
+        Invitation code
+        <input
+          v-model="invitation"
+          name="invitation"
+          type="text"
+          :required="invitationRequired"
+          :aria-required="invitationRequired"
+        />
       </label>
       <template v-if="challengeNeeded">
         <p role="status">Answer the challenge to continue.</p>

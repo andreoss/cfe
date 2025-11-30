@@ -191,8 +191,11 @@ export function register(
   email: string,
   password: string,
   challenge?: string,
+  invitation?: string,
 ): Promise<ApiResult<User>> {
-  return post<User>('/api/register', withChallenge({ username, email, password }, challenge))
+  const payload: Record<string, unknown> = { username, email, password }
+  if (typeof invitation === 'string' && invitation.length > 0) payload.invitation = invitation
+  return post<User>('/api/register', withChallenge(payload, challenge))
 }
 
 export function signIn(username: string, password: string): Promise<ApiResult<User>> {
@@ -1101,6 +1104,51 @@ export function listReports(page?: number, size?: number): Promise<ApiResult<Pag
 
 export function closeReport(id: string): Promise<ApiResult<void>> {
   return request<void>(`/api/reports/${encodeURIComponent(id)}/close`, { method: 'POST' })
+}
+
+export type Invitation = {
+  code: string
+  expiresAt: string
+  spent: boolean
+  spentBy: string | null
+}
+
+type RawInvitation = {
+  code: string
+  expires_at: string
+  spent: boolean
+  spent_by: string | null
+}
+
+function toInvitation(raw: RawInvitation): Invitation {
+  return {
+    code: raw.code,
+    expiresAt: raw.expires_at,
+    spent: raw.spent,
+    spentBy: raw.spent_by,
+  }
+}
+
+export async function getInvitationPolicy(): Promise<ApiResult<boolean>> {
+  const result = await request<{ required: boolean }>('/api/invitations/policy', {
+    method: 'GET',
+  })
+  return result.ok ? { ok: true, value: result.value.required } : result
+}
+
+export async function issueInvitation(): Promise<ApiResult<Invitation>> {
+  const result = await request<RawInvitation>('/api/invitations', { method: 'POST' })
+  return result.ok ? { ok: true, value: toInvitation(result.value) } : result
+}
+
+export function getInvitations(
+  page?: number,
+  size?: number,
+): Promise<ApiResult<Paged<Invitation>>> {
+  return requestPage<RawInvitation, Invitation>(
+    `/api/invitations${pageQuery(page, size)}`,
+    toInvitation,
+  )
 }
 
 export type MaintenanceReport = { blocked: number; dropped: number }
