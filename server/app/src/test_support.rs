@@ -191,6 +191,17 @@ impl FakeSectionRepo {
 
 #[async_trait::async_trait]
 impl SectionRepository for FakeSectionRepo {
+    async fn save(&self, section: &Section) {
+        self.sections.lock().unwrap().push(section.clone());
+    }
+
+    async fn update(&self, section: &Section) {
+        let mut stored = self.sections.lock().unwrap();
+        if let Some(existing) = stored.iter_mut().find(|s| s.id() == section.id()) {
+            *existing = section.clone();
+        }
+    }
+
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
         self.sections
             .lock()
@@ -314,6 +325,13 @@ impl FakeGroupRepo {
 impl GroupRepository for FakeGroupRepo {
     async fn save(&self, group: &Group) {
         self.groups.lock().unwrap().push(group.clone());
+    }
+
+    async fn update(&self, group: &Group) {
+        let mut stored = self.groups.lock().unwrap();
+        if let Some(existing) = stored.iter_mut().find(|g| g.id() == group.id()) {
+            *existing = group.clone();
+        }
     }
 
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {

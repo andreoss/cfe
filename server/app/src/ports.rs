@@ -39,6 +39,8 @@ pub trait SessionRepository {
 
 #[async_trait::async_trait]
 pub trait SectionRepository {
+    async fn save(&self, section: &Section);
+    async fn update(&self, section: &Section);
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section>;
     async fn find_by_id(&self, id: SectionId) -> Option<Section>;
     async fn list(&self) -> Vec<Section>;
@@ -58,6 +60,7 @@ pub trait TopicRepository {
 #[async_trait::async_trait]
 pub trait GroupRepository {
     async fn save(&self, group: &Group);
+    async fn update(&self, group: &Group);
     async fn find_by_id(&self, id: GroupId) -> Option<Group>;
     async fn find_by_slug(&self, section_id: SectionId, slug: &Slug) -> Option<Group>;
     async fn list_by_section(&self, section_id: SectionId) -> Vec<Group>;

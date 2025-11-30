@@ -24,6 +24,7 @@ mod remarks;
 mod reports;
 mod reputation;
 mod search;
+mod sections;
 mod session;
 mod sessions_security;
 mod sign_in;
@@ -89,6 +90,9 @@ pub use reports::{
     list_open_reports, report_content, reporter_of,
 };
 pub use reputation::{apply_deletion, apply_reaction};
+pub use sections::{
+    GroupEditError, SectionError, create_section, rename_group, rename_section, set_section_score,
+};
 pub use search::search;
 pub use session::{create_session, current_user, sign_out, touch_session};
 pub use sessions_security::{
