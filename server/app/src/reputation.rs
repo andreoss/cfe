@@ -1,5 +1,5 @@
 use crate::ports::UserRepository;
-use domain::{ReactionKind, UserId, for_deletion, for_reaction};
+use domain::{Penalty, ReactionKind, UserId, for_reaction};
 
 async fn adjust(users: &(impl UserRepository + ?Sized), author_id: UserId, delta: i32) {
     if delta == 0 {
@@ -27,15 +27,19 @@ pub async fn apply_reaction(
     adjust(users, author_id, added - removed).await;
 }
 
-pub async fn apply_deletion(users: &(impl UserRepository + ?Sized), author_id: UserId) {
-    adjust(users, author_id, for_deletion()).await;
+pub async fn apply_deletion(
+    users: &(impl UserRepository + ?Sized),
+    author_id: UserId,
+    penalty: Penalty,
+) {
+    adjust(users, author_id, penalty.value()).await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::FakeUserRepo;
-    use domain::{Email, Score, User, Username};
+    use domain::{Email, Penalty, Score, User, Username, for_deletion};
     use time::OffsetDateTime;
 
     fn author_id() -> UserId {
@@ -149,14 +153,14 @@ mod tests {
     #[tokio::test]
     async fn a_deletion_costs_the_author() {
         let users = repo_with_author().await;
-        apply_deletion(&users, author_id()).await;
+        apply_deletion(&users, author_id(), Penalty::default()).await;
         assert_eq!(score_of(&users).await, for_deletion());
     }
 
     #[tokio::test]
     async fn an_unknown_author_is_ignored() {
         let users = repo_with_author().await;
-        apply_deletion(&users, actor_id()).await;
+        apply_deletion(&users, actor_id(), Penalty::default()).await;
         assert_eq!(score_of(&users).await, 0);
     }
 
@@ -164,7 +168,7 @@ mod tests {
     async fn the_floor_holds_under_repeated_deletions() {
         let users = repo_with_author().await;
         for _ in 0..100 {
-            apply_deletion(&users, author_id()).await;
+            apply_deletion(&users, author_id(), Penalty::default()).await;
         }
         assert_eq!(score_of(&users).await, domain::SCORE_MIN);
     }

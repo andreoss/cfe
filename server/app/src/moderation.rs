@@ -1,6 +1,6 @@
 use crate::ports::{CommentRepository, TopicRepository, UserRepository};
 use crate::reputation;
-use domain::{Comment, CommentId, Deletion, Reason, Topic, TopicId, User};
+use domain::{Comment, CommentId, Deletion, Penalty, Reason, Topic, TopicId, User};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -15,6 +15,7 @@ pub async fn delete_topic(
     moderator: &User,
     topic_id: TopicId,
     reason: Reason,
+    penalty: Penalty,
     now: OffsetDateTime,
 ) -> Result<Topic, DeleteError> {
     if !moderator.role().is_moderator() {
@@ -27,7 +28,7 @@ pub async fn delete_topic(
     let deletion = Deletion::new(moderator.id(), reason, now);
     let deleted = topic.with_deletion(deletion);
     topics.update(&deleted).await;
-    reputation::apply_deletion(users, deleted.author_id()).await;
+    reputation::apply_deletion(users, deleted.author_id(), penalty).await;
     Ok(deleted)
 }
 
@@ -37,6 +38,7 @@ pub async fn delete_comment(
     moderator: &User,
     comment_id: CommentId,
     reason: Reason,
+    penalty: Penalty,
     now: OffsetDateTime,
 ) -> Result<Comment, DeleteError> {
     if !moderator.role().is_moderator() {
@@ -49,7 +51,7 @@ pub async fn delete_comment(
     let deletion = Deletion::new(moderator.id(), reason, now);
     let deleted = comment.with_deletion(deletion);
     comments.update(&deleted).await;
-    reputation::apply_deletion(users, deleted.author_id()).await;
+    reputation::apply_deletion(users, deleted.author_id(), penalty).await;
     Ok(deleted)
 }
 
@@ -110,6 +112,7 @@ mod tests {
             &moderator(),
             topic().id(),
             Reason::parse("spam").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -126,6 +129,7 @@ mod tests {
             &plain_user(),
             topic().id(),
             Reason::parse("spam").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -141,6 +145,7 @@ mod tests {
             &moderator(),
             topic().id(),
             Reason::parse("spam").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -157,6 +162,7 @@ mod tests {
             &moderator(),
             comment().id(),
             Reason::parse("off-topic").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -181,6 +187,7 @@ mod tests {
             &moderator(),
             topic().id(),
             Reason::parse("spam").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -206,12 +213,65 @@ mod tests {
             &plain_user(),
             topic().id(),
             Reason::parse("spam").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
         assert_eq!(result, Err(DeleteError::NotAuthorized));
         let after = users.find_by_id(author.id()).await.unwrap();
         assert_eq!(after.score().value(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_penalty_the_moderator_chose_is_what_the_author_pays() {
+        let topics = FakeTopicRepo::with(topic());
+        let users = FakeUserRepo::new();
+        let author = User::register(
+            UserId::new(uuid::Uuid::nil()),
+            Username::parse("author_01").unwrap(),
+            Email::parse("author@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        users.save(&author).await;
+        delete_topic(
+            &topics,
+            &users,
+            &moderator(),
+            topic().id(),
+            Reason::parse("spam").unwrap(),
+            Penalty::parse(-30).unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let stored = users.find_by_id(author.id()).await.unwrap();
+        assert_eq!(stored.score().value(), -30);
+    }
+
+    #[tokio::test]
+    async fn a_penalty_of_nothing_costs_the_author_nothing() {
+        let topics = FakeTopicRepo::with(topic());
+        let users = FakeUserRepo::new();
+        let author = User::register(
+            UserId::new(uuid::Uuid::nil()),
+            Username::parse("author_01").unwrap(),
+            Email::parse("author@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        users.save(&author).await;
+        delete_topic(
+            &topics,
+            &users,
+            &moderator(),
+            topic().id(),
+            Reason::parse("spam").unwrap(),
+            Penalty::parse(0).unwrap(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let stored = users.find_by_id(author.id()).await.unwrap();
+        assert_eq!(stored.score().value(), 0);
     }
 
     #[tokio::test]
@@ -227,6 +287,7 @@ mod tests {
                 &corrector,
                 topic().id(),
                 Reason::parse("spam").unwrap(),
+                Penalty::default(),
                 OffsetDateTime::UNIX_EPOCH,
             )
             .await,
@@ -239,6 +300,7 @@ mod tests {
                 &corrector,
                 comment().id(),
                 Reason::parse("spam").unwrap(),
+                Penalty::default(),
                 OffsetDateTime::UNIX_EPOCH,
             )
             .await,
@@ -256,6 +318,7 @@ mod tests {
             &plain_user(),
             comment().id(),
             Reason::parse("off-topic").unwrap(),
+            Penalty::default(),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;

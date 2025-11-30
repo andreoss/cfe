@@ -174,9 +174,21 @@ pub struct CommentResponse {
     pub ignored: bool,
 }
 
+fn chosen_penalty(
+    value: Option<i32>,
+) -> Result<domain::Penalty, (StatusCode, Json<ErrorResponse>)> {
+    match value {
+        None => Ok(domain::Penalty::default()),
+        Some(raw) => domain::Penalty::parse(raw)
+            .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "penalty out of range")),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct DeleteRequest {
     pub reason: String,
+    #[serde(default)]
+    pub penalty: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -739,7 +751,9 @@ pub struct ArchiveMonthResponse {
     pub topics: u64,
 }
 
-pub async fn list_archive_handler(State(state): State<AppState>) -> Json<Vec<ArchiveMonthResponse>> {
+pub async fn list_archive_handler(
+    State(state): State<AppState>,
+) -> Json<Vec<ArchiveMonthResponse>> {
     let topics = state.backend.topics();
     Json(
         months_with_topics(&*topics)
@@ -1221,6 +1235,7 @@ pub async fn delete_topic_handler(
 ) -> Result<Json<TopicResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let penalty = chosen_penalty(body.penalty)?;
     let topics = state.backend.topics();
     let users = state.backend.users();
     let topic = delete_topic(
@@ -1229,6 +1244,7 @@ pub async fn delete_topic_handler(
         &current,
         TopicId::new(id),
         reason,
+        penalty,
         OffsetDateTime::now_utc(),
     )
     .await
@@ -1247,6 +1263,7 @@ pub async fn delete_comment_handler(
 ) -> Result<Json<CommentResponse>, (StatusCode, Json<ErrorResponse>)> {
     let reason = Reason::parse(&body.reason)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid reason"))?;
+    let penalty = chosen_penalty(body.penalty)?;
     let comments = state.backend.comments();
     let users = state.backend.users();
     let comment = delete_comment(
@@ -1255,6 +1272,7 @@ pub async fn delete_comment_handler(
         &current,
         CommentId::new(id),
         reason,
+        penalty,
         OffsetDateTime::now_utc(),
     )
     .await

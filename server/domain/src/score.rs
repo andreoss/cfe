@@ -40,6 +40,34 @@ pub fn for_reaction(kind: ReactionKind) -> i32 {
     }
 }
 
+pub const MAX_DELETION_PENALTY: i32 = -50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Penalty(i32);
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PenaltyError;
+
+impl Penalty {
+    pub fn parse(value: i32) -> Result<Self, PenaltyError> {
+        if (MAX_DELETION_PENALTY..=0).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(PenaltyError)
+        }
+    }
+
+    pub fn value(&self) -> i32 {
+        self.0
+    }
+}
+
+impl Default for Penalty {
+    fn default() -> Self {
+        Self(DELETION_PENALTY)
+    }
+}
+
 pub fn for_deletion() -> i32 {
     DELETION_PENALTY
 }
@@ -47,6 +75,35 @@ pub fn for_deletion() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_penalty_the_moderator_chooses_stays_within_bounds() {
+        assert_eq!(Penalty::parse(0).unwrap().value(), 0);
+        assert_eq!(Penalty::parse(-10).unwrap().value(), -10);
+        assert_eq!(
+            Penalty::parse(MAX_DELETION_PENALTY).unwrap().value(),
+            MAX_DELETION_PENALTY
+        );
+    }
+
+    #[test]
+    fn a_penalty_outside_the_bounds_is_refused() {
+        assert_eq!(Penalty::parse(1), Err(PenaltyError));
+        assert_eq!(Penalty::parse(MAX_DELETION_PENALTY - 1), Err(PenaltyError));
+        assert_eq!(Penalty::parse(-1000), Err(PenaltyError));
+    }
+
+    #[test]
+    fn the_penalty_left_unchosen_is_the_one_that_was_always_applied() {
+        assert_eq!(Penalty::default().value(), DELETION_PENALTY);
+        assert_eq!(Penalty::default().value(), for_deletion());
+    }
+
+    #[test]
+    fn a_penalty_of_nothing_leaves_a_score_alone() {
+        let score = Score::of(20);
+        assert_eq!(score.changed(Penalty::parse(0).unwrap().value()), score);
+    }
 
     #[test]
     fn a_new_account_starts_at_zero() {

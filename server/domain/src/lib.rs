@@ -74,7 +74,8 @@ pub use revision::Revision;
 pub use role::{Role, RoleError};
 pub use content_item::ContentItem;
 pub use score::{
-    DELETION_PENALTY, MAX as SCORE_MAX, MIN as SCORE_MIN, Score, for_deletion, for_reaction,
+    DELETION_PENALTY, MAX as SCORE_MAX, MAX_DELETION_PENALTY, MIN as SCORE_MIN, Penalty,
+    PenaltyError, Score, for_deletion, for_reaction,
 };
 pub use post_score::{
     FLOOR_100, FLOOR_200, FLOOR_300, FLOOR_400, FLOOR_50, FLOOR_500, MODERATOR_OR_AUTHOR,
