@@ -31,6 +31,27 @@ fn to_section(row: Row) -> Section {
 
 #[async_trait::async_trait]
 impl SectionRepository for PgSectionRepository {
+    async fn save(&self, section: &Section) {
+        sqlx::query("INSERT INTO sections (id, slug, title, topics_score) VALUES ($1, $2, $3, $4)")
+            .bind(section.id().as_uuid())
+            .bind(section.slug().as_str())
+            .bind(section.title().as_str())
+            .bind(section.topics_score().to_db())
+            .execute(&self.pool)
+            .await
+            .expect("insert section");
+    }
+
+    async fn update(&self, section: &Section) {
+        sqlx::query("UPDATE sections SET title = $1, topics_score = $2 WHERE id = $3")
+            .bind(section.title().as_str())
+            .bind(section.topics_score().to_db())
+            .bind(section.id().as_uuid())
+            .execute(&self.pool)
+            .await
+            .expect("update section");
+    }
+
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
         sqlx::query_as::<_, Row>(
             "SELECT id, slug, title, topics_score FROM sections WHERE slug = $1",

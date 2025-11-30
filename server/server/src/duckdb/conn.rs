@@ -25,7 +25,7 @@ impl Db {
     {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let guard = conn.lock().expect("database lock");
+            let guard = conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             f(&guard)
         })
         .await

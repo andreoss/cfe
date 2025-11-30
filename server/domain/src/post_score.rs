@@ -12,6 +12,9 @@ pub const MODERATOR_OR_AUTHOR: i32 = 9999;
 pub const MODERATORS_ONLY: i32 = 10_000;
 pub const NO_COMMENTS: i32 = 10_001;
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct PostScoreError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostScore {
     Unrestricted,
@@ -58,13 +61,41 @@ impl PostScore {
         }
     }
 
+    pub fn parse(raw: &str) -> Result<Self, PostScoreError> {
+        match raw {
+            "unrestricted" => Ok(PostScore::Unrestricted),
+            "registered" => Ok(PostScore::Registered),
+            "moderator-or-author" => Ok(PostScore::ModeratorOrAuthor),
+            "moderators-only" => Ok(PostScore::ModeratorsOnly),
+            "no-comments" => Ok(PostScore::NoComments),
+            other => match other.strip_prefix("floor-") {
+                Some(rest) => rest
+                    .parse::<i32>()
+                    .ok()
+                    .filter(|n| *n >= FLOOR_50)
+                    .map(PostScore::Floor)
+                    .ok_or(PostScoreError),
+                None => Err(PostScoreError),
+            },
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            PostScore::Unrestricted => "unrestricted".to_owned(),
+            PostScore::Registered => "registered".to_owned(),
+            PostScore::Floor(n) => format!("floor-{n}"),
+            PostScore::ModeratorOrAuthor => "moderator-or-author".to_owned(),
+            PostScore::ModeratorsOnly => "moderators-only".to_owned(),
+            PostScore::NoComments => "no-comments".to_owned(),
+        }
+    }
+
     pub fn allows(&self, score: Score, is_moderator: bool, by_author: bool) -> bool {
         match self {
             PostScore::Unrestricted => true,
             PostScore::Registered => true,
-            PostScore::Floor(threshold) => {
-                is_moderator || by_author || score.value() >= *threshold
-            }
+            PostScore::Floor(threshold) => is_moderator || by_author || score.value() >= *threshold,
             PostScore::ModeratorOrAuthor => is_moderator || by_author,
             PostScore::ModeratorsOnly => is_moderator,
             PostScore::NoComments => false,
@@ -124,6 +155,35 @@ mod tests {
     }
 
     #[test]
+    fn every_setting_round_trips_through_its_name() {
+        for setting in [
+            PostScore::Unrestricted,
+            PostScore::Registered,
+            PostScore::Floor(FLOOR_50),
+            PostScore::Floor(FLOOR_500),
+            PostScore::ModeratorOrAuthor,
+            PostScore::ModeratorsOnly,
+            PostScore::NoComments,
+        ] {
+            assert_eq!(PostScore::parse(&setting.label()), Ok(setting));
+        }
+    }
+
+    #[test]
+    fn a_name_nobody_defined_is_refused() {
+        for raw in ["", "whatever", "floor", "floor-", "floor-abc"] {
+            assert_eq!(PostScore::parse(raw), Err(PostScoreError));
+        }
+    }
+
+    #[test]
+    fn a_floor_below_the_lowest_named_one_is_refused() {
+        assert_eq!(PostScore::parse("floor-49"), Err(PostScoreError));
+        assert_eq!(PostScore::parse("floor--30"), Err(PostScoreError));
+        assert_eq!(PostScore::parse("floor-50"), Ok(PostScore::Floor(FLOOR_50)));
+    }
+
+    #[test]
     fn unrestricted_allows_anyone() {
         let score = Score::initial();
         assert!(PostScore::Unrestricted.allows(score, false, false));
@@ -180,49 +240,22 @@ mod tests {
 
     #[test]
     fn thread_size_tightens_in_steps() {
-        assert_eq!(
-            thread_size_restriction(500),
-            PostScore::Unrestricted
-        );
-        assert_eq!(
-            thread_size_restriction(1001),
-            PostScore::Floor(FLOOR_50)
-        );
-        assert_eq!(
-            thread_size_restriction(2001),
-            PostScore::Floor(FLOOR_100)
-        );
-        assert_eq!(
-            thread_size_restriction(3001),
-            PostScore::Floor(FLOOR_200)
-        );
+        assert_eq!(thread_size_restriction(500), PostScore::Unrestricted);
+        assert_eq!(thread_size_restriction(1001), PostScore::Floor(FLOOR_50));
+        assert_eq!(thread_size_restriction(2001), PostScore::Floor(FLOOR_100));
+        assert_eq!(thread_size_restriction(3001), PostScore::Floor(FLOOR_200));
     }
 
     #[test]
     fn comment_restriction_takes_the_strictest_input() {
-        let strict = comment_restriction(
-            PostScore::Unrestricted,
-            PostScore::Unrestricted,
-            500,
-        );
+        let strict = comment_restriction(PostScore::Unrestricted, PostScore::Unrestricted, 500);
         assert_eq!(strict, PostScore::Unrestricted);
-        let by_thread = comment_restriction(
-            PostScore::Unrestricted,
-            PostScore::Unrestricted,
-            1001,
-        );
+        let by_thread = comment_restriction(PostScore::Unrestricted, PostScore::Unrestricted, 1001);
         assert_eq!(by_thread, PostScore::Floor(FLOOR_50));
-        let by_topic = comment_restriction(
-            PostScore::ModeratorsOnly,
-            PostScore::Unrestricted,
-            500,
-        );
+        let by_topic = comment_restriction(PostScore::ModeratorsOnly, PostScore::Unrestricted, 500);
         assert_eq!(by_topic, PostScore::ModeratorsOnly);
-        let by_section = comment_restriction(
-            PostScore::Unrestricted,
-            PostScore::Floor(FLOOR_100),
-            500,
-        );
+        let by_section =
+            comment_restriction(PostScore::Unrestricted, PostScore::Floor(FLOOR_100), 500);
         assert_eq!(by_section, PostScore::Floor(FLOOR_100));
     }
 }

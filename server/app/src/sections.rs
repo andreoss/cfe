@@ -248,12 +248,16 @@ mod tests {
     #[tokio::test]
     async fn setting_the_standing_keeps_the_name() {
         let repo = with_section().await;
-        let changed =
-            set_section_score(&repo, &operator(), &slug("general"), PostScore::Floor(-20))
-                .await
-                .unwrap();
+        let changed = set_section_score(
+            &repo,
+            &operator(),
+            &slug("general"),
+            PostScore::Floor(domain::FLOOR_100),
+        )
+        .await
+        .unwrap();
         assert_eq!(changed.title(), &title("General"));
-        assert_eq!(changed.topics_score(), PostScore::Floor(-20));
+        assert_eq!(changed.topics_score(), PostScore::Floor(domain::FLOOR_100));
     }
 
     #[tokio::test]

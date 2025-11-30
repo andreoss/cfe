@@ -44,6 +44,15 @@ impl GroupRepository for PgGroupRepository {
             .expect("insert group");
     }
 
+    async fn update(&self, group: &Group) {
+        sqlx::query("UPDATE groups SET name = $1 WHERE id = $2")
+            .bind(group.name().as_str())
+            .bind(group.id().as_uuid())
+            .execute(&self.pool)
+            .await
+            .expect("update group");
+    }
+
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {
         sqlx::query_as::<_, Row>(&format!(
             "SELECT {SELECT_COLUMNS} FROM groups WHERE id = $1"

@@ -78,7 +78,8 @@ pub use score::{
 };
 pub use post_score::{
     FLOOR_100, FLOOR_200, FLOOR_300, FLOOR_400, FLOOR_50, FLOOR_500, MODERATOR_OR_AUTHOR,
-    MODERATORS_ONLY, NO_COMMENTS, REGISTERED, UNRESTRICTED, PostScore, comment_restriction,
+    MODERATORS_ONLY, NO_COMMENTS, REGISTERED, UNRESTRICTED, PostScore, PostScoreError,
+    comment_restriction,
     thread_size_restriction,
 };
 pub use section::{Section, SectionId};

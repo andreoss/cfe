@@ -59,6 +59,33 @@ async fn load_sections(db: &Db, sql: String, params: Vec<Value>) -> Vec<Section>
 
 #[async_trait::async_trait]
 impl SectionRepository for DuckSectionRepository {
+    async fn save(&self, section: &Section) {
+        self.db
+            .execute(
+                "INSERT INTO sections (id, slug, title, topics_score) VALUES (?, ?, ?, ?)",
+                vec![
+                    uuid_value(section.id().as_uuid()),
+                    Value::Text(section.slug().as_str().to_owned()),
+                    Value::Text(section.title().as_str().to_owned()),
+                    Value::Int(section.topics_score().to_db()),
+                ],
+            )
+            .await;
+    }
+
+    async fn update(&self, section: &Section) {
+        self.db
+            .execute(
+                "UPDATE sections SET title = ?, topics_score = ? WHERE id = ?",
+                vec![
+                    Value::Text(section.title().as_str().to_owned()),
+                    Value::Int(section.topics_score().to_db()),
+                    uuid_value(section.id().as_uuid()),
+                ],
+            )
+            .await;
+    }
+
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section> {
         load_sections(
             &self.db,

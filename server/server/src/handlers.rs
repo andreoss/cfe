@@ -4,24 +4,25 @@ use crate::hasher::Argon2Hasher;
 use app::{
     AbuseError, AdmissionError, AvatarLookupError, BookmarkError, ChangeEmailError,
     ChangePasswordError, CommitTopicError, CreateGroupError, CreatePollError, CreateTopicError,
-    DeleteError, EditError, EnforcementError, IssueError, ListTopicsError, MarkReadError,
-    MoveTopicError, PollResults, PostCommentError, ReactionSummary, RegisterError, RemarkError,
-    ReportError, SetPostscoreError, SignInError, SpendError, UpdateBioError, VoteError, WatchError,
-    acknowledge_warnings, active_ban, add_bookmark, admit, ban_user, block_address, cast_vote,
-    change_password, clear_avatar, clear_reaction, clear_remark, clear_sign_in_failures,
-    close_report, commit_topic, confirm_activation, confirm_email_change, count_open_for_topic,
-    count_unread, create_group, create_poll, create_session, create_topic, delete_comment,
-    delete_topic, deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
-    enforce_registration_challenge, enforce_sign_in_attempts, get_avatar, get_topic, ignore_user,
-    ignored_by, is_bookmarked, is_watching, issue_invitation, lift_address_block, lift_ban,
-    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
-    list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
-    list_topics_by_tag, list_warnings, list_watched, mark_read, move_topic, notice_of_new_network,
-    notify_watchers, poll_results, post_comment, promote_to_moderator, publish_draft, react,
-    recent_activity, record_post, record_sign_in_failure, register, remark_about, remove_bookmark,
-    remove_posts_from_address, report_content, reporter_of, request_activation,
+    DeleteError, EditError, EnforcementError, GroupEditError, IssueError, ListTopicsError,
+    MarkReadError, MoveTopicError, PollResults, PostCommentError, ReactionSummary, RegisterError,
+    RemarkError, ReportError, SectionError, SetPostscoreError, SignInError, SpendError,
+    UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban, add_bookmark, admit,
+    ban_user, block_address, cast_vote, change_password, clear_avatar, clear_reaction,
+    clear_remark, clear_sign_in_failures, close_report, commit_topic, confirm_activation,
+    confirm_email_change, count_open_for_topic, count_unread, create_group, create_poll,
+    create_section, create_session, create_topic, delete_comment, delete_topic, deregister,
+    edit_comment, edit_topic, end_every_session, enforce_posting, enforce_registration_challenge,
+    enforce_sign_in_attempts, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked,
+    is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
+    list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
+    list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
+    list_watched, mark_read, move_topic, notice_of_new_network, notify_watchers, poll_results,
+    post_comment, promote_to_moderator, publish_draft, react, recent_activity, record_post,
+    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
+    rename_group, rename_section, report_content, reporter_of, request_activation,
     request_email_change, request_password_reset, reset_password, search, set_avatar,
-    set_off_front, set_postscore, set_remark, set_resolved, set_sticky, sign_in,
+    set_off_front, set_postscore, set_remark, set_resolved, set_section_score, set_sticky, sign_in,
     sign_out as end_session, stop_ignoring, stop_watching, summarize_reactions, uncommit_topic,
     update_bio, warn_user, watch_topic,
 };
@@ -596,6 +597,129 @@ pub async fn list_sections_handler(State(state): State<AppState>) -> Json<Vec<Se
             })
             .collect(),
     )
+}
+
+#[derive(Deserialize)]
+pub struct CreateSectionRequest {
+    pub slug: String,
+    pub title: String,
+}
+
+#[derive(Deserialize)]
+pub struct RenameRequest {
+    pub title: String,
+}
+
+#[derive(Deserialize)]
+pub struct SectionScoreRequest {
+    pub topics_score: String,
+}
+
+fn section_error(e: SectionError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        SectionError::NotAuthorized => error(StatusCode::FORBIDDEN, "not authorized"),
+        SectionError::SlugTaken => error(StatusCode::CONFLICT, "slug taken"),
+        SectionError::NotFound => error(StatusCode::NOT_FOUND, "section not found"),
+    }
+}
+
+fn configured(section: &domain::Section) -> SectionSettingsResponse {
+    SectionSettingsResponse {
+        slug: section.slug().as_str().to_owned(),
+        title: section.title().as_str().to_owned(),
+        topics_score: section.topics_score().label(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct SectionSettingsResponse {
+    pub slug: String,
+    pub title: String,
+    pub topics_score: String,
+}
+
+pub async fn create_section_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<CreateSectionRequest>,
+) -> Result<(StatusCode, Json<SectionSettingsResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&body.slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid slug"))?;
+    let title = Title::parse(&body.title)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid title"))?;
+    let sections = state.backend.sections();
+    let section = create_section(
+        &*sections,
+        &current,
+        domain::SectionId::new(uuid::Uuid::new_v4()),
+        slug,
+        title,
+    )
+    .await
+    .map_err(section_error)?;
+    Ok((StatusCode::CREATED, Json(configured(&section))))
+}
+
+pub async fn rename_section_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<RenameRequest>,
+) -> Result<Json<SectionSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&slug).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid slug"))?;
+    let title = Title::parse(&body.title)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid title"))?;
+    let sections = state.backend.sections();
+    let section = rename_section(&*sections, &current, &slug, title)
+        .await
+        .map_err(section_error)?;
+    Ok(Json(configured(&section)))
+}
+
+pub async fn set_section_score_handler(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SectionScoreRequest>,
+) -> Result<Json<SectionSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&slug).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid slug"))?;
+    let sections = state.backend.sections();
+    let score = domain::PostScore::parse(&body.topics_score)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid topics score"))?;
+    let section = set_section_score(&*sections, &current, &slug, score)
+        .await
+        .map_err(section_error)?;
+    Ok(Json(configured(&section)))
+}
+
+pub async fn rename_group_handler(
+    State(state): State<AppState>,
+    Path((slug, group_slug)): Path<(String, String)>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<RenameRequest>,
+) -> Result<Json<GroupResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug = Slug::parse(&slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid section slug"))?;
+    let group_slug = Slug::parse(&group_slug)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid group slug"))?;
+    let title = Title::parse(&body.title)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid name"))?;
+    let sections = state.backend.sections();
+    let groups = state.backend.groups();
+    let group = rename_group(&*sections, &*groups, &current, &slug, &group_slug, title)
+        .await
+        .map_err(|e| match e {
+            GroupEditError::NotAuthorized => error(StatusCode::FORBIDDEN, "not authorized"),
+            GroupEditError::NotFound => error(StatusCode::NOT_FOUND, "group not found"),
+        })?;
+    Ok(Json(GroupResponse {
+        id: group.id().as_uuid().to_string(),
+        section_slug: slug.as_str().to_owned(),
+        name: group.name().as_str().to_owned(),
+        slug: group.slug().as_str().to_owned(),
+    }))
 }
 
 pub async fn list_topics_handler(

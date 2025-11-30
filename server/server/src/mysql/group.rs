@@ -42,6 +42,15 @@ impl GroupRepository for MySqlGroupRepository {
             .expect("insert group");
     }
 
+    async fn update(&self, group: &Group) {
+        sqlx::query("UPDATE `groups` SET name = ? WHERE id = ?")
+            .bind(group.name().as_str())
+            .bind(group.id().as_uuid())
+            .execute(&self.pool)
+            .await
+            .expect("update group");
+    }
+
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {
         sqlx::query_as::<_, GroupRow>(
             "SELECT id, section_id, name, slug FROM `groups` WHERE id = ?",

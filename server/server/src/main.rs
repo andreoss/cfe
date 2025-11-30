@@ -223,10 +223,25 @@ async fn main() {
         )
         .route("/api/me/bio", patch(update_bio_handler))
         .route("/api/users/{username}", get(get_profile_handler))
-        .route("/api/sections", get(list_sections_handler))
+        .route(
+            "/api/sections",
+            get(list_sections_handler).post(handlers::create_section_handler),
+        )
         .route(
             "/api/sections/{slug}/topics",
             get(list_topics_handler).post(create_topic_handler),
+        )
+        .route(
+            "/api/sections/{slug}/settings",
+            patch(handlers::rename_section_handler),
+        )
+        .route(
+            "/api/sections/{slug}/topics-score",
+            post(handlers::set_section_score_handler),
+        )
+        .route(
+            "/api/sections/{slug}/groups/{group_slug}",
+            patch(handlers::rename_group_handler),
         )
         .route(
             "/api/sections/{slug}/groups",

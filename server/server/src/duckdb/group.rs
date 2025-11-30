@@ -73,6 +73,18 @@ impl GroupRepository for DuckGroupRepository {
             .await;
     }
 
+    async fn update(&self, group: &Group) {
+        self.db
+            .execute(
+                "UPDATE groups SET name = ? WHERE id = ?",
+                vec![
+                    Value::Text(group.name().as_str().to_owned()),
+                    uuid_value(group.id().as_uuid()),
+                ],
+            )
+            .await;
+    }
+
     async fn find_by_id(&self, id: GroupId) -> Option<Group> {
         load_groups(
             &self.db,
