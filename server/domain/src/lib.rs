@@ -3,6 +3,7 @@ mod avatar;
 mod address;
 mod bio;
 mod group;
+mod history;
 mod invitation;
 mod bookmark;
 mod body;
@@ -48,6 +49,9 @@ pub use comment::{Comment, CommentId};
 pub use email::{Email, EmailError};
 pub use enforcement::{AddressBlock, Ban, BlockMode, BlockModeError, Warning, WarningId};
 pub use group::{Group, GroupId};
+pub use history::{
+    Change, Version, VersionId, VersionOf, VersionOfError, difference,
+};
 pub use invitation::{
     CODE_LENGTH as INVITATION_CODE_LENGTH, Invitation, InvitationCode, InvitationCodeError,
     InvitationId,

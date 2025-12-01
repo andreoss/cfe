@@ -1,5 +1,8 @@
-use crate::ports::{CommentRepository, TopicRepository};
-use domain::{Body, Comment, CommentId, Revision, TagSet, Title, Topic, TopicId, User};
+use crate::ports::{CommentRepository, TopicRepository, VersionRepository};
+use domain::{
+    Body, Comment, CommentId, Revision, TagSet, Title, Topic, TopicId, User, Version, VersionId,
+    VersionOf,
+};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13,13 +16,16 @@ fn may_edit(user: &User, author_id: domain::UserId) -> bool {
     user.id() == author_id || user.role().may_correct()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn edit_topic(
     topics: &(impl TopicRepository + ?Sized),
+    versions: &(impl VersionRepository + ?Sized),
     user: &User,
     topic_id: TopicId,
     title: Title,
     body: Body,
     tags: TagSet,
+    version_id: VersionId,
     now: OffsetDateTime,
 ) -> Result<Topic, EditError> {
     let topic = topics
@@ -32,6 +38,17 @@ pub async fn edit_topic(
     if topic.is_deleted() {
         return Err(EditError::Deleted);
     }
+    versions
+        .save(&Version::new(
+            version_id,
+            VersionOf::Topic,
+            topic.id().as_uuid(),
+            Some(topic.title().clone()),
+            topic.body().clone(),
+            user.id(),
+            now,
+        ))
+        .await;
     let edited = topic.with_edit(title, body, tags, Revision::new(user.id(), now));
     topics.update(&edited).await;
     Ok(edited)
@@ -39,9 +56,11 @@ pub async fn edit_topic(
 
 pub async fn edit_comment(
     comments: &(impl CommentRepository + ?Sized),
+    versions: &(impl VersionRepository + ?Sized),
     user: &User,
     comment_id: CommentId,
     body: Body,
+    version_id: VersionId,
     now: OffsetDateTime,
 ) -> Result<Comment, EditError> {
     let comment = comments
@@ -54,6 +73,17 @@ pub async fn edit_comment(
     if comment.is_deleted() {
         return Err(EditError::Deleted);
     }
+    versions
+        .save(&Version::new(
+            version_id,
+            VersionOf::Comment,
+            comment.id().as_uuid(),
+            None,
+            comment.body().clone(),
+            user.id(),
+            now,
+        ))
+        .await;
     let edited = comment.with_edit(body, Revision::new(user.id(), now));
     comments.update(&edited).await;
     Ok(edited)
@@ -62,7 +92,7 @@ pub async fn edit_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeCommentRepo, FakeTopicRepo};
+    use crate::test_support::{FakeCommentRepo, FakeTopicRepo, FakeVersionRepo};
     use domain::{Deletion, Email, Reason, SectionId, UserId, Username};
 
     fn author_id() -> UserId {
@@ -129,15 +159,75 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn author_edits_own_topic() {
+    async fn editing_keeps_what_was_there_before() {
         let topics = FakeTopicRepo::with(topic());
-        let edited = edit_topic(
+        let versions = FakeVersionRepo::new();
+        edit_topic(
             &topics,
+            &versions,
             &author(),
             topic().id(),
             new_title(),
             new_body(),
             TagSet::empty(),
+            VersionId::new(uuid::Uuid::from_u128(5)),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let kept = versions
+            .list_for(domain::VersionOf::Topic, topic().id().as_uuid())
+            .await;
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].body().as_str(), "Old body");
+        assert_eq!(kept[0].title().map(|t| t.as_str()), Some("Before"));
+    }
+
+    #[tokio::test]
+    async fn a_refused_edit_keeps_no_version() {
+        let topics = FakeTopicRepo::with(topic());
+        let versions = FakeVersionRepo::new();
+        let stranger = User::register(
+            UserId::new(uuid::Uuid::from_u128(77)),
+            Username::parse("stranger_01").unwrap(),
+            Email::parse("stranger@example.com").unwrap(),
+            "hash".to_owned(),
+        );
+        assert!(
+            edit_topic(
+                &topics,
+                &versions,
+                &stranger,
+                topic().id(),
+                new_title(),
+                new_body(),
+                TagSet::empty(),
+                VersionId::new(uuid::Uuid::from_u128(5)),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            versions
+                .list_for(domain::VersionOf::Topic, topic().id().as_uuid())
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn author_edits_own_topic() {
+        let topics = FakeTopicRepo::with(topic());
+        let edited = edit_topic(
+            &topics,
+            &FakeVersionRepo::new(),
+            &author(),
+            topic().id(),
+            new_title(),
+            new_body(),
+            TagSet::empty(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -153,11 +243,13 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let edited = edit_topic(
             &topics,
+            &FakeVersionRepo::new(),
             &moderator(),
             topic().id(),
             new_title(),
             new_body(),
             TagSet::empty(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -170,11 +262,13 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let result = edit_topic(
             &topics,
+            &FakeVersionRepo::new(),
             &stranger(),
             topic().id(),
             new_title(),
             new_body(),
             TagSet::empty(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -186,11 +280,13 @@ mod tests {
         let topics = FakeTopicRepo::new();
         let result = edit_topic(
             &topics,
+            &FakeVersionRepo::new(),
             &author(),
             topic().id(),
             new_title(),
             new_body(),
             TagSet::empty(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -208,11 +304,13 @@ mod tests {
         let topics = FakeTopicRepo::with(topic().with_deletion(deletion));
         let result = edit_topic(
             &topics,
+            &FakeVersionRepo::new(),
             &author(),
             topic().id(),
             new_title(),
             new_body(),
             TagSet::empty(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -225,9 +323,11 @@ mod tests {
         comments.save(&comment()).await;
         let edited = edit_comment(
             &comments,
+            &FakeVersionRepo::new(),
             &author(),
             comment().id(),
             new_body(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await
@@ -242,9 +342,11 @@ mod tests {
         comments.save(&comment()).await;
         let result = edit_comment(
             &comments,
+            &FakeVersionRepo::new(),
             &stranger(),
             comment().id(),
             new_body(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -263,9 +365,11 @@ mod tests {
         comments.save(&comment().with_deletion(deletion)).await;
         let result = edit_comment(
             &comments,
+            &FakeVersionRepo::new(),
             &author(),
             comment().id(),
             new_body(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;
@@ -277,9 +381,11 @@ mod tests {
         let comments = FakeCommentRepo::new();
         let result = edit_comment(
             &comments,
+            &FakeVersionRepo::new(),
             &author(),
             comment().id(),
             new_body(),
+            VersionId::new(uuid::Uuid::nil()),
             OffsetDateTime::UNIX_EPOCH,
         )
         .await;

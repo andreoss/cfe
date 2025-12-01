@@ -6,7 +6,7 @@ use domain::{
     PollOptionId,
     Query, Reaction,
     ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
-    Session, SessionId, SessionToken,
+    Session, SessionId, SessionToken, Version, VersionId, VersionOf,
     Remark, Slug, Topic, TopicId, User, UserId, Username, Vote, Warning, Watch,
 };
 use time::OffsetDateTime;
@@ -173,6 +173,13 @@ pub trait NotificationRepository {
 #[async_trait::async_trait]
 pub trait SearchRepository {
     async fn search(&self, query: &Query) -> Vec<ContentItem>;
+}
+
+#[async_trait::async_trait]
+pub trait VersionRepository {
+    async fn save(&self, version: &Version);
+    async fn list_for(&self, of: VersionOf, subject_id: uuid::Uuid) -> Vec<Version>;
+    async fn find(&self, id: VersionId) -> Option<Version>;
 }
 
 #[async_trait::async_trait]

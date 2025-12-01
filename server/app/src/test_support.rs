@@ -2,24 +2,19 @@
 
 use crate::ports::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
-    CommentRepository,
-    EnforcementRepository, InvitationRepository,
+    CommentRepository, EnforcementRepository, GroupRepository, InvitationRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
-    TokenDigest,
-    ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
-    TopicRepository,
-    RemarkRepository, UserRepository, GroupRepository, WatchRepository,
+    ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
+    SessionRepository, TokenDigest, TopicRepository, UserRepository, VersionRepository,
+    WatchRepository,
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
-    CommentId, Email, Invitation, InvitationCode, InvitationId, MailToken,
-    Notification, NotificationId, Page,
-    Query,
-    Reaction, Warning,
-    ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
-    Session, SessionId, SessionToken,
-    Poll, PollId, PollOptionId, Slug, TagSet, Title, Topic, TopicId, User, UserId, Username, Vote,
-    Group, GroupId, PostRef, Remark, Watch,
+    CommentId, ContentItem, Email, Group, GroupId, Invitation, InvitationCode, InvitationId,
+    MailToken, Notification, NotificationId, Page, Poll, PollId, PollOptionId, PostRef, Query,
+    Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId, ReportTarget, Section,
+    SectionId, Session, SessionId, SessionToken, Slug, TagSet, Title, Topic, TopicId, User, UserId,
+    Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -363,7 +358,6 @@ impl FakeGroupRepo {
             groups: Mutex::new(Vec::new()),
         }
     }
-
 }
 
 #[async_trait::async_trait]
@@ -514,7 +508,10 @@ impl FakeNotificationRepo {
 #[async_trait::async_trait]
 impl NotificationRepository for FakeNotificationRepo {
     async fn save(&self, notification: &Notification) {
-        self.notifications.lock().unwrap().push(notification.clone());
+        self.notifications
+            .lock()
+            .unwrap()
+            .push(notification.clone());
     }
 
     async fn update(&self, notification: &Notification) {
@@ -793,7 +790,10 @@ impl AvatarRepository for FakeAvatarRepo {
     }
 
     async fn delete(&self, user_id: UserId) {
-        self.avatars.lock().unwrap().retain(|(id, _)| *id != user_id);
+        self.avatars
+            .lock()
+            .unwrap()
+            .retain(|(id, _)| *id != user_id);
     }
 }
 
@@ -852,7 +852,10 @@ impl EnforcementRepository for FakeEnforcementRepo {
 
     async fn save_ignore(&self, user_id: UserId, ignored_id: UserId) {
         let mut ignores = self.ignores.lock().unwrap();
-        if !ignores.iter().any(|(a, b)| *a == user_id && *b == ignored_id) {
+        if !ignores
+            .iter()
+            .any(|(a, b)| *a == user_id && *b == ignored_id)
+        {
             ignores.push((user_id, ignored_id));
         }
     }
@@ -1011,12 +1014,10 @@ impl FakeAbuseRepo {
     }
 
     pub fn set_last_post(&self, user_id: UserId, at: OffsetDateTime) {
-        self.posts.lock().unwrap().push((
-            user_id,
-            Address::parse("0.0.0.0").unwrap(),
-            None,
-            at,
-        ));
+        self.posts
+            .lock()
+            .unwrap()
+            .push((user_id, Address::parse("0.0.0.0").unwrap(), None, at));
     }
 
     pub fn set_address_posts(&self, addr: &Address, at: OffsetDateTime, count: u64) {
@@ -1097,11 +1098,7 @@ impl AbuseRepository for FakeAbuseRepo {
         }
     }
 
-    async fn refs_from_address_since(
-        &self,
-        addr: &Address,
-        since: OffsetDateTime,
-    ) -> Vec<PostRef> {
+    async fn refs_from_address_since(&self, addr: &Address, since: OffsetDateTime) -> Vec<PostRef> {
         self.refs
             .lock()
             .unwrap()
@@ -1133,7 +1130,10 @@ impl AbuseRepository for FakeAbuseRepo {
     }
 
     async fn clear_sign_in_failures(&self, username: &str) {
-        self.failures.lock().unwrap().retain(|(u, _, _)| u != username);
+        self.failures
+            .lock()
+            .unwrap()
+            .retain(|(u, _, _)| u != username);
     }
 
     async fn has_seen_address(&self, user_id: UserId, addr: &Address) -> bool {
@@ -1474,6 +1474,44 @@ impl InvitationRepository for FakeInvitationRepo {
             .iter()
             .filter(|i| i.issuer_id() == issuer_id && i.is_spendable_at(now))
             .count() as u64
+    }
+}
+
+pub struct FakeVersionRepo {
+    versions: Mutex<Vec<Version>>,
+}
+
+impl FakeVersionRepo {
+    pub fn new() -> Self {
+        Self {
+            versions: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl VersionRepository for FakeVersionRepo {
+    async fn save(&self, version: &Version) {
+        self.versions.lock().unwrap().push(version.clone());
+    }
+
+    async fn list_for(&self, of: VersionOf, subject_id: uuid::Uuid) -> Vec<Version> {
+        self.versions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|v| v.of() == of && v.subject_id() == subject_id)
+            .cloned()
+            .collect()
+    }
+
+    async fn find(&self, id: VersionId) -> Option<Version> {
+        self.versions
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|v| v.id() == id)
+            .cloned()
     }
 }
 

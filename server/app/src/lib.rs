@@ -9,6 +9,7 @@ mod comments;
 mod editing;
 mod enforcement;
 mod groups;
+mod history;
 mod invitations;
 mod lifecycle;
 mod lifecycle_flags;
@@ -117,6 +118,7 @@ pub use topics::{
     may_start_topic, move_topic, set_postscore, uncommit_topic,
 };
 pub use groups::{CreateGroupError, create_group, list_groups};
+pub use history::{HistoryError, comment_history, topic_history, what_changed};
 pub use invitations::{
     Admission, AdmissionError, InvitationSettings, IssueError, SpendError, admit,
     issue_invitation, list_invitations, spend_invitation,
