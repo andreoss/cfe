@@ -1331,6 +1331,66 @@ export function getArchiveMonth(
   return requestPage<RawTopic, Topic>(`${path}${pageQuery(page, size)}`, toTopic)
 }
 
+export type Version = {
+  id: string
+  title: string | null
+  body: string
+  editor: string
+  writtenAt: string
+}
+
+export type DifferenceKind = 'kept' | 'removed' | 'added'
+
+export type DifferenceLine = { kind: DifferenceKind; line: string }
+
+type RawVersion = {
+  id: string
+  title: string | null
+  body: string
+  editor: string
+  written_at: string
+}
+
+function toVersion(raw: RawVersion): Version {
+  return {
+    id: raw.id,
+    title: raw.title,
+    body: raw.body,
+    editor: raw.editor,
+    writtenAt: raw.written_at,
+  }
+}
+
+function topicHistoryPath(id: string): string {
+  return `/api/topics/${encodeURIComponent(id)}/history`
+}
+
+export async function getTopicHistory(id: string): Promise<ApiResult<Version[]>> {
+  const result = await request<RawVersion[]>(topicHistoryPath(id), { method: 'GET' })
+  return result.ok ? { ok: true, value: result.value.map(toVersion) } : result
+}
+
+export async function getCommentHistory(
+  topicId: string,
+  id: string,
+): Promise<ApiResult<Version[]>> {
+  const result = await request<RawVersion[]>(
+    `/api/topics/${encodeURIComponent(topicId)}/comments/${encodeURIComponent(id)}/history`,
+    { method: 'GET' },
+  )
+  return result.ok ? { ok: true, value: result.value.map(toVersion) } : result
+}
+
+export function getTopicDifference(
+  id: string,
+  versionId: string,
+): Promise<ApiResult<DifferenceLine[]>> {
+  return request<DifferenceLine[]>(
+    `${topicHistoryPath(id)}/${encodeURIComponent(versionId)}`,
+    { method: 'GET' },
+  )
+}
+
 export type MaintenanceReport = { blocked: number; dropped: number }
 
 export function runMaintenance(): Promise<ApiResult<MaintenanceReport>> {

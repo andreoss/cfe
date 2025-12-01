@@ -528,6 +528,9 @@ async function onUnsave() {
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
+      <p v-if="topic.edited && !topic.deleted">
+        <RouterLink :to="`/t/${id}/history`">History</RouterLink>
+      </p>
 
       <template v-if="isModerator && topic.deleted">
         <button type="button" @click="onRestore">Restore topic</button>

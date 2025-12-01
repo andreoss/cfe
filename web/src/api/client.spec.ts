@@ -96,6 +96,9 @@ import {
   renameGroup,
   getArchiveMonths,
   getArchiveMonth,
+  getTopicHistory,
+  getCommentHistory,
+  getTopicDifference,
   TOPICS_SCORES,
 } from './client'
 
@@ -4255,5 +4258,186 @@ describe('getArchiveMonth', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'invalid month' }))
     const result = await getArchiveMonth(2024, 13)
     expect(result).toEqual({ ok: false, error: 'invalid month', status: 422 })
+  })
+})
+
+function rawVersion(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'v1',
+    title: 'Hello',
+    body: 'World',
+    editor: 'alice_01',
+    written_at: '2026-09-03T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('getTopicHistory', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields to the Version type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, [rawVersion()]))
+    const result = await getTopicHistory('t1')
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 'v1',
+          title: 'Hello',
+          body: 'World',
+          editor: 'alice_01',
+          writtenAt: '2026-09-03T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  it('keeps the versions in the order the server sent them', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        rawVersion({ id: 'v1', body: 'First', written_at: '2026-09-01T00:00:00Z' }),
+        rawVersion({ id: 'v2', body: 'Second', written_at: '2026-09-02T00:00:00Z' }),
+      ]),
+    )
+    const result = await getTopicHistory('t1')
+    expect(result.ok && result.value.map((version) => version.id)).toEqual(['v1', 'v2'])
+  })
+
+  it('returns an empty listing for a topic that was never edited', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getTopicHistory('t1')
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('reads the history with GET and escapes the identifier', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getTopicHistory('t 1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t%201/history',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('sends credentials so the session cookie is carried', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getTopicHistory('t1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('reports the status when the topic is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'topic not found' }))
+    const result = await getTopicHistory('missing')
+    expect(result).toEqual({ ok: false, error: 'topic not found', status: 404 })
+  })
+})
+
+describe('getCommentHistory', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('maps snake_case fields and keeps the absent title', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [rawVersion({ title: null, body: 'Nice topic!' })]),
+    )
+    const result = await getCommentHistory('t1', 'c1')
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 'v1',
+          title: null,
+          body: 'Nice topic!',
+          editor: 'alice_01',
+          writtenAt: '2026-09-03T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  it('returns an empty listing for a comment that was never edited', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getCommentHistory('t1', 'c1')
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('reads the history with GET under the topic and comment', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getCommentHistory('t1', 'c1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t1/comments/c1/history',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('reports the status when the comment is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'comment not found' }))
+    const result = await getCommentHistory('t1', 'missing')
+    expect(result).toEqual({ ok: false, error: 'comment not found', status: 404 })
+  })
+})
+
+describe('getTopicDifference', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the lines with their kinds in the order the server sent them', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [
+        { kind: 'kept', line: 'first line' },
+        { kind: 'removed', line: 'old line' },
+        { kind: 'added', line: 'new line' },
+      ]),
+    )
+    const result = await getTopicDifference('t1', 'v1')
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { kind: 'kept', line: 'first line' },
+        { kind: 'removed', line: 'old line' },
+        { kind: 'added', line: 'new line' },
+      ],
+    })
+  })
+
+  it('returns an empty difference when nothing changed', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getTopicDifference('t1', 'v1')
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('reads the difference with GET and escapes both identifiers', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getTopicDifference('t 1', 'v 1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/t%201/history/v%201',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('sends credentials so the session cookie is carried', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getTopicDifference('t1', 'v1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('reports the status when the version is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'version not found' }))
+    const result = await getTopicDifference('t1', 'missing')
+    expect(result).toEqual({ ok: false, error: 'version not found', status: 404 })
   })
 })
