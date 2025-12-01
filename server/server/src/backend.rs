@@ -3,7 +3,7 @@ use app::{
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
     SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    WatchRepository,
+    VersionRepository, WatchRepository,
 };
 use std::sync::Arc;
 
@@ -25,6 +25,7 @@ pub trait Backend: Send + Sync {
     fn watches(&self) -> Arc<dyn WatchRepository + Send + Sync>;
     fn remarks(&self) -> Arc<dyn RemarkRepository + Send + Sync>;
     fn invitations(&self) -> Arc<dyn InvitationRepository + Send + Sync>;
+    fn versions(&self) -> Arc<dyn VersionRepository + Send + Sync>;
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync>;
     fn activity(&self) -> Arc<dyn ActivityRepository + Send + Sync>;
     fn mail_tokens(&self) -> Arc<dyn MailTokenRepository + Send + Sync>;

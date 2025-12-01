@@ -23,7 +23,7 @@ use app::{
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
     SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    WatchRepository,
+    VersionRepository, WatchRepository,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -115,6 +115,12 @@ impl Backend for PostgresBackend {
 
     fn invitations(&self) -> Arc<dyn InvitationRepository + Send + Sync> {
         Arc::new(crate::invitation_repository::PgInvitationRepository::new(
+            self.pool.clone(),
+        ))
+    }
+
+    fn versions(&self) -> Arc<dyn VersionRepository + Send + Sync> {
+        Arc::new(crate::version_repository::PgVersionRepository::new(
             self.pool.clone(),
         ))
     }

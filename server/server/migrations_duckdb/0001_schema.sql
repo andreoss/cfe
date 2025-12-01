@@ -135,6 +135,18 @@ CREATE TABLE invitations (
 
 CREATE INDEX invitations_issuer_idx ON invitations (issuer_id, created_at DESC);
 
+CREATE TABLE versions (
+    id UUID PRIMARY KEY,
+    subject_kind VARCHAR NOT NULL,
+    subject_id UUID NOT NULL,
+    title VARCHAR,
+    body VARCHAR NOT NULL,
+    editor_id UUID NOT NULL,
+    written_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX versions_subject_idx ON versions (subject_kind, subject_id, written_at);
+
 CREATE TABLE reactions (
     user_id UUID NOT NULL,
     target_kind VARCHAR NOT NULL,

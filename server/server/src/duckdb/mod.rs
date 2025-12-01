@@ -19,6 +19,7 @@ mod section;
 mod session;
 mod topic;
 mod user;
+mod version;
 mod watch;
 
 pub use backend::DuckDbBackend;

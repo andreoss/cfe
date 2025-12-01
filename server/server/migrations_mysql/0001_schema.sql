@@ -158,6 +158,19 @@ CREATE TABLE invitations (
 
 CREATE INDEX invitations_issuer_idx ON invitations (issuer_id, created_at DESC);
 
+CREATE TABLE versions (
+    id BINARY(16) PRIMARY KEY,
+    subject_kind VARCHAR(16) NOT NULL,
+    subject_id BINARY(16) NOT NULL,
+    title TEXT,
+    body TEXT NOT NULL,
+    editor_id BINARY(16) NOT NULL,
+    written_at TIMESTAMP(6) NOT NULL,
+    FOREIGN KEY (editor_id) REFERENCES users (id)
+);
+
+CREATE INDEX versions_subject_idx ON versions (subject_kind, subject_id, written_at);
+
 CREATE TABLE reactions (
     user_id BINARY(16) NOT NULL,
     target_kind VARCHAR(16) NOT NULL,

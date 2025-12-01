@@ -9,10 +9,10 @@ use app::{
     RemarkError, ReportError, RestoreError, SectionError, SetPostscoreError, SignInError,
     SpendError, UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban,
     add_bookmark, admit, ban_user, block_address, cast_vote, change_password, clear_avatar,
-    clear_reaction, clear_remark, clear_sign_in_failures, close_report, commit_topic,
-    confirm_activation, confirm_email_change, count_open_for_topic, count_unread, create_group,
-    create_poll, create_section, create_session, create_topic, delete_comment, delete_topic,
-    deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
+    clear_reaction, clear_remark, clear_sign_in_failures, close_report, comment_history,
+    commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
+    create_group, create_poll, create_section, create_session, create_topic, delete_comment,
+    delete_topic, deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
     enforce_registration_challenge, enforce_sign_in_attempts, get_avatar, get_topic, ignore_user,
     ignored_by, is_bookmarked, is_watching, issue_invitation, lift_address_block, lift_ban,
     list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
@@ -25,7 +25,8 @@ use app::{
     request_email_change, request_password_reset, reset_password, restore_comment, restore_topic,
     search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_section_score,
     set_sticky, sign_in, sign_out as end_session, stop_ignoring, stop_watching,
-    summarize_reactions, topics_in_month, uncommit_topic, update_bio, warn_user, watch_topic,
+    summarize_reactions, topic_history, topics_in_month, uncommit_topic, update_bio, warn_user,
+    watch_topic, what_changed,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -807,6 +808,108 @@ fn restore_error(e: RestoreError) -> (StatusCode, Json<ErrorResponse>) {
     }
 }
 
+#[derive(Serialize)]
+pub struct VersionResponse {
+    pub id: String,
+    pub title: Option<String>,
+    pub body: String,
+    pub editor: String,
+    pub written_at: String,
+}
+
+#[derive(Serialize)]
+pub struct ChangeResponse {
+    pub kind: String,
+    pub line: String,
+}
+
+async fn version_responses(
+    state: &AppState,
+    versions: Vec<domain::Version>,
+) -> Result<Vec<VersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let users = state.backend.users();
+    let mut out = Vec::with_capacity(versions.len());
+    for version in &versions {
+        let editor = match users.find_by_id(version.editor_id()).await {
+            Some(user) => user.username().as_str().to_owned(),
+            None => "unknown".to_owned(),
+        };
+        out.push(VersionResponse {
+            id: version.id().as_uuid().to_string(),
+            title: version.title().map(|t| t.as_str().to_owned()),
+            body: version.body().as_str().to_owned(),
+            editor,
+            written_at: version
+                .written_at()
+                .format(&Rfc3339)
+                .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "bad timestamp"))?,
+        });
+    }
+    Ok(out)
+}
+
+pub async fn topic_history_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<Vec<VersionResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let versions = state.backend.versions();
+    let topics = state.backend.topics();
+    let kept = topic_history(&*versions, &*topics, TopicId::new(id))
+        .await
+        .map_err(|_| error(StatusCode::NOT_FOUND, "topic not found"))?;
+    Ok(Json(version_responses(&state, kept).await?))
+}
+
+pub async fn comment_history_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<Json<Vec<VersionResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let versions = state.backend.versions();
+    let comments = state.backend.comments();
+    let kept = comment_history(&*versions, &*comments, CommentId::new(id))
+        .await
+        .map_err(|_| error(StatusCode::NOT_FOUND, "comment not found"))?;
+    Ok(Json(version_responses(&state, kept).await?))
+}
+
+pub async fn topic_difference_handler(
+    State(state): State<AppState>,
+    Path((id, version_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<Json<Vec<ChangeResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let topics = state.backend.topics();
+    let topic = topics
+        .find_by_id(TopicId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "topic not found"))?;
+    let versions = state.backend.versions();
+    let changes = what_changed(
+        &*versions,
+        domain::VersionId::new(version_id),
+        topic.body().as_str(),
+    )
+    .await
+    .map_err(|_| error(StatusCode::NOT_FOUND, "version not found"))?;
+    Ok(Json(
+        changes
+            .into_iter()
+            .map(|c| match c {
+                domain::Change::Kept(line) => ChangeResponse {
+                    kind: "kept".to_owned(),
+                    line,
+                },
+                domain::Change::Removed(line) => ChangeResponse {
+                    kind: "removed".to_owned(),
+                    line,
+                },
+                domain::Change::Added(line) => ChangeResponse {
+                    kind: "added".to_owned(),
+                    line,
+                },
+            })
+            .collect(),
+    ))
+}
+
 pub async fn list_topics_handler(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -1353,13 +1456,16 @@ pub async fn edit_topic_handler(
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tags"))?;
     let topics = state.backend.topics();
     let now = OffsetDateTime::now_utc();
+    let versions = state.backend.versions();
     let topic = edit_topic(
         &*topics,
+        &*versions,
         &current,
         TopicId::new(id),
         title.clone(),
         topic_body.clone(),
         tags.clone(),
+        domain::VersionId::new(uuid::Uuid::new_v4()),
         now,
     )
     .await
@@ -1441,11 +1547,14 @@ pub async fn edit_comment_handler(
     let comment_body = Body::parse(&body.body)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid body"))?;
     let comments = state.backend.comments();
+    let versions = state.backend.versions();
     let comment = edit_comment(
         &*comments,
+        &*versions,
         &current,
         CommentId::new(id),
         comment_body,
+        domain::VersionId::new(uuid::Uuid::new_v4()),
         OffsetDateTime::now_utc(),
     )
     .await

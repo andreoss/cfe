@@ -27,6 +27,7 @@ mod search_repository;
 mod section_repository;
 mod session_repository;
 mod topic_repository;
+mod version_repository;
 mod watch_repository;
 
 use axum::Router;
@@ -255,6 +256,18 @@ async fn main() {
         .route(
             "/api/topics/{id}/restore",
             post(handlers::restore_topic_handler),
+        )
+        .route(
+            "/api/topics/{id}/history",
+            get(handlers::topic_history_handler),
+        )
+        .route(
+            "/api/topics/{id}/history/{version_id}",
+            get(handlers::topic_difference_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/comments/{id}/history",
+            get(handlers::comment_history_handler),
         )
         .route("/api/topics/{id}/postscore", post(set_postscore_handler))
         .route("/api/topics/{id}/commit", post(commit_topic_handler))

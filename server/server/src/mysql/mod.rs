@@ -17,6 +17,7 @@ mod section;
 mod session;
 mod topic;
 mod user;
+mod version;
 mod watch;
 
 use crate::backend::Backend;
@@ -25,7 +26,7 @@ use app::{
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
     SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    WatchRepository,
+    VersionRepository, WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -123,6 +124,10 @@ impl Backend for MySqlBackend {
         Arc::new(invitation::MySqlInvitationRepository::new(
             self.pool.clone(),
         ))
+    }
+
+    fn versions(&self) -> Arc<dyn VersionRepository + Send + Sync> {
+        Arc::new(version::MySqlVersionRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

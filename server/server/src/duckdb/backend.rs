@@ -25,7 +25,7 @@ use app::{
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
     SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    WatchRepository,
+    VersionRepository, WatchRepository,
 };
 use std::sync::Arc;
 
@@ -122,6 +122,12 @@ impl Backend for DuckDbBackend {
 
     fn invitations(&self) -> Arc<dyn InvitationRepository + Send + Sync> {
         Arc::new(DuckInvitationRepository::new(self.db.clone()))
+    }
+
+    fn versions(&self) -> Arc<dyn VersionRepository + Send + Sync> {
+        Arc::new(crate::duckdb::version::DuckVersionRepository::new(
+            self.db.clone(),
+        ))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {
