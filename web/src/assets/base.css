@@ -1,50 +1,60 @@
 :root {
-  --vt-c-white: #ffffff;
-  --vt-c-white-soft: #f8f8f8;
-  --vt-c-white-mute: #f2f2f2;
+  --ink: #1b1d21;
+  --ink-soft: #4a5058;
+  --ink-faint: #767d87;
+  --ground: #ffffff;
+  --ground-soft: #f6f7f9;
+  --ground-sunk: #eceef1;
+  --edge: #d9dde3;
+  --edge-soft: #e8ebef;
+  --accent: #1f5fa8;
+  --accent-soft: #e8f0fa;
+  --accent-ink: #ffffff;
+  --danger: #a32020;
+  --danger-soft: #fbeaea;
+  --good: #1d6b3f;
+  --good-soft: #e7f4ec;
+  --warn-soft: #fdf3e2;
 
-  --vt-c-black: #181818;
-  --vt-c-black-soft: #222222;
-  --vt-c-black-mute: #282828;
+  --step-0: 1rem;
+  --step-1: 1.125rem;
+  --step-2: 1.375rem;
+  --step-3: 1.75rem;
+  --step-small: 0.875rem;
+  --step-tiny: 0.78rem;
 
-  --vt-c-indigo: #2c3e50;
+  --gap-1: 0.25rem;
+  --gap-2: 0.5rem;
+  --gap-3: 0.75rem;
+  --gap-4: 1rem;
+  --gap-5: 1.5rem;
+  --gap-6: 2rem;
 
-  --vt-c-divider-light-1: rgba(60, 60, 60, 0.29);
-  --vt-c-divider-light-2: rgba(60, 60, 60, 0.12);
-  --vt-c-divider-dark-1: rgba(84, 84, 84, 0.65);
-  --vt-c-divider-dark-2: rgba(84, 84, 84, 0.48);
-
-  --vt-c-text-light-1: var(--vt-c-indigo);
-  --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
-  --vt-c-text-dark-1: var(--vt-c-white);
-  --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
-}
-
-:root {
-  --color-background: var(--vt-c-white);
-  --color-background-soft: var(--vt-c-white-soft);
-  --color-background-mute: var(--vt-c-white-mute);
-
-  --color-border: var(--vt-c-divider-light-2);
-  --color-border-hover: var(--vt-c-divider-light-1);
-
-  --color-heading: var(--vt-c-text-light-1);
-  --color-text: var(--vt-c-text-light-1);
-
-  --section-gap: 160px;
+  --round: 6px;
+  --round-large: 10px;
+  --shadow: 0 1px 2px rgba(20, 24, 30, 0.06), 0 2px 8px rgba(20, 24, 30, 0.05);
+  --reading: 68ch;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-background: var(--vt-c-black);
-    --color-background-soft: var(--vt-c-black-soft);
-    --color-background-mute: var(--vt-c-black-mute);
-
-    --color-border: var(--vt-c-divider-dark-2);
-    --color-border-hover: var(--vt-c-divider-dark-1);
-
-    --color-heading: var(--vt-c-text-dark-1);
-    --color-text: var(--vt-c-text-dark-2);
+    --ink: #e8eaed;
+    --ink-soft: #b3b9c2;
+    --ink-faint: #878e99;
+    --ground: #16181c;
+    --ground-soft: #1d2025;
+    --ground-sunk: #24272d;
+    --edge: #343941;
+    --edge-soft: #2a2e35;
+    --accent: #7fb2ee;
+    --accent-soft: #1c2b3d;
+    --accent-ink: #10151c;
+    --danger: #f08b8b;
+    --danger-soft: #33201f;
+    --good: #82d3a3;
+    --good-soft: #1b2c22;
+    --warn-soft: #2f2718;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -52,33 +62,94 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+* {
   margin: 0;
-  font-weight: normal;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   min-height: 100vh;
-  color: var(--color-text);
-  background: var(--color-background);
-  transition:
-    color 0.5s,
-    background-color 0.5s;
-  line-height: 1.6;
+  background: var(--ground-soft);
+  color: var(--ink);
   font-family:
-    Inter,
+    system-ui,
     -apple-system,
-    BlinkMacSystemFont,
     'Segoe UI',
     Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    'Fira Sans',
-    'Droid Sans',
     'Helvetica Neue',
+    Arial,
     sans-serif;
-  font-size: 15px;
-  text-rendering: optimizeLegibility;
+  font-size: var(--step-0);
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--step-3);
+}
+
+h2 {
+  font-size: var(--step-2);
+}
+
+h3 {
+  font-size: var(--step-1);
+}
+
+p {
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+code,
+pre {
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, monospace;
+  font-size: 0.925em;
+}
+
+pre {
+  overflow-x: auto;
+  padding: var(--gap-3);
+  border-radius: var(--round);
+  background: var(--ground-sunk);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
 }
