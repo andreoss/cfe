@@ -69,3 +69,13 @@ async function onCreate() {
     </template>
   </main>
 </template>
+
+<style scoped>
+li a {
+  font-size: var(--step-1);
+}
+
+form {
+  max-width: var(--reading);
+}
+</style>

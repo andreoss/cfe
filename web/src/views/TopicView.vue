@@ -45,6 +45,7 @@ import PollPanel from '@/components/PollPanel.vue'
 import ReactionBar from '@/components/ReactionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { renderMarkdown } from '@/lib/markdown'
+import { exactWhen, readableWhen } from '@/lib/when'
 
 const props = defineProps<{ id: string }>()
 const auth = useAuthStore()
@@ -498,7 +499,10 @@ async function onUnsave() {
     <p v-if="notFound">Topic not found.</p>
     <template v-else-if="topic">
       <h1>{{ topic.title }}</h1>
-      <p>
+      <p class="byline">
+        <time :datetime="topic.createdAt" :title="exactWhen(topic.createdAt)">{{
+          readableWhen(topic.createdAt)
+        }}</time>
         by <UserAvatar :username="topic.authorUsername" />
         <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
         in <RouterLink :to="`/s/${topic.sectionSlug}`">{{ topic.sectionSlug }}</RouterLink>
@@ -506,7 +510,7 @@ async function onUnsave() {
           / <RouterLink :to="`/s/${topic.sectionSlug}/g/${topic.groupSlug}`">{{ topic.groupSlug }}</RouterLink>
         </template>
       </p>
-      <p v-if="topic.tags.length > 0">
+      <p v-if="topic.tags.length > 0" class="tag-line">
         Tags:
         <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
       </p>
@@ -708,3 +712,195 @@ async function onUnsave() {
     </template>
   </main>
 </template>
+
+<style scoped>
+h1 {
+  max-width: var(--reading);
+  margin-bottom: 0;
+}
+
+.byline time {
+  color: var(--ink-faint);
+  font-size: var(--step-tiny);
+  white-space: nowrap;
+}
+
+.byline,
+.tag-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-1) var(--gap-2);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+.byline a,
+.tag-line a {
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.byline a:hover,
+.tag-line a:hover {
+  text-decoration: underline;
+}
+
+.byline .avatar {
+  display: inline-block;
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.tag-line a {
+  padding: 0.05rem var(--gap-2);
+  border-radius: 999px;
+  background: var(--ground-sunk);
+  color: var(--ink-soft);
+  font-size: var(--step-tiny);
+}
+
+.tag-line a:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.queued,
+.draft,
+.resolved {
+  align-self: flex-start;
+  padding: var(--gap-1) var(--gap-3);
+  border-radius: var(--round);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+.queued {
+  background: var(--warn-soft);
+  color: var(--ink-soft);
+}
+
+.draft {
+  background: var(--ground-sunk);
+  color: var(--ink-soft);
+}
+
+.resolved {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.body {
+  padding: var(--gap-5);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round-large);
+  background: var(--ground);
+  box-shadow: var(--shadow);
+  font-size: var(--step-1);
+  line-height: 1.7;
+}
+
+.body :deep(h1),
+.body :deep(h2),
+.body :deep(h3) {
+  margin-top: var(--gap-5);
+  font-size: var(--step-2);
+}
+
+.body :deep(blockquote) {
+  padding-left: var(--gap-4);
+  border-left: 3px solid var(--edge);
+  color: var(--ink-soft);
+}
+
+.body :deep(img) {
+  border-radius: var(--round);
+}
+
+.body :deep(li + li) {
+  margin-top: var(--gap-2);
+}
+
+p.removed {
+  max-width: var(--reading);
+  padding: var(--gap-3) var(--gap-4);
+  border-radius: var(--round-large);
+  background: var(--ground-sunk);
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: var(--step-small);
+  white-space: normal;
+}
+
+.edited {
+  margin-top: calc(var(--gap-3) * -1);
+  color: var(--ink-faint);
+  font-size: var(--step-tiny);
+}
+
+main > button,
+main > details,
+main > nav {
+  align-self: flex-start;
+}
+
+details {
+  max-width: var(--reading);
+}
+
+summary {
+  cursor: pointer;
+  font-size: var(--step-small);
+  font-weight: 550;
+  color: var(--ink-soft);
+}
+
+h2 {
+  max-width: var(--reading);
+  margin-top: var(--gap-4);
+  padding-top: var(--gap-5);
+  border-top: 1px solid var(--edge);
+}
+
+main > nav {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground);
+}
+
+main > nav button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--gap-2) var(--gap-4);
+}
+
+main > nav span {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--gap-4);
+  border-left: 1px solid var(--edge-soft);
+  border-right: 1px solid var(--edge-soft);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .body {
+    padding: var(--gap-4);
+  }
+
+  main > nav {
+    align-self: stretch;
+  }
+
+  main > nav span {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>

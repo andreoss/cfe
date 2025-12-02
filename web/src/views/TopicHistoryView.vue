@@ -67,3 +67,34 @@ watch(() => props.id, load, { immediate: true })
     <p v-if="versions.length === 0 && !loadError">No earlier versions.</p>
   </main>
 </template>
+
+<style scoped>
+.version-title {
+  font-weight: 650;
+  font-size: var(--step-1);
+}
+
+.version-editor {
+  font-weight: 550;
+  color: var(--ink-soft);
+}
+
+.version-time {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.difference {
+  list-style: none;
+  padding: var(--gap-2);
+  margin-top: var(--gap-3);
+  background: var(--ground-soft);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-x: auto;
+}
+</style>

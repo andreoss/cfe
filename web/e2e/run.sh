@@ -162,6 +162,7 @@ node e2e/archive.mjs
 node e2e/penalty.mjs
 node e2e/restore.mjs
 node e2e/history.mjs
+node e2e/thread.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs

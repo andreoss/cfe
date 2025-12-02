@@ -280,56 +280,62 @@ async function onSetRole() {
       <h1>{{ profile.username }}</h1>
       <p data-test="score">Score: {{ profile.score }}</p>
       <template v-if="isOwnProfile">
-        <input name="avatar-file" type="file" accept="image/*" @change="onFilePick" />
-        <button type="button" @click="onUploadAvatar">Upload avatar</button>
-        <button type="button" @click="onRemoveAvatar">Remove avatar</button>
-        <p v-if="avatarError" role="alert">{{ avatarError }}</p>
+        <div class="avatar-controls">
+          <input name="avatar-file" type="file" accept="image/*" @change="onFilePick" />
+          <button type="button" @click="onUploadAvatar">Upload avatar</button>
+          <button class="grave" type="button" @click="onRemoveAvatar">Remove avatar</button>
+          <p v-if="avatarError" role="alert">{{ avatarError }}</p>
+        </div>
       </template>
       <template v-if="isOtherProfile">
         <button v-if="ignoreReady" type="button" @click="onToggleIgnore">
           {{ ignoring ? 'Stop ignoring' : 'Ignore user' }}
         </button>
         <template v-if="remarkReady">
-          <textarea v-model="remarkDraft" name="remark-text" rows="3"></textarea>
-          <button type="button" @click="onSaveRemark">Save note</button>
-          <button v-if="remarkSaved" type="button" @click="onClearRemark">Clear note</button>
-          <p v-if="remarkStatus" role="status">{{ remarkStatus }}</p>
-          <p v-if="remarkError" role="alert">{{ remarkError }}</p>
+          <div class="note-panel">
+            <textarea v-model="remarkDraft" name="remark-text" rows="3"></textarea>
+            <button type="button" @click="onSaveRemark">Save note</button>
+            <button v-if="remarkSaved" class="mild" type="button" @click="onClearRemark">Clear note</button>
+            <p v-if="remarkStatus" role="status">{{ remarkStatus }}</p>
+            <p v-if="remarkError" role="alert">{{ remarkError }}</p>
+          </div>
         </template>
         <template v-if="isModerator">
-          <button v-if="!warnOpen" type="button" @click="warnOpen = true">Warn user</button>
-          <form v-else @submit.prevent="onWarn">
+          <div class="moderation">
+            <button v-if="!warnOpen" type="button" @click="warnOpen = true">Warn user</button>
+            <form v-else @submit.prevent="onWarn">
+              <label>
+                Reason
+                <input v-model="warnReason" name="warn-reason" type="text" />
+              </label>
+              <button type="submit">Send warning</button>
+              <button class="mild" type="button" @click="warnOpen = false">Cancel</button>
+            </form>
+            <button v-if="!banOpen" class="grave" type="button" @click="banOpen = true">Ban user</button>
+            <form v-else class="grave-form" @submit.prevent="onBan">
+              <label>
+                Reason
+                <input v-model="banReason" name="ban-reason" type="text" />
+              </label>
+              <label>
+                Days
+                <input v-model="banDays" name="ban-days" type="number" />
+              </label>
+              <button class="grave" type="submit">Confirm ban</button>
+              <button class="mild" type="button" @click="banOpen = false">Cancel</button>
+            </form>
+            <button type="button" @click="onLiftBan">Lift ban</button>
+            <button type="button" @click="onPromote">Promote to moderator</button>
             <label>
-              Reason
-              <input v-model="warnReason" name="warn-reason" type="text" />
+              Role
+              <select v-model="roleDraft" name="user-role">
+                <option value="user">Reader</option>
+                <option value="corrector">Corrector</option>
+                <option value="moderator">Moderator</option>
+              </select>
             </label>
-            <button type="submit">Send warning</button>
-            <button type="button" @click="warnOpen = false">Cancel</button>
-          </form>
-          <button v-if="!banOpen" type="button" @click="banOpen = true">Ban user</button>
-          <form v-else @submit.prevent="onBan">
-            <label>
-              Reason
-              <input v-model="banReason" name="ban-reason" type="text" />
-            </label>
-            <label>
-              Days
-              <input v-model="banDays" name="ban-days" type="number" />
-            </label>
-            <button type="submit">Confirm ban</button>
-            <button type="button" @click="banOpen = false">Cancel</button>
-          </form>
-          <button type="button" @click="onLiftBan">Lift ban</button>
-          <button type="button" @click="onPromote">Promote to moderator</button>
-          <label>
-            Role
-            <select v-model="roleDraft" name="user-role">
-              <option value="user">Reader</option>
-              <option value="corrector">Corrector</option>
-              <option value="moderator">Moderator</option>
-            </select>
-          </label>
-          <button type="button" @click="onSetRole">Set role</button>
+            <button type="button" @click="onSetRole">Set role</button>
+          </div>
         </template>
         <p v-if="moderationStatus" role="status">{{ moderationStatus }}</p>
         <p v-if="moderationError" role="alert">{{ moderationError }}</p>
@@ -347,3 +353,143 @@ async function onSetRole() {
     </template>
   </main>
 </template>
+
+<style scoped>
+main {
+  gap: var(--gap-4);
+  align-items: flex-start;
+}
+
+main > .avatar {
+  width: 6rem;
+  height: 6rem;
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+}
+
+main > h1 {
+  margin-bottom: 0;
+}
+
+main > p[data-test='score'] {
+  margin-top: calc(var(--gap-3) * -1);
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+main > p:not([role]):not([data-test]) {
+  width: 100%;
+  max-width: var(--reading);
+  padding: var(--gap-4);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round-large);
+  background: var(--ground);
+  color: var(--ink-soft);
+}
+
+main > textarea {
+  max-width: var(--reading);
+}
+
+main > button {
+  align-self: flex-start;
+}
+
+.avatar-controls,
+.note-panel,
+.moderation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-3);
+  width: 100%;
+  max-width: var(--reading);
+  padding: var(--gap-4);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round-large);
+  background: var(--ground);
+  box-shadow: var(--shadow);
+}
+
+.avatar-controls input[type='file'] {
+  flex: 1 1 14rem;
+  width: auto;
+  border-style: dashed;
+  background: var(--ground-soft);
+  font-size: var(--step-small);
+}
+
+.avatar-controls button.grave {
+  margin-left: auto;
+}
+
+.note-panel,
+.moderation {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.note-panel > textarea {
+  width: 100%;
+  min-height: 5rem;
+}
+
+.moderation > label,
+.moderation > form {
+  width: 100%;
+}
+
+.moderation > form {
+  gap: var(--gap-3);
+  padding: var(--gap-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground-soft);
+}
+
+.moderation > form.grave-form {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.moderation > form button {
+  align-self: flex-start;
+}
+
+.moderation > button.grave,
+.moderation > form.grave-form {
+  margin-top: var(--gap-3);
+}
+
+button.grave {
+  border-color: var(--danger);
+  background: var(--ground);
+  color: var(--danger);
+}
+
+button.grave:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--ground);
+}
+
+button.mild {
+  border-color: var(--edge);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+p[role='status'] {
+  padding: var(--gap-2) var(--gap-3);
+  border-left: 3px solid var(--good);
+  border-radius: var(--round);
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+p[role='alert'] {
+  border-left: 3px solid var(--danger);
+}
+</style>

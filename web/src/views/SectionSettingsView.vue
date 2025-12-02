@@ -125,59 +125,127 @@ watch(() => auth.currentUser, load, { immediate: true })
         </li>
       </ul>
 
-      <form @submit.prevent="onCreateSection">
-        <label>
-          Slug
-          <input v-model="sectionSlugDraft" name="section-slug" type="text" />
-        </label>
-        <label>
-          Title
-          <input v-model="sectionTitleDraft" name="section-title" type="text" />
-        </label>
-        <button type="submit">Add section</button>
-      </form>
+      <div class="forms">
+        <form @submit.prevent="onCreateSection">
+          <label>
+            Slug
+            <input v-model="sectionSlugDraft" name="section-slug" type="text" />
+          </label>
+          <label>
+            Title
+            <input v-model="sectionTitleDraft" name="section-title" type="text" />
+          </label>
+          <button type="submit">Add section</button>
+        </form>
 
-      <form @submit.prevent="onRenameSection">
-        <label>
-          Section
-          <input v-model="renameSlugDraft" name="rename-slug" type="text" />
-        </label>
-        <label>
-          Title
-          <input v-model="renameTitleDraft" name="rename-title" type="text" />
-        </label>
-        <button type="submit">Rename section</button>
-      </form>
+        <form @submit.prevent="onRenameSection">
+          <label>
+            Section
+            <input v-model="renameSlugDraft" name="rename-slug" type="text" />
+          </label>
+          <label>
+            Title
+            <input v-model="renameTitleDraft" name="rename-title" type="text" />
+          </label>
+          <button type="submit">Rename section</button>
+        </form>
 
-      <form @submit.prevent="onSetScore">
-        <label>
-          Section
-          <input v-model="scoreSlugDraft" name="score-slug" type="text" />
-        </label>
-        <label>
-          Standing
-          <select v-model="scoreDraft" name="topics-score">
-            <option v-for="score in TOPICS_SCORES" :key="score" :value="score">{{ score }}</option>
-          </select>
-        </label>
-        <button type="submit">Set standing</button>
-      </form>
+        <form @submit.prevent="onSetScore">
+          <label>
+            Section
+            <input v-model="scoreSlugDraft" name="score-slug" type="text" />
+          </label>
+          <label>
+            Standing
+            <select v-model="scoreDraft" name="topics-score">
+              <option v-for="score in TOPICS_SCORES" :key="score" :value="score">{{ score }}</option>
+            </select>
+          </label>
+          <button type="submit">Set standing</button>
+        </form>
 
-      <form @submit.prevent="onRenameGroup">
-        <label>
-          Section
-          <input v-model="groupSectionDraft" name="group-section" type="text" />
-        </label>
-        <label>
-          Group
-          <input v-model="groupSlugDraft" name="group-slug" type="text" />
-        </label>
-        <label>
-          Title
-          <input v-model="groupTitleDraft" name="group-title" type="text" />
-        </label>
-        <button type="submit">Rename group</button>
-      </form>
+        <form @submit.prevent="onRenameGroup">
+          <label>
+            Section
+            <input v-model="groupSectionDraft" name="group-section" type="text" />
+          </label>
+          <label>
+            Group
+            <input v-model="groupSlugDraft" name="group-slug" type="text" />
+          </label>
+          <label>
+            Title
+            <input v-model="groupTitleDraft" name="group-title" type="text" />
+          </label>
+          <button type="submit">Rename group</button>
+        </form>
+      </div>
     </template>
   </main>
 </template>
+
+<style scoped>
+main > p:not([role]) {
+  color: var(--ink-soft);
+}
+
+p[role='status'] {
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+main > ul {
+  gap: var(--gap-1);
+}
+
+main > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gap-1) var(--gap-3);
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  box-shadow: none;
+}
+
+main > ul > li > span:first-child {
+  min-width: 10ch;
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, monospace;
+  font-size: var(--step-small);
+  color: var(--ink-faint);
+}
+
+main > ul > li > span:last-child {
+  font-weight: 550;
+}
+
+.forms {
+  max-width: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--gap-4);
+  align-items: start;
+}
+
+.forms > form {
+  height: 100%;
+  gap: var(--gap-3);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+}
+
+.forms > form > button {
+  margin-top: auto;
+}
+
+@media (max-width: 40rem) {
+  .forms {
+    grid-template-columns: 1fr;
+    gap: var(--gap-3);
+  }
+}
+</style>

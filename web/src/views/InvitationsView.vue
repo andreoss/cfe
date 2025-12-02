@@ -87,3 +87,69 @@ watch(() => auth.currentUser, load, { immediate: true })
     </template>
   </main>
 </template>
+
+<style scoped>
+main > button {
+  align-self: flex-start;
+  padding: 0.45rem 1rem;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+main > button:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+main > ul {
+  padding-top: var(--gap-2);
+  border-top: 1px solid var(--edge);
+}
+
+main > ul:empty {
+  border-top: none;
+  padding-top: 0;
+}
+
+main > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gap-1) var(--gap-4);
+  padding: var(--gap-3);
+}
+
+.invitation-code {
+  flex: 0 0 auto;
+  padding: var(--gap-1) var(--gap-2);
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground-sunk);
+  font-size: var(--step-small);
+  user-select: all;
+}
+
+main > ul > li > span:not(.invitation-code) {
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+main > ul > li > span:last-child {
+  margin-left: auto;
+}
+
+main > p:not([role]) {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  padding: var(--gap-3) 0;
+}
+
+main > nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+</style>

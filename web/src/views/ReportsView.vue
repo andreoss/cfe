@@ -85,3 +85,83 @@ watch(() => auth.currentUser, load, { immediate: true })
     </template>
   </main>
 </template>
+
+<style scoped>
+main > ul {
+  max-width: none;
+  gap: var(--gap-1);
+}
+
+main > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-1) var(--gap-4);
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  box-shadow: none;
+  font-size: var(--step-small);
+}
+
+main > ul > li:hover {
+  background: var(--ground-soft);
+}
+
+main > ul > li > span:first-child {
+  min-width: 12ch;
+  font-weight: 600;
+  font-size: var(--step-0);
+}
+
+main > ul > li > span:nth-child(2) {
+  padding: 0 var(--gap-2);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: var(--step-tiny);
+  white-space: nowrap;
+}
+
+main > ul > li > span:nth-child(3) {
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+main > ul > li > a {
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, monospace;
+  font-size: var(--step-tiny);
+}
+
+main > ul > li > button {
+  margin-left: auto;
+  padding-left: var(--gap-4);
+  padding-right: var(--gap-4);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+main > ul > li > button:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+main > p:not([role]) {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  padding: var(--gap-3) 0;
+}
+
+main > nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+@media (max-width: 40rem) {
+  main > ul > li > button {
+    margin-left: 0;
+    margin-top: var(--gap-2);
+  }
+}
+</style>

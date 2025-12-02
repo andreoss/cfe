@@ -99,3 +99,59 @@ async function onSubmit() {
     </form>
   </main>
 </template>
+
+<style scoped>
+main {
+  max-width: 24rem;
+  gap: var(--gap-3);
+  padding-top: var(--gap-6);
+}
+
+main > h1 {
+  margin-bottom: 0;
+  font-size: var(--step-2);
+  text-align: center;
+}
+
+main > p {
+  max-width: none;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: var(--step-small);
+}
+
+form {
+  gap: var(--gap-4);
+  padding: var(--gap-5);
+  box-shadow: var(--shadow);
+}
+
+form label {
+  color: var(--ink);
+}
+
+form input:focus-visible {
+  outline-offset: 1px;
+}
+
+form p[role='status'] {
+  padding: var(--gap-2) var(--gap-3);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--round);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+form p[role='alert'] {
+  border-left: 3px solid var(--danger);
+}
+
+form button[type='submit'] {
+  align-self: stretch;
+  margin-top: var(--gap-1);
+  padding: 0.55rem 0.85rem;
+  font-size: var(--step-0);
+}
+</style>

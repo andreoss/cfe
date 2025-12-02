@@ -73,3 +73,30 @@ function onSubmit() {
     <p v-if="searched && hits.length === 0 && !searchError">Nothing found.</p>
   </main>
 </template>
+
+<style scoped>
+form {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--gap-3);
+}
+
+form label {
+  flex: 1 1 auto;
+}
+
+li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-1);
+}
+
+.excerpt {
+  color: var(--ink-soft);
+  font-size: var(--step-small);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+</style>

@@ -82,7 +82,7 @@ async function onRemove() {
     <h1>Addresses</h1>
     <p v-if="denied">Only a moderator can investigate an address.</p>
     <template v-else-if="isModerator">
-      <form @submit.prevent="onInvestigate">
+      <form class="probe" @submit.prevent="onInvestigate">
         <label>
           Address
           <input v-model="addrDraft" name="investigate-addr" type="text" />
@@ -107,7 +107,7 @@ async function onRemove() {
         <button type="button" :disabled="!page.hasNext" @click="nextPage">Next</button>
       </nav>
 
-      <form v-if="listed" @submit.prevent="onRemove">
+      <form v-if="listed" class="removal" @submit.prevent="onRemove">
         <label>
           Hours
           <input v-model.number="hoursDraft" name="remove-hours" type="number" />
@@ -123,3 +123,103 @@ async function onRemove() {
     </template>
   </main>
 </template>
+
+<style scoped>
+.probe {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-3);
+}
+
+.probe label {
+  flex: 1 1 16rem;
+}
+
+.probe button {
+  align-self: auto;
+}
+
+main > ul {
+  max-width: none;
+  gap: var(--gap-1);
+}
+
+main > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gap-1) var(--gap-4);
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  box-shadow: none;
+  font-size: var(--step-small);
+}
+
+main > ul > li:hover {
+  background: var(--ground-soft);
+}
+
+main > ul > li > span:first-child {
+  min-width: 12ch;
+  font-weight: 600;
+  font-size: var(--step-0);
+}
+
+main > ul > li > span:nth-child(2) {
+  color: var(--ink-soft);
+}
+
+main > ul > li > span:last-child {
+  margin-left: auto;
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, monospace;
+  font-size: var(--step-tiny);
+  color: var(--ink-faint);
+}
+
+main > p:not([role]) {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  padding: var(--gap-3) 0;
+}
+
+main > nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+.removal {
+  margin-top: var(--gap-4);
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+.removal input {
+  background: var(--ground);
+}
+
+.removal button[type='submit'] {
+  margin-top: var(--gap-2);
+  padding-left: var(--gap-4);
+  padding-right: var(--gap-4);
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--ground);
+}
+
+.removal p[role='status'] {
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+.removal p[role='alert'] {
+  background: var(--ground);
+}
+</style>

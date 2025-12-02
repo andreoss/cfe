@@ -265,20 +265,167 @@ async function onEndAllSessions() {
         <p v-if="formError" role="alert">{{ formError }}</p>
         <button type="submit">Change password</button>
       </form>
-      <template v-if="confirmingEndAll">
-        <p>This signs you out on every device.</p>
-        <p v-if="endAllError" role="alert">{{ endAllError }}</p>
-        <button type="button" @click="onEndAllSessions">Confirm end all sessions</button>
-        <button type="button" @click="confirmingEndAll = false">Cancel</button>
-      </template>
-      <button v-else type="button" @click="confirmingEndAll = true">End all sessions</button>
-      <template v-if="confirming">
-        <p>This removes your account for good.</p>
-        <p v-if="deregisterError" role="alert">{{ deregisterError }}</p>
-        <button type="button" @click="onDeregister">Confirm deregister</button>
-        <button type="button" @click="confirming = false">Cancel</button>
-      </template>
-      <button v-else type="button" @click="confirming = true">Deregister account</button>
+      <div class="danger-zone">
+        <template v-if="confirmingEndAll">
+          <p>This signs you out on every device.</p>
+          <p v-if="endAllError" role="alert">{{ endAllError }}</p>
+          <button class="grave" type="button" @click="onEndAllSessions">Confirm end all sessions</button>
+          <button class="mild" type="button" @click="confirmingEndAll = false">Cancel</button>
+        </template>
+        <button v-else class="grave" type="button" @click="confirmingEndAll = true">End all sessions</button>
+        <template v-if="confirming">
+          <p>This removes your account for good.</p>
+          <p v-if="deregisterError" role="alert">{{ deregisterError }}</p>
+          <button class="grave" type="button" @click="onDeregister">Confirm deregister</button>
+          <button class="mild" type="button" @click="confirming = false">Cancel</button>
+        </template>
+        <button v-else class="grave" type="button" @click="confirming = true">Deregister account</button>
+      </div>
     </template>
   </main>
 </template>
+
+<style scoped>
+main {
+  gap: var(--gap-5);
+}
+
+main > h1 {
+  padding-bottom: var(--gap-2);
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 0;
+}
+
+main > p:not([role]) {
+  padding: var(--gap-4);
+  border: 1px dashed var(--edge);
+  border-radius: var(--round-large);
+  background: var(--ground);
+  color: var(--ink-soft);
+}
+
+main > section,
+main > form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-3);
+  padding: var(--gap-4) var(--gap-5);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round-large);
+  background: var(--ground);
+  box-shadow: var(--shadow);
+}
+
+main > section > *,
+main > form > * {
+  width: 100%;
+}
+
+main > section > button,
+main > form > button {
+  width: auto;
+}
+
+section > h2 {
+  padding-bottom: var(--gap-2);
+  border-bottom: 1px solid var(--edge-soft);
+  font-size: var(--step-1);
+}
+
+section > p:not([role]) {
+  color: var(--ink-soft);
+  font-size: var(--step-small);
+}
+
+section ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+}
+
+section li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-2) var(--gap-4);
+  padding: var(--gap-2) var(--gap-3);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--round);
+  background: var(--ground-soft);
+  font-size: var(--step-small);
+}
+
+section form {
+  gap: var(--gap-3);
+  padding: var(--gap-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground-soft);
+}
+
+p[role='status'] {
+  padding: var(--gap-2) var(--gap-3);
+  border-left: 3px solid var(--good);
+  border-radius: var(--round);
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: var(--step-small);
+  font-weight: 550;
+}
+
+p[role='alert'] {
+  border-left: 3px solid var(--danger);
+}
+
+.danger-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-4);
+  margin-top: var(--gap-4);
+  padding: var(--gap-4) var(--gap-5);
+  border: 1px solid var(--danger);
+  border-radius: var(--round-large);
+  background: var(--danger-soft);
+}
+
+.danger-zone p:not([role]) {
+  color: var(--ink-soft);
+  font-size: var(--step-small);
+}
+
+.danger-zone p[role='alert'] {
+  align-self: stretch;
+  border: 1px solid var(--danger);
+  background: var(--ground);
+}
+
+.danger-zone button.grave {
+  border-color: var(--danger);
+  background: var(--ground);
+  color: var(--danger);
+}
+
+.danger-zone button.grave:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--ground);
+}
+
+.danger-zone button.mild {
+  border-color: var(--edge);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 40rem) {
+  main > section,
+  main > form,
+  .danger-zone {
+    padding: var(--gap-4) var(--gap-4);
+  }
+}
+</style>

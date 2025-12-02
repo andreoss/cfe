@@ -139,22 +139,22 @@ async function onCreate() {
 <template>
   <main>
     <h1>{{ slug }}</h1>
-    <p>
+    <p class="toolbar">
       <a :href="sectionFeedUrl(slug)">Atom feed</a>
       <RouterLink :to="`/s/${slug}/groups`">Groups</RouterLink>
     </p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
-      <li v-for="topic in topics" :key="topic.id">
-        <RouterLink :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
+      <li v-for="topic in topics" :key="topic.id" :class="{ pinned: topic.sticky }">
+        <RouterLink class="topic-title" :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
         <template v-if="topic.groupSlug">
           in <RouterLink :to="`/s/${topic.sectionSlug}/g/${topic.groupSlug}`">{{ topic.groupSlug }}</RouterLink>
         </template>
         by {{ topic.authorUsername }}
-        <span v-if="topic.draft">Draft</span>
-        <span v-if="topic.sticky">Sticky</span>
-        <span v-if="topic.pending && auth.currentUser?.role === 'moderator'"> (pending)</span>
-        <RouterLink v-for="tag in topic.tags" :key="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
+        <span v-if="topic.draft" class="flag flag-draft">Draft</span>
+        <span v-if="topic.sticky" class="flag flag-sticky">Sticky</span>
+        <span v-if="topic.pending && auth.currentUser?.role === 'moderator'" class="pending-note"> (pending)</span>
+        <RouterLink v-for="tag in topic.tags" :key="tag" class="tag" :to="`/tag/${tag}`">{{ tag }}</RouterLink>
         <button
           v-if="topic.pending && auth.currentUser?.role === 'moderator'"
           type="button"
@@ -220,3 +220,142 @@ async function onCreate() {
     </template>
   </main>
 </template>
+
+<style scoped>
+main > ul {
+  max-width: min(100%, 56rem);
+  gap: var(--gap-2);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-1) var(--gap-4);
+  font-size: var(--step-small);
+}
+
+li {
+  font-size: var(--step-small);
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+li:hover {
+  border-color: var(--edge);
+}
+
+li.pinned {
+  box-shadow: inset 3px 0 0 var(--accent), var(--shadow);
+}
+
+.topic-title {
+  display: block;
+  margin-bottom: var(--gap-1);
+  font-size: var(--step-1);
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.topic-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+li a:not(.topic-title) {
+  font-weight: 550;
+  text-decoration: none;
+}
+
+li a:not(.topic-title):hover {
+  text-decoration: underline;
+}
+
+.flag,
+.tag {
+  display: inline-block;
+  padding: 0.05rem var(--gap-2);
+  border-radius: 999px;
+  font-size: var(--step-tiny);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.flag-draft {
+  background: var(--warn-soft);
+  color: var(--ink-soft);
+}
+
+.flag-sticky {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pending-note {
+  color: var(--ink-faint);
+}
+
+li a.tag {
+  background: var(--ground-sunk);
+  color: var(--ink-soft);
+  font-weight: 550;
+}
+
+li a.tag:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+li button {
+  margin-top: var(--gap-2);
+  margin-right: var(--gap-1);
+  font-size: var(--step-tiny);
+  padding: 0.2rem 0.6rem;
+}
+
+main > nav {
+  align-self: flex-start;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground);
+  overflow: visible;
+}
+
+main > nav button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--gap-2) var(--gap-4);
+}
+
+main > nav span {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--gap-4);
+  border-left: 1px solid var(--edge-soft);
+  border-right: 1px solid var(--edge-soft);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+main > button {
+  align-self: flex-start;
+}
+
+@media (max-width: 40rem) {
+  main > nav {
+    align-self: stretch;
+  }
+
+  main > nav span {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>

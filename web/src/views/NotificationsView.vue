@@ -53,7 +53,11 @@ load()
     <h1>Notifications</h1>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
-      <li v-for="notification in notifications" :key="notification.id">
+      <li
+        v-for="notification in notifications"
+        :key="notification.id"
+        :class="notification.read ? 'seen' : 'unread'"
+      >
         <span>{{ notification.kind === 'watch' ? 'Watched topic' : 'Reply' }}</span>
         {{ notification.actorUsername }} replied
         <RouterLink :to="`/t/${notification.topicId}`">{{ notification.topicTitle }}</RouterLink>
@@ -75,3 +79,72 @@ load()
     </nav>
   </main>
 </template>
+
+<style scoped>
+main > ul {
+  gap: var(--gap-1);
+}
+
+main > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gap-1) var(--gap-2);
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  border-left: 3px solid transparent;
+  box-shadow: none;
+  font-size: var(--step-small);
+}
+
+main > ul > li > span:first-child {
+  padding: 0 var(--gap-2);
+  border-radius: 999px;
+  background: var(--ground-sunk);
+  color: var(--ink-soft);
+  font-size: var(--step-tiny);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+main > ul > li > a {
+  font-weight: 600;
+}
+
+main > ul > li > button {
+  margin-left: auto;
+  padding-left: var(--gap-3);
+  padding-right: var(--gap-3);
+  font-size: var(--step-tiny);
+}
+
+li.unread {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+li.unread > span:first-child {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+li.seen {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+main > p:not([role]) {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  padding: var(--gap-3) 0;
+}
+
+main > nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+</style>

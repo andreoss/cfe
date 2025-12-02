@@ -38,3 +38,23 @@ onMounted(load)
     <p v-if="months.length === 0 && !loadError">Nothing archived yet.</p>
   </main>
 </template>
+
+<style scoped>
+li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap-3);
+}
+
+li a {
+  font-size: var(--step-1);
+}
+
+li span {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+</style>

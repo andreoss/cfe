@@ -28,12 +28,14 @@ onMounted(() => {
 </script>
 
 <template>
+  <a class="skip" href="#content">Skip to content</a>
   <header>
     <nav>
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/search">Search</RouterLink>
       <RouterLink to="/activity">Activity</RouterLink>
       <RouterLink to="/archive">Archive</RouterLink>
+      <span class="spacer"></span>
       <template v-if="auth.currentUser">
         <RouterLink to="/notifications">{{
           unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'
@@ -62,18 +64,45 @@ onMounted(() => {
     </nav>
   </header>
 
-  <RouterView />
+  <div id="content">
+    <RouterView />
+  </div>
 </template>
 
 <style scoped>
-header {
-  padding: 1rem;
-  border-bottom: 1px solid var(--color-border);
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  padding: var(--gap-2) var(--gap-3);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: var(--round);
+  z-index: 20;
 }
 
-nav {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
+.skip:focus {
+  left: var(--gap-3);
+  top: var(--gap-2);
+}
+
+nav :deep(a),
+nav button {
+  flex: 0 0 auto;
+}
+
+nav .spacer {
+  flex: 1 1 auto;
+}
+
+nav button {
+  font-size: var(--step-small);
+}
+
+@media (max-width: 40rem) {
+  nav .spacer {
+    flex-basis: 100%;
+    height: 0;
+  }
 }
 </style>

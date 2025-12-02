@@ -66,3 +66,36 @@ watch(() => auth.currentUser, load, { immediate: true })
     </template>
   </main>
 </template>
+
+<style scoped>
+main > ul > li {
+  display: grid;
+  gap: var(--gap-1);
+  padding: var(--gap-3) var(--gap-4);
+}
+
+main > ul > li a {
+  justify-self: start;
+  font-size: var(--step-small);
+}
+
+main > ul > li span {
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+main > p:not([role]) {
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+  padding: var(--gap-3) 0;
+}
+
+main > nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+</style>

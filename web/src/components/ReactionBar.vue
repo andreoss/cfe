@@ -23,3 +23,24 @@ defineProps<{
     </button>
   </div>
 </template>
+
+<style scoped>
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+}
+
+.reaction-bar button {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: var(--step-tiny);
+  color: var(--ink-soft);
+}
+
+.reaction-bar button.mine {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+</style>

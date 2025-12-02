@@ -17,6 +17,7 @@ import {
   type ReportKind,
 } from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
+import { exactWhen, readableWhen } from '@/lib/when'
 import ReactionBar from '@/components/ReactionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -80,6 +81,27 @@ async function onReport(commentId: string) {
 
 const summaries = ref<Record<string, ReactionSummary>>({})
 const requested = new Set<string>()
+
+const collapsed = ref<Set<string>>(new Set())
+
+function toggleCollapsed(id: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  collapsed.value = next
+}
+
+function foldLabel(id: string) {
+  const count = replyCount(id)
+  return count === 1 ? 'Show 1 reply' : `Show ${count} replies`
+}
+
+function replyCount(id: string) {
+  return props.comments.filter((c) => c.parentId === id).length
+}
 
 function children(id: string | null) {
   return props.comments.filter((c) => c.parentId === id)
@@ -195,9 +217,21 @@ async function onEdit(commentId: string) {
 <template>
   <ul>
     <li v-for="comment in children(parentId)" :key="comment.id">
-      <p>
+      <p class="byline">
         <UserAvatar :username="comment.authorUsername" />
         <strong>{{ comment.authorUsername }}</strong>
+        <time :datetime="comment.createdAt" :title="exactWhen(comment.createdAt)">{{
+          readableWhen(comment.createdAt)
+        }}</time>
+        <button
+          v-if="replyCount(comment.id) > 0"
+          type="button"
+          class="fold"
+          :aria-expanded="!collapsed.has(comment.id)"
+          @click="toggleCollapsed(comment.id)"
+        >
+          {{ collapsed.has(comment.id) ? foldLabel(comment.id) : 'Hide replies' }}
+        </button>
       </p>
       <p v-if="comment.deleted" class="removed">
         Removed by a moderator: {{ comment.deletedReason }}
@@ -308,6 +342,7 @@ async function onEdit(commentId: string) {
       </template>
 
       <CommentThread
+        v-if="!collapsed.has(comment.id)"
         :comments="comments"
         :parent-id="comment.id"
         :topic-id="topicId"
@@ -316,3 +351,156 @@ async function onEdit(commentId: string) {
     </li>
   </ul>
 </template>
+
+<style scoped>
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+}
+
+li > ul {
+  margin-top: var(--gap-4);
+  padding-left: var(--gap-4);
+  border-left: 2px solid var(--edge);
+  gap: var(--gap-4);
+}
+
+li > ul:empty {
+  display: none;
+}
+
+li > ul:not(:has(> li)) {
+  display: none;
+}
+
+ul ul ul ul ul ul {
+  padding-left: var(--gap-2);
+}
+
+ul ul ul ul ul ul ul ul ul {
+  padding-left: var(--gap-1);
+  border-left-width: 1px;
+}
+
+li li {
+  padding-top: var(--gap-1);
+}
+
+.byline time {
+  color: var(--ink-faint);
+  font-size: var(--step-tiny);
+  white-space: nowrap;
+}
+
+.byline .fold {
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: var(--step-tiny);
+  font-weight: 550;
+}
+
+.byline .fold:hover {
+  background: var(--ground-sunk);
+  color: var(--ink);
+}
+
+.byline {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+.byline .avatar {
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+}
+
+.byline strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.body {
+  margin-top: var(--gap-2);
+  line-height: 1.65;
+}
+
+.body :deep(blockquote) {
+  padding-left: var(--gap-3);
+  border-left: 3px solid var(--edge-soft);
+  color: var(--ink-soft);
+}
+
+.removed,
+.ignored {
+  display: block;
+  max-width: var(--reading);
+  margin-top: var(--gap-2);
+  padding: var(--gap-2) var(--gap-3);
+  border-radius: var(--round);
+  background: var(--ground-sunk);
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: var(--step-small);
+  white-space: normal;
+}
+
+.edited {
+  display: block;
+  margin-top: var(--gap-1);
+  color: var(--ink-faint);
+  font-size: var(--step-tiny);
+}
+
+li > button {
+  margin-top: var(--gap-2);
+  margin-right: var(--gap-1);
+  padding: 0.2rem 0.6rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: var(--step-tiny);
+}
+
+li > button:hover:not(:disabled) {
+  background: var(--ground-sunk);
+  color: var(--ink);
+}
+
+li > form {
+  max-width: var(--reading);
+  margin-top: var(--gap-3);
+  background: var(--ground-soft);
+}
+
+li > p[role='status'] {
+  margin-top: var(--gap-2);
+  color: var(--ink-faint);
+  font-size: var(--step-small);
+}
+
+li > p[role='alert'] {
+  margin-top: var(--gap-2);
+  max-width: var(--reading);
+}
+
+@media (max-width: 40rem) {
+  li > ul {
+    padding-left: var(--gap-3);
+  }
+
+  ul ul ul ul ul {
+    padding-left: var(--gap-1);
+  }
+}
+</style>

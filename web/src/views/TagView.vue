@@ -43,11 +43,11 @@ watch(
 <template>
   <main>
     <h1>#{{ tag }}</h1>
-    <p><a :href="tagFeedUrl(tag)">Atom feed</a></p>
+    <p class="toolbar"><a :href="tagFeedUrl(tag)">Atom feed</a></p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="topic in topics" :key="topic.id">
-        <RouterLink :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
+        <RouterLink class="topic-title" :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
         in <RouterLink :to="`/s/${topic.sectionSlug}`">{{ topic.sectionSlug }}</RouterLink>
       </li>
     </ul>
@@ -60,3 +60,85 @@ watch(
     </nav>
   </main>
 </template>
+
+<style scoped>
+main > ul {
+  max-width: min(100%, 56rem);
+}
+
+.toolbar {
+  font-size: var(--step-small);
+}
+
+li {
+  font-size: var(--step-small);
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+li:hover {
+  border-color: var(--edge);
+}
+
+.topic-title {
+  display: block;
+  margin-bottom: var(--gap-1);
+  font-size: var(--step-1);
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.topic-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+li a:not(.topic-title) {
+  font-weight: 550;
+  text-decoration: none;
+}
+
+li a:not(.topic-title):hover {
+  text-decoration: underline;
+}
+
+main > nav {
+  align-self: flex-start;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--edge);
+  border-radius: var(--round);
+  background: var(--ground);
+}
+
+main > nav button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--gap-2) var(--gap-4);
+}
+
+main > nav span {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--gap-4);
+  border-left: 1px solid var(--edge-soft);
+  border-right: 1px solid var(--edge-soft);
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  main > nav {
+    align-self: stretch;
+  }
+
+  main > nav span {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>
