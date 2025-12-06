@@ -99,6 +99,12 @@ import {
   getTopicHistory,
   getCommentHistory,
   getTopicDifference,
+  getTag,
+  describeTag,
+  makeSynonym,
+  followTag,
+  unfollowTag,
+  getFollowedTags,
   TOPICS_SCORES,
 } from './client'
 
@@ -4439,5 +4445,279 @@ describe('getTopicDifference', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'version not found' }))
     const result = await getTopicDifference('t1', 'missing')
     expect(result).toEqual({ ok: false, error: 'version not found', status: 404 })
+  })
+})
+
+function rawTag(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    slug: 'rust',
+    description: 'A language for reliable software.',
+    means: null,
+    following: false,
+    ...overrides,
+  }
+}
+
+describe('getTag', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the dictionary entry of the tag', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTag()))
+    const result = await getTag('rust')
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: 'rust',
+        description: 'A language for reliable software.',
+        means: null,
+        following: false,
+      },
+    })
+  })
+
+  it('keeps an entry that carries neither description nor synonym', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, rawTag({ description: null, means: null })),
+    )
+    const result = await getTag('rust')
+    expect(result.ok && result.value.description).toBe(null)
+    expect(result.ok && result.value.means).toBe(null)
+  })
+
+  it('carries the tag a synonym means', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTag({ slug: 'rustlang', means: 'rust' })))
+    const result = await getTag('rustlang')
+    expect(result.ok && result.value.means).toBe('rust')
+  })
+
+  it('reads the entry with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag()))
+    await getTag('rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/rust',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('url-encodes the tag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag()))
+    await getTag('c/c++')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/c%2Fc%2B%2B',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('sends credentials so the session cookie is carried', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag()))
+    await getTag('rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('reports the status when the tag is unknown', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(404, { error: 'tag not found' }))
+    const result = await getTag('missing')
+    expect(result).toEqual({ ok: false, error: 'tag not found', status: 404 })
+  })
+})
+
+describe('describeTag', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('patches the tag with the description', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag({ description: 'Systems work.' })))
+    await describeTag('rust', 'Systems work.')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/rust',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ description: 'Systems work.' }),
+      }),
+    )
+  })
+
+  it('returns the entry the server wrote', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTag({ description: 'Systems work.' })))
+    const result = await describeTag('rust', 'Systems work.')
+    expect(result.ok && result.value.description).toBe('Systems work.')
+  })
+
+  it('reports the status when the viewer is no moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'moderator only' }))
+    const result = await describeTag('rust', 'Systems work.')
+    expect(result).toEqual({ ok: false, error: 'moderator only', status: 403 })
+  })
+
+  it('reports the status when the description is empty', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(422, { error: 'description is empty' }))
+    const result = await describeTag('rust', '')
+    expect(result).toEqual({ ok: false, error: 'description is empty', status: 422 })
+  })
+})
+
+describe('makeSynonym', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts the tag it means under the means path', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag({ slug: 'rustlang', means: 'rust' })))
+    await makeSynonym('rustlang', 'rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/rustlang/means',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ means: 'rust' }) }),
+    )
+  })
+
+  it('returns the entry carrying the tag it now means', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, rawTag({ slug: 'rustlang', means: 'rust' })))
+    const result = await makeSynonym('rustlang', 'rust')
+    expect(result.ok && result.value.means).toBe('rust')
+  })
+
+  it('url-encodes the tag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, rawTag({ means: 'rust' })))
+    await makeSynonym('c/c++', 'rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/c%2Fc%2B%2B/means',
+      expect.anything(),
+    )
+  })
+
+  it('reports the status when a tag would mean itself', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      statusResponse(422, { error: 'a tag cannot mean itself' }),
+    )
+    const result = await makeSynonym('rust', 'rust')
+    expect(result).toEqual({ ok: false, error: 'a tag cannot mean itself', status: 422 })
+  })
+
+  it('reports the status when the viewer is no moderator', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(403, { error: 'moderator only' }))
+    const result = await makeSynonym('rustlang', 'rust')
+    expect(result).toEqual({ ok: false, error: 'moderator only', status: 403 })
+  })
+})
+
+describe('followTag', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('posts to the follow path of the tag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await followTag('rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/rust/follow',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('sends credentials so the session cookie is carried', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await followTag('rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await followTag('rust')
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('unfollowTag', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('deletes the follow path of the tag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    const result = await unfollowTag('rust')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/rust/follow',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('url-encodes the tag', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(emptyResponse(true))
+    await unfollowTag('c/c++')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tags/c%2Fc%2B%2B/follow',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await unfollowTag('rust')
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('getFollowedTags', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('returns the slugs in the order the server sent them', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, ['rust', 'vim']))
+    const result = await getFollowedTags()
+    expect(result).toEqual({ ok: true, value: ['rust', 'vim'] })
+  })
+
+  it('returns an empty listing when the viewer follows nothing', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    const result = await getFollowedTags()
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('reads the listing with GET', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getFollowedTags()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/followed-tags',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('sends credentials so the session cookie is carried', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValue(jsonResponse(true, []))
+    await getFollowedTags()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('returns an error when not authenticated', async () => {
+    vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
+    const result = await getFollowedTags()
+    expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
   })
 })

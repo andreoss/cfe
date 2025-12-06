@@ -1,13 +1,75 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { getTopicsByTag, tagFeedUrl, type PageInfo, type Topic } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+import {
+  getTopicsByTag,
+  getTag,
+  describeTag,
+  makeSynonym,
+  followTag,
+  unfollowTag,
+  tagFeedUrl,
+  type PageInfo,
+  type Tag,
+  type Topic,
+} from '@/api/client'
 
 const props = defineProps<{ tag: string }>()
+const auth = useAuthStore()
 
 const topics = ref<Topic[]>([])
 const page = ref<PageInfo | null>(null)
 const currentPage = ref(1)
 const loadError = ref('')
+const entry = ref<Tag | null>(null)
+const descriptionDraft = ref('')
+const meansDraft = ref('')
+const followError = ref('')
+const descriptionError = ref('')
+const meansError = ref('')
+
+function applyEntry(value: Tag) {
+  entry.value = value
+  descriptionDraft.value = value.description ?? ''
+  meansDraft.value = value.means ?? ''
+}
+
+async function loadEntry() {
+  const result = await getTag(props.tag)
+  if (result.ok) applyEntry(result.value)
+  else entry.value = null
+}
+
+async function toggleFollow() {
+  followError.value = ''
+  const following = entry.value?.following === true
+  const result = following ? await unfollowTag(props.tag) : await followTag(props.tag)
+  if (!result.ok) {
+    followError.value = result.error
+    return
+  }
+  const current = entry.value
+  if (current === null) await loadEntry()
+  else entry.value = { ...current, following: !following }
+}
+
+async function onSaveDescription() {
+  descriptionError.value = ''
+  const result = await describeTag(props.tag, descriptionDraft.value)
+  if (result.ok) applyEntry(result.value)
+  else descriptionError.value = result.error
+}
+
+async function onSetSynonym() {
+  meansError.value = ''
+  const result = await makeSynonym(props.tag, meansDraft.value)
+  if (!result.ok) {
+    meansError.value = result.error
+    return
+  }
+  applyEntry(result.value)
+  await goToPage(1)
+}
 
 async function load() {
   loadError.value = ''
@@ -35,14 +97,27 @@ function nextPage() {
 
 watch(
   () => props.tag,
-  () => goToPage(1),
+  () => {
+    void loadEntry()
+    void goToPage(1)
+  },
   { immediate: true },
 )
+
+watch(() => auth.currentUser, loadEntry)
 </script>
 
 <template>
   <main>
     <h1>#{{ tag }}</h1>
+    <p v-if="entry && entry.description" class="dictionary">{{ entry.description }}</p>
+    <p v-if="entry && entry.means" class="means">Means <RouterLink :to="`/tag/${entry.means}`">{{ entry.means }}</RouterLink></p>
+    <p v-if="auth.currentUser" class="follow">
+      <button type="button" @click="toggleFollow">
+        {{ entry && entry.following ? 'Unfollow tag' : 'Follow tag' }}
+      </button>
+    </p>
+    <p v-if="followError" role="alert">{{ followError }}</p>
     <p class="toolbar"><a :href="tagFeedUrl(tag)">Atom feed</a></p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
@@ -58,6 +133,25 @@ watch(
       <span>Page {{ page.number }} of {{ page.totalPages }}</span>
       <button type="button" :disabled="!page.hasNext" @click="nextPage">Next</button>
     </nav>
+
+    <section v-if="auth.currentUser?.role === 'moderator'" class="tag-admin">
+      <form @submit.prevent="onSaveDescription">
+        <label>
+          Description
+          <input v-model="descriptionDraft" name="tag-description" type="text" />
+        </label>
+        <p v-if="descriptionError" role="alert">{{ descriptionError }}</p>
+        <button type="submit">Save description</button>
+      </form>
+      <form @submit.prevent="onSetSynonym">
+        <label>
+          Synonym for
+          <input v-model="meansDraft" name="tag-means" type="text" />
+        </label>
+        <p v-if="meansError" role="alert">{{ meansError }}</p>
+        <button type="submit">Set synonym</button>
+      </form>
+    </section>
   </main>
 </template>
 
@@ -68,6 +162,28 @@ main > ul {
 
 .toolbar {
   font-size: var(--step-small);
+}
+
+.dictionary {
+  color: var(--ink-soft);
+}
+
+.means {
+  font-size: var(--step-small);
+  color: var(--ink-soft);
+}
+
+.means a {
+  font-weight: 600;
+}
+
+.tag-admin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  margin-top: var(--gap-3);
+  padding-top: var(--gap-4);
+  border-top: 1px solid var(--edge-soft);
 }
 
 li {

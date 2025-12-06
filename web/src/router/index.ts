@@ -108,6 +108,11 @@ const router = createRouter({
       component: () => import('../views/WatchedView.vue'),
     },
     {
+      path: '/followed-tags',
+      name: 'followedTags',
+      component: () => import('../views/FollowedTagsView.vue'),
+    },
+    {
       path: '/notes',
       name: 'notes',
       component: () => import('../views/NotesView.vue'),

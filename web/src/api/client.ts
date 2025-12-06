@@ -523,6 +523,49 @@ export function getTopicsByTag(
   )
 }
 
+export type Tag = {
+  slug: string
+  description: string | null
+  means: string | null
+  following: boolean
+}
+
+function tagPath(tag: string): string {
+  return `/api/tags/${encodeURIComponent(tag)}`
+}
+
+export function getTag(tag: string): Promise<ApiResult<Tag>> {
+  return request<Tag>(tagPath(tag), { method: 'GET' })
+}
+
+export function describeTag(tag: string, description: string): Promise<ApiResult<Tag>> {
+  return request<Tag>(tagPath(tag), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
+  })
+}
+
+export function makeSynonym(tag: string, means: string): Promise<ApiResult<Tag>> {
+  return request<Tag>(`${tagPath(tag)}/means`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ means }),
+  })
+}
+
+export function followTag(tag: string): Promise<ApiResult<void>> {
+  return request<void>(`${tagPath(tag)}/follow`, { method: 'POST' })
+}
+
+export function unfollowTag(tag: string): Promise<ApiResult<void>> {
+  return request<void>(`${tagPath(tag)}/follow`, { method: 'DELETE' })
+}
+
+export function getFollowedTags(): Promise<ApiResult<string[]>> {
+  return request<string[]>('/api/followed-tags', { method: 'GET' })
+}
+
 type RawComment = {
   id: string
   topic_id: string
