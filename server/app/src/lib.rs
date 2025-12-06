@@ -32,6 +32,7 @@ mod session;
 mod sessions_security;
 mod sign_in;
 mod test_support;
+mod tags;
 mod topics;
 mod watches;
 
@@ -113,6 +114,10 @@ pub use sessions_security::{
 pub use sign_in::{SignInError, sign_in};
 pub use watches::{
     WatchError, is_watching, list_watched, notify_watchers, stop_watching, watch_topic,
+};
+pub use tags::{
+    TagError, describe_tag, follow_tag, followed_tags, followers_of, is_following, make_synonym,
+    stop_following, topics_for_tag, what_it_means,
 };
 pub use topics::{
     CommitTopicError, CreateTopicError, ListTopicsError, MoveTopicError, SetPostscoreError,

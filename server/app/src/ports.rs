@@ -1,13 +1,10 @@
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Bookmark, ClientString, Comment, CommentId,
-    Email, Group, GroupId, Invitation, InvitationCode, InvitationId, PostRef,
-    MailToken, Notification, NotificationId, Page, Poll,
-    PollId,
-    PollOptionId,
-    Query, Reaction,
-    ReactionKind, ReactionTarget, ContentItem, Report, ReportId, ReportTarget, Section, SectionId,
-    Session, SessionId, SessionToken, Version, VersionId, VersionOf,
-    Remark, Slug, Topic, TopicId, User, UserId, Username, Vote, Warning, Watch,
+    ContentItem, Email, Group, GroupId, Invitation, InvitationCode, InvitationId, MailToken,
+    Notification, NotificationId, Page, Poll, PollId, PollOptionId, PostRef, Query, Reaction,
+    ReactionKind, ReactionTarget, Remark, Report, ReportId, ReportTarget, Section, SectionId,
+    Session, SessionId, SessionToken, Slug, Tag, Topic, TopicId, User, UserId, Username, Version,
+    VersionId, VersionOf, Vote, Warning, Watch,
 };
 use time::OffsetDateTime;
 
@@ -44,6 +41,18 @@ pub trait SectionRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Option<Section>;
     async fn find_by_id(&self, id: SectionId) -> Option<Section>;
     async fn list(&self) -> Vec<Section>;
+}
+
+#[async_trait::async_trait]
+pub trait TagRepository {
+    async fn save(&self, tag: &Tag);
+    async fn find(&self, slug: &Slug) -> Option<Tag>;
+    async fn list(&self) -> Vec<Tag>;
+    async fn follow(&self, user_id: UserId, slug: &Slug);
+    async fn unfollow(&self, user_id: UserId, slug: &Slug);
+    async fn is_following(&self, user_id: UserId, slug: &Slug) -> bool;
+    async fn followed_by(&self, user_id: UserId) -> Vec<Slug>;
+    async fn followers(&self, slug: &Slug) -> Vec<UserId>;
 }
 
 #[async_trait::async_trait]
@@ -108,11 +117,7 @@ pub trait AbuseRepository {
         target: Option<PostRef>,
         at: OffsetDateTime,
     );
-    async fn refs_from_address_since(
-        &self,
-        addr: &Address,
-        since: OffsetDateTime,
-    ) -> Vec<PostRef>;
+    async fn refs_from_address_since(&self, addr: &Address, since: OffsetDateTime) -> Vec<PostRef>;
     async fn record_sign_in_failure(&self, username: &str, addr: &Address, at: OffsetDateTime);
     async fn count_sign_in_failures(
         &self,

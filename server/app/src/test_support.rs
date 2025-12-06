@@ -5,16 +5,16 @@ use crate::ports::{
     CommentRepository, EnforcementRepository, GroupRepository, InvitationRepository,
     MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TokenDigest, TopicRepository, UserRepository, VersionRepository,
-    WatchRepository,
+    SessionRepository, TagRepository, TokenDigest, TopicRepository, UserRepository,
+    VersionRepository, WatchRepository,
 };
 use domain::{
     Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
     CommentId, ContentItem, Email, Group, GroupId, Invitation, InvitationCode, InvitationId,
     MailToken, Notification, NotificationId, Page, Poll, PollId, PollOptionId, PostRef, Query,
     Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId, ReportTarget, Section,
-    SectionId, Session, SessionId, SessionToken, Slug, TagSet, Title, Topic, TopicId, User, UserId,
-    Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
+    SectionId, Session, SessionId, SessionToken, Slug, Tag, TagSet, Title, Topic, TopicId, User,
+    UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -1474,6 +1474,84 @@ impl InvitationRepository for FakeInvitationRepo {
             .iter()
             .filter(|i| i.issuer_id() == issuer_id && i.is_spendable_at(now))
             .count() as u64
+    }
+}
+
+pub struct FakeTagRepo {
+    tags: Mutex<Vec<Tag>>,
+    follows: Mutex<Vec<(UserId, Slug)>>,
+}
+
+impl FakeTagRepo {
+    pub fn new() -> Self {
+        Self {
+            tags: Mutex::new(Vec::new()),
+            follows: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl TagRepository for FakeTagRepo {
+    async fn save(&self, tag: &Tag) {
+        let mut stored = self.tags.lock().unwrap();
+        stored.retain(|t| t.slug() != tag.slug());
+        stored.push(tag.clone());
+    }
+
+    async fn find(&self, slug: &Slug) -> Option<Tag> {
+        self.tags
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|t| t.slug() == slug)
+            .cloned()
+    }
+
+    async fn list(&self) -> Vec<Tag> {
+        self.tags.lock().unwrap().clone()
+    }
+
+    async fn follow(&self, user_id: UserId, slug: &Slug) {
+        let mut stored = self.follows.lock().unwrap();
+        if !stored.iter().any(|(u, s)| *u == user_id && s == slug) {
+            stored.push((user_id, slug.clone()));
+        }
+    }
+
+    async fn unfollow(&self, user_id: UserId, slug: &Slug) {
+        self.follows
+            .lock()
+            .unwrap()
+            .retain(|(u, s)| !(*u == user_id && s == slug));
+    }
+
+    async fn is_following(&self, user_id: UserId, slug: &Slug) -> bool {
+        self.follows
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(u, s)| *u == user_id && s == slug)
+    }
+
+    async fn followed_by(&self, user_id: UserId) -> Vec<Slug> {
+        self.follows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(u, _)| *u == user_id)
+            .map(|(_, s)| s.clone())
+            .collect()
+    }
+
+    async fn followers(&self, slug: &Slug) -> Vec<UserId> {
+        self.follows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, s)| s == slug)
+            .map(|(u, _)| *u)
+            .collect()
     }
 }
 

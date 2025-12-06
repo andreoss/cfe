@@ -30,6 +30,7 @@ mod score;
 mod section;
 mod session;
 mod slug;
+mod tag;
 mod tag_set;
 mod title;
 mod topic;
@@ -92,6 +93,9 @@ pub use post_score::{
 pub use section::{Section, SectionId};
 pub use session::{Session, SessionId, SessionToken, SessionTokenError};
 pub use slug::{Slug, SlugError};
+pub use tag::{
+    MAX_DESCRIPTION as TAG_MAX_DESCRIPTION, Tag, TagDescription, TagDescriptionError,
+};
 pub use tag_set::{TagSet, TagSetError};
 pub use title::{Title, TitleError};
 pub use topic::{Topic, TopicId};
