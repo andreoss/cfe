@@ -242,3 +242,15 @@ form button {
     align-self: stretch;
   }
 }
+
+.mention {
+  font-weight: 600;
+  text-decoration: none;
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  background: var(--accent-soft);
+}
+
+.mention:hover {
+  text-decoration: underline;
+}
