@@ -100,7 +100,7 @@ WEB_PID=$!
 waited=0
 until curl -s -o /dev/null "http://127.0.0.1:$WEB_PORT/"; do
   waited=$((waited + 1))
-  if [ "$waited" -gt 30 ]; then
+  if [ "$waited" -gt 120 ]; then
     echo "the static server did not take port $WEB_PORT; set WEB_PORT to a free one" >&2
     exit 1
   fi
