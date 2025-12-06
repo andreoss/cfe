@@ -1,4 +1,5 @@
 mod address_post;
+mod attachment;
 mod avatar;
 mod address;
 mod bio;
@@ -39,6 +40,10 @@ mod watch;
 mod username;
 
 pub use address_post::{AddressPost, PostRef};
+pub use attachment::{
+    Attachment, AttachmentError, AttachmentId, MAX_BYTES as ATTACHMENT_MAX_BYTES,
+    MAX_PER_TOPIC as ATTACHMENT_MAX_PER_TOPIC,
+};
 pub use avatar::{Avatar, AvatarError, ImageFormat, MAX_BYTES as AVATAR_MAX_BYTES};
 pub use address::{Address, AddressError};
 pub use bio::{Bio, BioError};

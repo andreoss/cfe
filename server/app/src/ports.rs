@@ -1,10 +1,10 @@
 use domain::{
-    Address, AddressBlock, AddressPost, Avatar, Ban, Bookmark, ClientString, Comment, CommentId,
-    ContentItem, Email, Group, GroupId, Invitation, InvitationCode, InvitationId, MailToken,
-    Notification, NotificationId, Page, Poll, PollId, PollOptionId, PostRef, Query, Reaction,
-    ReactionKind, ReactionTarget, Remark, Report, ReportId, ReportTarget, Section, SectionId,
-    Session, SessionId, SessionToken, Slug, Tag, Topic, TopicId, User, UserId, Username, Version,
-    VersionId, VersionOf, Vote, Warning, Watch,
+    Address, AddressBlock, AddressPost, Attachment, AttachmentId, Avatar, Ban, Bookmark,
+    ClientString, Comment, CommentId, ContentItem, Email, Group, GroupId, Invitation,
+    InvitationCode, InvitationId, MailToken, Notification, NotificationId, Page, Poll, PollId,
+    PollOptionId, PostRef, Query, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
+    ReportTarget, Section, SectionId, Session, SessionId, SessionToken, Slug, Tag, Topic, TopicId,
+    User, UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
 use time::OffsetDateTime;
 
@@ -130,6 +130,15 @@ pub trait AbuseRepository {
     async fn remember_address(&self, user_id: UserId, addr: &Address, at: OffsetDateTime);
     async fn posts_from_address(&self, addr: &Address, page: Page) -> Vec<AddressPost>;
     async fn count_posts_from_address(&self, addr: &Address) -> u64;
+}
+
+#[async_trait::async_trait]
+pub trait AttachmentRepository {
+    async fn save(&self, attachment: &Attachment);
+    async fn find(&self, id: AttachmentId) -> Option<Attachment>;
+    async fn list_for(&self, topic_id: TopicId) -> Vec<Attachment>;
+    async fn count_for(&self, topic_id: TopicId) -> u64;
+    async fn delete(&self, id: AttachmentId);
 }
 
 #[async_trait::async_trait]

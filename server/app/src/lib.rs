@@ -2,6 +2,7 @@ mod abuse;
 mod account;
 mod activity;
 mod archive;
+mod attachments;
 mod avatars;
 mod bookmarks;
 mod bootstrap;
@@ -48,6 +49,7 @@ pub use abuse::{
     record_post,
 };
 pub use account::{ChangePasswordError, change_password, deregister};
+pub use attachments::{AttachError, attach_image, image, images_on, remove_image};
 pub use avatars::{AvatarLookupError, clear_avatar, get_avatar, has_avatar, set_avatar};
 pub use bootstrap::{OperatorError, OperatorSettings, ensure_operator};
 pub use bookmarks::{

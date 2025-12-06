@@ -1,20 +1,20 @@
 #![cfg(test)]
 
 use crate::ports::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, Challenge,
-    CommentRepository, EnforcementRepository, GroupRepository, InvitationRepository,
-    MailTokenRepository, Mailer, Message, NotificationRepository, PasswordHasher, PollRepository,
-    ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
-    SessionRepository, TagRepository, TokenDigest, TopicRepository, UserRepository,
-    VersionRepository, WatchRepository,
+    AbuseRepository, ActivityRepository, AttachmentRepository, AvatarRepository,
+    BookmarkRepository, Challenge, CommentRepository, EnforcementRepository, GroupRepository,
+    InvitationRepository, MailTokenRepository, Mailer, Message, NotificationRepository,
+    PasswordHasher, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
+    SearchRepository, SectionRepository, SessionRepository, TagRepository, TokenDigest,
+    TopicRepository, UserRepository, VersionRepository, WatchRepository,
 };
 use domain::{
-    Address, AddressBlock, AddressPost, Avatar, Ban, Body, Bookmark, ClientString, Comment,
-    CommentId, ContentItem, Email, Group, GroupId, Invitation, InvitationCode, InvitationId,
-    MailToken, Notification, NotificationId, Page, Poll, PollId, PollOptionId, PostRef, Query,
-    Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId, ReportTarget, Section,
-    SectionId, Session, SessionId, SessionToken, Slug, Tag, TagSet, Title, Topic, TopicId, User,
-    UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
+    Address, AddressBlock, AddressPost, Attachment, AttachmentId, Avatar, Ban, Body, Bookmark,
+    ClientString, Comment, CommentId, ContentItem, Email, Group, GroupId, Invitation,
+    InvitationCode, InvitationId, MailToken, Notification, NotificationId, Page, Poll, PollId,
+    PollOptionId, PostRef, Query, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
+    ReportTarget, Section, SectionId, Session, SessionId, SessionToken, Slug, Tag, TagSet, Title,
+    Topic, TopicId, User, UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
@@ -1474,6 +1474,59 @@ impl InvitationRepository for FakeInvitationRepo {
             .iter()
             .filter(|i| i.issuer_id() == issuer_id && i.is_spendable_at(now))
             .count() as u64
+    }
+}
+
+pub struct FakeAttachmentRepo {
+    attachments: Mutex<Vec<Attachment>>,
+}
+
+impl FakeAttachmentRepo {
+    pub fn new() -> Self {
+        Self {
+            attachments: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AttachmentRepository for FakeAttachmentRepo {
+    async fn save(&self, attachment: &Attachment) {
+        let mut stored = self.attachments.lock().unwrap();
+        stored.retain(|a| a.id() != attachment.id());
+        stored.push(attachment.clone());
+    }
+
+    async fn find(&self, id: AttachmentId) -> Option<Attachment> {
+        self.attachments
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|a| a.id() == id)
+            .cloned()
+    }
+
+    async fn list_for(&self, topic_id: TopicId) -> Vec<Attachment> {
+        self.attachments
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| a.topic_id() == topic_id)
+            .cloned()
+            .collect()
+    }
+
+    async fn count_for(&self, topic_id: TopicId) -> u64 {
+        self.attachments
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| a.topic_id() == topic_id)
+            .count() as u64
+    }
+
+    async fn delete(&self, id: AttachmentId) {
+        self.attachments.lock().unwrap().retain(|a| a.id() != id);
     }
 }
 
