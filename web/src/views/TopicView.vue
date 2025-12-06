@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   getTopic,
@@ -455,8 +455,49 @@ async function loadComments() {
 
 async function goToCommentPage(target: number) {
   currentCommentPage.value = target
+  waiting.value = 0
   await loadComments()
 }
+
+const waiting = ref(0)
+let watcher: ReturnType<typeof setInterval> | null = null
+
+const POLL_MS = Number(import.meta.env.VITE_POLL_MS ?? 15000)
+
+function waitingLabel() {
+  return waiting.value === 1 ? 'Show 1 new comment' : `Show ${waiting.value} new comments`
+}
+
+async function lookForNew() {
+  if (document.hidden) return
+  const result = await getComments(props.id, currentCommentPage.value)
+  if (!result.ok) return
+  const known = new Set(comments.value.map((c) => c.id))
+  const fresh = result.value.items.filter((c) => !known.has(c.id))
+  waiting.value = fresh.length
+}
+
+async function showWaiting() {
+  waiting.value = 0
+  await loadComments()
+}
+
+async function onPosted() {
+  waiting.value = 0
+  await loadComments()
+}
+
+function watchForNew() {
+  if (watcher !== null) clearInterval(watcher)
+  if (POLL_MS <= 0) return
+  watcher = setInterval(() => {
+    void lookForNew()
+  }, POLL_MS)
+}
+
+onUnmounted(() => {
+  if (watcher !== null) clearInterval(watcher)
+})
 
 function previousComments() {
   if (commentPage.value) void goToCommentPage(commentPage.value.number - 1)
@@ -470,6 +511,14 @@ watch(() => props.id, load, { immediate: true })
 watch([() => props.id, () => auth.currentUser], loadWatchState, { immediate: true })
 watch([() => props.id, () => auth.currentUser], loadBookmarkState, { immediate: true })
 watch(() => props.id, loadImages, { immediate: true })
+watch(
+  () => props.id,
+  () => {
+    waiting.value = 0
+    watchForNew()
+  },
+  { immediate: true },
+)
 
 async function onPostComment() {
   formError.value = ''
@@ -776,7 +825,10 @@ async function onUnsave() {
       </template>
 
       <h2>Comments</h2>
-      <CommentThread :comments="comments" :parent-id="null" :topic-id="id" :on-posted="loadComments" />
+      <button v-if="waiting > 0" type="button" class="waiting" @click="showWaiting">
+        {{ waitingLabel() }}
+      </button>
+      <CommentThread :comments="comments" :parent-id="null" :topic-id="id" :on-posted="onPosted" />
       <p v-if="comments.length === 0">No comments yet.</p>
 
       <nav v-if="commentPage && commentPage.totalPages > 1">
@@ -808,6 +860,13 @@ async function onUnsave() {
 h1 {
   max-width: var(--reading);
   margin-bottom: 0;
+}
+
+.waiting {
+  display: block;
+  margin: var(--space-3) 0;
+  font: inherit;
+  font-weight: 600;
 }
 
 .attachments {
