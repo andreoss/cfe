@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
+  attachImage,
+  getTopicImages,
+  removeImage,
+  topicImageUrl,
   register,
   signIn,
   me,
@@ -4719,5 +4723,51 @@ describe('getFollowedTags', () => {
     vi.mocked(fetch).mockResolvedValue(statusResponse(401, { error: 'missing session' }))
     const result = await getFollowedTags()
     expect(result).toEqual({ ok: false, error: 'missing session', status: 401 })
+  })
+})
+
+describe('topic images', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('reads a subject images and names them in the way the app uses', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, [{ id: 'i1', content_type: 'image/png', uploaded_by: 'alice_01' }]),
+    )
+    const result = await getTopicImages('t1')
+    expect(result).toEqual({
+      ok: true,
+      value: [{ id: 'i1', contentType: 'image/png', uploadedBy: 'alice_01' }],
+    })
+  })
+
+  it('sends the bytes as data when attaching', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: 'i1', content_type: 'image/png', uploaded_by: 'alice_01' }),
+    )
+    await attachImage('t1', 'AAAA')
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ data: 'AAAA' }))
+  })
+
+  it('hands back what the server said when an upload is refused', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(false, { error: 'unsupported image' }))
+    const result = await attachImage('t1', 'AAAA')
+    expect(result).toEqual({ ok: false, error: 'unsupported image' })
+  })
+
+  it('removes one by its own address', async () => {
+    vi.mocked(fetch).mockResolvedValue(emptyResponse(true))
+    const result = await removeImage('t1', 'i1')
+    expect(result.ok).toBe(true)
+    const [path, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect(path).toContain('/api/topics/t1/images/i1')
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('builds an address an image tag can load', () => {
+    expect(topicImageUrl('t1', 'i1')).toContain('/api/topics/t1/images/i1')
   })
 })

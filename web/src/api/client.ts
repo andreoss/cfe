@@ -1439,3 +1439,58 @@ export type MaintenanceReport = { blocked: number; dropped: number }
 export function runMaintenance(): Promise<ApiResult<MaintenanceReport>> {
   return request<MaintenanceReport>('/api/maintenance/run', { method: 'POST' })
 }
+
+export type TopicImage = {
+  id: string
+  contentType: string
+  uploadedBy: string
+}
+
+type RawTopicImage = {
+  id: string
+  content_type: string
+  uploaded_by: string
+}
+
+function toTopicImage(raw: RawTopicImage): TopicImage {
+  return {
+    id: raw.id,
+    contentType: raw.content_type,
+    uploadedBy: raw.uploaded_by,
+  }
+}
+
+export function topicImageUrl(topicId: string, id: string): string {
+  return `${BASE_URL}/api/topics/${encodeURIComponent(topicId)}/images/${encodeURIComponent(id)}`
+}
+
+export async function getTopicImages(topicId: string): Promise<ApiResult<TopicImage[]>> {
+  const result = await request<RawTopicImage[]>(
+    `/api/topics/${encodeURIComponent(topicId)}/images`,
+    { method: 'GET' },
+  )
+  return result.ok ? { ok: true, value: result.value.map(toTopicImage) } : result
+}
+
+export async function attachImage(
+  topicId: string,
+  base64: string,
+): Promise<ApiResult<TopicImage>> {
+  const result = await request<RawTopicImage>(
+    `/api/topics/${encodeURIComponent(topicId)}/images`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: base64 }),
+    },
+  )
+  return result.ok ? { ok: true, value: toTopicImage(result.value) } : result
+}
+
+export async function removeImage(topicId: string, id: string): Promise<ApiResult<void>> {
+  return request<void>(topicImagePath(topicId, id), { method: 'DELETE' })
+}
+
+function topicImagePath(topicId: string, id: string): string {
+  return `/api/topics/${encodeURIComponent(topicId)}/images/${encodeURIComponent(id)}`
+}

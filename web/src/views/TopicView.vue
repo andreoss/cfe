@@ -46,6 +46,13 @@ import ReactionBar from '@/components/ReactionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { renderMarkdown } from '@/lib/markdown'
 import { exactWhen, readableWhen } from '@/lib/when'
+import {
+  attachImage,
+  getTopicImages,
+  removeImage,
+  topicImageUrl,
+  type TopicImage,
+} from '@/api/client'
 
 const props = defineProps<{ id: string }>()
 const auth = useAuthStore()
@@ -191,6 +198,67 @@ const isAuthor = computed(
 )
 
 const mayPublish = computed(() => topic.value !== null && topic.value.draft && isAuthor.value)
+
+const images = ref<TopicImage[]>([])
+const imageFile = ref<File | null>(null)
+const imageError = ref('')
+
+const mayAttach = computed(() => isAuthor.value || isModerator.value)
+
+function mayRemoveImage(picture: TopicImage) {
+  return isModerator.value || auth.currentUser?.username === picture.uploadedBy
+}
+
+function imageSrc(picture: TopicImage) {
+  return topicImageUrl(props.id, picture.id)
+}
+
+function onImagePick(event: Event) {
+  const input = event.target as HTMLInputElement
+  imageFile.value = input.files?.[0] ?? null
+}
+
+function readImageBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : ''
+      const comma = text.indexOf(',')
+      resolve(comma >= 0 ? text.slice(comma + 1) : text)
+    }
+    reader.onerror = () => reject(new Error('file could not be read'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function loadImages() {
+  const result = await getTopicImages(props.id)
+  images.value = result.ok ? result.value : []
+}
+
+async function onAttachImage() {
+  imageError.value = ''
+  const file = imageFile.value
+  if (file === null) return
+  const base64 = await readImageBase64(file)
+  const result = await attachImage(props.id, base64)
+  if (!result.ok) {
+    imageError.value = result.error
+    return
+  }
+  imageFile.value = null
+  await loadImages()
+}
+
+async function onRemoveImage(picture: TopicImage) {
+  imageError.value = ''
+  const result = await removeImage(props.id, picture.id)
+  if (!result.ok) {
+    imageError.value = result.error
+    return
+  }
+  await loadImages()
+}
 
 const mayResolve = computed(
   () => topic.value !== null && (isAuthor.value || isModerator.value),
@@ -401,6 +469,7 @@ function nextComments() {
 watch(() => props.id, load, { immediate: true })
 watch([() => props.id, () => auth.currentUser], loadWatchState, { immediate: true })
 watch([() => props.id, () => auth.currentUser], loadBookmarkState, { immediate: true })
+watch(() => props.id, loadImages, { immediate: true })
 
 async function onPostComment() {
   formError.value = ''
@@ -531,6 +600,28 @@ async function onUnsave() {
 
       <p v-if="topic.deleted" class="removed">Removed by a moderator: {{ topic.deletedReason }}</p>
       <div v-else class="body" v-html="renderMarkdown(topic.body)"></div>
+
+      <div v-if="images.length > 0" class="attachments">
+        <figure v-for="picture in images" :key="picture.id">
+          <img
+            class="attachment"
+            :src="imageSrc(picture)"
+            :alt="`attached by ${picture.uploadedBy}`"
+          />
+          <figcaption v-if="mayRemoveImage(picture)">
+            <button type="button" @click="onRemoveImage(picture)">Remove image</button>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div v-if="mayAttach && !topic.deleted" class="attach">
+        <label>
+          Image
+          <input name="image-file" type="file" accept="image/*" @change="onImagePick" />
+        </label>
+        <button type="button" @click="onAttachImage">Attach image</button>
+        <p v-if="imageError" role="alert">{{ imageError }}</p>
+      </div>
       <p v-if="topic.edited && !topic.deleted" class="edited">(edited)</p>
       <p v-if="topic.edited && !topic.deleted">
         <RouterLink :to="`/t/${id}/history`">History</RouterLink>
@@ -717,6 +808,45 @@ async function onUnsave() {
 h1 {
   max-width: var(--reading);
   margin-bottom: 0;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-3);
+  max-width: var(--reading);
+}
+
+.attachments figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-1);
+}
+
+.attachment {
+  max-width: 100%;
+  max-height: 24rem;
+  height: auto;
+  border-radius: var(--round);
+  border: 1px solid var(--edge-soft);
+  background: var(--ground-sunk);
+}
+
+.attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-3);
+  max-width: var(--reading);
+}
+
+.attach label {
+  flex: 1 1 14rem;
+}
+
+.attach p[role="alert"] {
+  flex-basis: 100%;
 }
 
 .byline time {
