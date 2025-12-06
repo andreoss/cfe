@@ -145,6 +145,11 @@ async function run() {
     )
 
     await author.get(topicUrl)
+    await author.wait(
+      until.elementLocated(By.name('comment-body')),
+      10000,
+      'the comment form should be ready before it is filled in',
+    )
     await author.findElement(By.name('comment-body')).sendKeys('write to someone@example.com')
     await clickWhenReady(author, By.xpath("//button[text()='Post comment']"), 'the comment control')
     await author.wait(
