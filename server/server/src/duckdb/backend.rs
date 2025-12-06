@@ -24,8 +24,8 @@ use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    VersionRepository, WatchRepository,
+    SearchRepository, SectionRepository, SessionRepository, TagRepository, TopicRepository,
+    UserRepository, VersionRepository, WatchRepository,
 };
 use std::sync::Arc;
 
@@ -128,6 +128,10 @@ impl Backend for DuckDbBackend {
         Arc::new(crate::duckdb::version::DuckVersionRepository::new(
             self.db.clone(),
         ))
+    }
+
+    fn tags(&self) -> Arc<dyn TagRepository + Send + Sync> {
+        Arc::new(crate::duckdb::tag::DuckTagRepository::new(self.db.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

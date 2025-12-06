@@ -17,6 +17,7 @@ mod report;
 mod search;
 mod section;
 mod session;
+mod tag;
 mod topic;
 mod user;
 mod version;

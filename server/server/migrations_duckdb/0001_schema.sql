@@ -147,6 +147,20 @@ CREATE TABLE versions (
 
 CREATE INDEX versions_subject_idx ON versions (subject_kind, subject_id, written_at);
 
+CREATE TABLE tags (
+    slug VARCHAR PRIMARY KEY,
+    description VARCHAR,
+    means VARCHAR
+);
+
+CREATE TABLE tag_follows (
+    user_id UUID NOT NULL,
+    slug VARCHAR NOT NULL,
+    PRIMARY KEY (user_id, slug)
+);
+
+CREATE INDEX tag_follows_slug_idx ON tag_follows (slug);
+
 CREATE TABLE reactions (
     user_id UUID NOT NULL,
     target_kind VARCHAR NOT NULL,

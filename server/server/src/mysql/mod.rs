@@ -15,6 +15,7 @@ mod report;
 mod search;
 mod section;
 mod session;
+mod tag;
 mod topic;
 mod user;
 mod version;
@@ -25,8 +26,8 @@ use app::{
     AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
     EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
     NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
-    SearchRepository, SectionRepository, SessionRepository, TopicRepository, UserRepository,
-    VersionRepository, WatchRepository,
+    SearchRepository, SectionRepository, SessionRepository, TagRepository, TopicRepository,
+    UserRepository, VersionRepository, WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -128,6 +129,10 @@ impl Backend for MySqlBackend {
 
     fn versions(&self) -> Arc<dyn VersionRepository + Send + Sync> {
         Arc::new(version::MySqlVersionRepository::new(self.pool.clone()))
+    }
+
+    fn tags(&self) -> Arc<dyn TagRepository + Send + Sync> {
+        Arc::new(tag::MySqlTagRepository::new(self.pool.clone()))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

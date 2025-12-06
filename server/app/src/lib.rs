@@ -87,8 +87,8 @@ pub use ports::{
     Message,
     NotificationRepository, PasswordHasher, PollRepository,
     ReactionRepository, ReportRepository, SearchRepository, SectionRepository, SessionRepository,
-    RemarkRepository, TokenDigest, TopicRepository, UserRepository, VersionRepository,
-    WatchRepository,
+    RemarkRepository, TagRepository, TokenDigest, TopicRepository, UserRepository,
+    VersionRepository, WatchRepository,
 };
 pub use profile::{UpdateBioError, update_bio};
 pub use reactions::{ReactionSummary, clear_reaction, react, summarize_reactions};

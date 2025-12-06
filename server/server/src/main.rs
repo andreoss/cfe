@@ -26,6 +26,7 @@ mod repository;
 mod search_repository;
 mod section_repository;
 mod session_repository;
+mod tag_repository;
 mod topic_repository;
 mod version_repository;
 mod watch_repository;
@@ -318,6 +319,16 @@ async fn main() {
             "/api/topics/{topic_id}/comments/{id}/restore",
             post(handlers::restore_comment_handler),
         )
+        .route(
+            "/api/tags/{tag}",
+            get(handlers::get_tag_handler).patch(handlers::describe_tag_handler),
+        )
+        .route("/api/tags/{tag}/means", post(handlers::synonym_handler))
+        .route(
+            "/api/tags/{tag}/follow",
+            post(handlers::follow_tag_handler).delete(handlers::unfollow_tag_handler),
+        )
+        .route("/api/followed-tags", get(handlers::followed_tags_handler))
         .route("/api/tags/{tag}/topics", get(list_topics_by_tag_handler))
         .route("/api/search", get(handlers::search_handler))
         .route("/api/archive", get(handlers::list_archive_handler))

@@ -12,21 +12,22 @@ use app::{
     clear_reaction, clear_remark, clear_sign_in_failures, close_report, comment_history,
     commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
     create_group, create_poll, create_section, create_session, create_topic, delete_comment,
-    delete_topic, deregister, edit_comment, edit_topic, end_every_session, enforce_posting,
-    enforce_registration_challenge, enforce_sign_in_attempts, get_avatar, get_topic, ignore_user,
-    ignored_by, is_bookmarked, is_watching, issue_invitation, lift_address_block, lift_ban,
-    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
-    list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
-    list_topics_by_tag, list_warnings, list_watched, mark_read, may_start_topic,
-    months_with_topics, move_topic, notice_of_new_network, notify_mentioned, notify_watchers,
-    poll_results, post_comment, promote_to_moderator, publish_draft, react, recent_activity,
-    record_post, record_sign_in_failure, register, remark_about, remove_bookmark,
-    remove_posts_from_address, rename_group, rename_section, report_content, reporter_of,
-    request_activation, request_email_change, request_password_reset, reset_password,
-    restore_comment, restore_topic, search, set_avatar, set_off_front, set_postscore, set_remark,
-    set_resolved, set_section_score, set_sticky, sign_in, sign_out as end_session, stop_ignoring,
-    stop_watching, summarize_reactions, topic_history, topics_in_month, uncommit_topic, update_bio,
-    warn_user, watch_topic, what_changed,
+    delete_topic, deregister, describe_tag, edit_comment, edit_topic, end_every_session,
+    enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts, follow_tag,
+    followed_tags, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, is_following,
+    is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
+    list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
+    list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
+    list_watched, make_synonym, mark_read, may_start_topic, months_with_topics, move_topic,
+    notice_of_new_network, notify_mentioned, notify_watchers, poll_results, post_comment,
+    promote_to_moderator, publish_draft, react, recent_activity, record_post,
+    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
+    rename_group, rename_section, report_content, reporter_of, request_activation,
+    request_email_change, request_password_reset, reset_password, restore_comment, restore_topic,
+    search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_section_score,
+    set_sticky, sign_in, sign_out as end_session, stop_following, stop_ignoring, stop_watching,
+    summarize_reactions, topic_history, topics_for_tag, topics_in_month, uncommit_topic,
+    update_bio, warn_user, watch_topic, what_changed,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -1040,6 +1041,140 @@ pub async fn get_topic_handler(
     topic_response(&state, &topic).await
 }
 
+#[derive(Serialize)]
+pub struct TagResponse {
+    pub slug: String,
+    pub description: Option<String>,
+    pub means: Option<String>,
+    pub following: bool,
+}
+
+#[derive(Deserialize)]
+pub struct DescribeTagRequest {
+    pub description: String,
+}
+
+#[derive(Deserialize)]
+pub struct SynonymRequest {
+    pub means: String,
+}
+
+fn tag_error(e: app::TagError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        app::TagError::NotAuthorized => error(StatusCode::FORBIDDEN, "not authorized"),
+        app::TagError::MeansItself => {
+            error(StatusCode::UNPROCESSABLE_ENTITY, "a tag cannot mean itself")
+        }
+    }
+}
+
+pub async fn get_tag_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    OptionalUser(current): OptionalUser,
+) -> Result<Json<TagResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let tags = state.backend.tags();
+    let stored = tags.find(&slug).await;
+    let following = match &current {
+        Some(user) => is_following(&*tags, user, &slug).await,
+        None => false,
+    };
+    Ok(Json(TagResponse {
+        slug: slug.as_str().to_owned(),
+        description: stored
+            .as_ref()
+            .and_then(|t| t.description().map(|d| d.as_str().to_owned())),
+        means: stored
+            .as_ref()
+            .and_then(|t| t.means().map(|m| m.as_str().to_owned())),
+        following,
+    }))
+}
+
+pub async fn describe_tag_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<DescribeTagRequest>,
+) -> Result<Json<TagResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let description = domain::TagDescription::parse(&body.description)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid description"))?;
+    let tags = state.backend.tags();
+    let described = describe_tag(&*tags, &current, &slug, description)
+        .await
+        .map_err(tag_error)?;
+    Ok(Json(TagResponse {
+        slug: described.slug().as_str().to_owned(),
+        description: described.description().map(|d| d.as_str().to_owned()),
+        means: described.means().map(|m| m.as_str().to_owned()),
+        following: false,
+    }))
+}
+
+pub async fn synonym_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<SynonymRequest>,
+) -> Result<Json<TagResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let means = Slug::parse(&body.means)
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let tags = state.backend.tags();
+    let synonym = make_synonym(&*tags, &current, &slug, means)
+        .await
+        .map_err(tag_error)?;
+    Ok(Json(TagResponse {
+        slug: synonym.slug().as_str().to_owned(),
+        description: synonym.description().map(|d| d.as_str().to_owned()),
+        means: synonym.means().map(|m| m.as_str().to_owned()),
+        following: false,
+    }))
+}
+
+pub async fn follow_tag_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let tags = state.backend.tags();
+    follow_tag(&*tags, &current, &slug).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn unfollow_tag_handler(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let slug =
+        Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
+    let tags = state.backend.tags();
+    stop_following(&*tags, &current, &slug).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn followed_tags_handler(
+    State(state): State<AppState>,
+    CurrentUser(current): CurrentUser,
+) -> Json<Vec<String>> {
+    let tags = state.backend.tags();
+    Json(
+        followed_tags(&*tags, &current)
+            .await
+            .into_iter()
+            .map(|s| s.as_str().to_owned())
+            .collect(),
+    )
+}
+
 pub async fn list_topics_by_tag_handler(
     State(state): State<AppState>,
     Path(tag): Path<String>,
@@ -1050,8 +1185,9 @@ pub async fn list_topics_by_tag_handler(
         Slug::parse(&tag).map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid tag"))?;
     let page = to_page(&params)?;
     let topics = state.backend.topics();
+    let tag_repo = state.backend.tags();
     let visibility = app::Visibility::of(current.as_ref());
-    let mut list = list_topics_by_tag(&*topics, &tag, page, visibility).await;
+    let mut list = topics_for_tag(&*tag_repo, &*topics, &tag, page, visibility).await;
     list.items.retain(|t| app::visible_to(t, current.as_ref()));
     let mut responses = Vec::with_capacity(list.items.len());
     for topic in &list.items {
