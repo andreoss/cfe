@@ -56,7 +56,8 @@ case "$VENDOR" in
     ;;
 esac
 
-VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
+VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" \
+  VITE_POLL_MS="${VITE_POLL_MS:-2000}" npm run build
 
 start_api() {
   (cd "$ROOT/server" && \
@@ -166,6 +167,7 @@ node e2e/thread.mjs
 node e2e/mentions.mjs
 node e2e/tag-depth.mjs
 node e2e/images.mjs
+node e2e/live-comments.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs
