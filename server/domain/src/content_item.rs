@@ -32,6 +32,9 @@ mod tests {
             OffsetDateTime::UNIX_EPOCH,
         );
         assert!(matches!(ContentItem::Topic(topic), ContentItem::Topic(_)));
-        assert!(matches!(ContentItem::Comment(comment), ContentItem::Comment(_)));
+        assert!(matches!(
+            ContentItem::Comment(comment),
+            ContentItem::Comment(_)
+        ));
     }
 }

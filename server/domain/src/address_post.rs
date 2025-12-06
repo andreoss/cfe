@@ -95,7 +95,10 @@ mod tests {
         let comment = PostRef::Comment(CommentId::new(uuid::Uuid::max()));
         assert_eq!(topic.topic_id(), Some(TopicId::new(uuid::Uuid::nil())));
         assert_eq!(topic.comment_id(), None);
-        assert_eq!(comment.comment_id(), Some(CommentId::new(uuid::Uuid::max())));
+        assert_eq!(
+            comment.comment_id(),
+            Some(CommentId::new(uuid::Uuid::max()))
+        );
         assert_eq!(comment.topic_id(), None);
     }
 

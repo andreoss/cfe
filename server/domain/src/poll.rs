@@ -247,7 +247,10 @@ mod tests {
             OffsetDateTime::UNIX_EPOCH,
         );
         assert_eq!(vote.poll_id(), PollId::new(uuid::Uuid::nil()));
-        assert_eq!(vote.option_id(), PollOptionId::new(uuid::Uuid::from_u128(1)));
+        assert_eq!(
+            vote.option_id(),
+            PollOptionId::new(uuid::Uuid::from_u128(1))
+        );
         assert_eq!(vote.user_id(), UserId::new(uuid::Uuid::max()));
     }
 }

@@ -33,14 +33,20 @@ mod tests {
 
     #[test]
     fn accepts_a_long_enough_password() {
-        assert_eq!(Password::parse("correcthorse").unwrap().as_str(), "correcthorse");
+        assert_eq!(
+            Password::parse("correcthorse").unwrap().as_str(),
+            "correcthorse"
+        );
     }
 
     #[test]
     fn rejects_anything_shorter_than_the_minimum() {
         assert_eq!(Password::parse(""), Err(PasswordError::TooShort));
         assert_eq!(Password::parse("short"), Err(PasswordError::TooShort));
-        assert_eq!(Password::parse(&"a".repeat(MIN_LEN - 1)), Err(PasswordError::TooShort));
+        assert_eq!(
+            Password::parse(&"a".repeat(MIN_LEN - 1)),
+            Err(PasswordError::TooShort)
+        );
     }
 
     #[test]
