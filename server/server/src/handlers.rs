@@ -18,15 +18,15 @@ use app::{
     list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
     list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
     list_topics_by_tag, list_warnings, list_watched, mark_read, may_start_topic,
-    months_with_topics, move_topic, notice_of_new_network, notify_watchers, poll_results,
-    post_comment, promote_to_moderator, publish_draft, react, recent_activity, record_post,
-    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
-    rename_group, rename_section, report_content, reporter_of, request_activation,
-    request_email_change, request_password_reset, reset_password, restore_comment, restore_topic,
-    search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_section_score,
-    set_sticky, sign_in, sign_out as end_session, stop_ignoring, stop_watching,
-    summarize_reactions, topic_history, topics_in_month, uncommit_topic, update_bio, warn_user,
-    watch_topic, what_changed,
+    months_with_topics, move_topic, notice_of_new_network, notify_mentioned, notify_watchers,
+    poll_results, post_comment, promote_to_moderator, publish_draft, react, recent_activity,
+    record_post, record_sign_in_failure, register, remark_about, remove_bookmark,
+    remove_posts_from_address, rename_group, rename_section, report_content, reporter_of,
+    request_activation, request_email_change, request_password_reset, reset_password,
+    restore_comment, restore_topic, search, set_avatar, set_off_front, set_postscore, set_remark,
+    set_resolved, set_section_score, set_sticky, sign_in, sign_out as end_session, stop_ignoring,
+    stop_watching, summarize_reactions, topic_history, topics_in_month, uncommit_topic, update_bio,
+    warn_user, watch_topic, what_changed,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -1334,6 +1334,22 @@ pub async fn post_comment_handler(
         comment.id(),
         author,
         already_told,
+        || domain::NotificationId::new(uuid::Uuid::new_v4()),
+        now,
+    )
+    .await;
+    let users = state.backend.users();
+    let watchers: Vec<domain::UserId> = watches.watchers(TopicId::new(topic_id)).await;
+    let mut told: Vec<domain::UserId> = vec![already_told];
+    told.extend(watchers);
+    notify_mentioned(
+        &*users,
+        &*notifications,
+        comment.body().as_str(),
+        TopicId::new(topic_id),
+        comment.id(),
+        author,
+        &told,
         || domain::NotificationId::new(uuid::Uuid::new_v4()),
         now,
     )

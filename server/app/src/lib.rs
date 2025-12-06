@@ -14,6 +14,7 @@ mod invitations;
 mod lifecycle;
 mod lifecycle_flags;
 mod maintenance;
+mod mentions;
 mod moderation;
 mod notifications;
 mod polls;
@@ -69,6 +70,7 @@ pub use maintenance::{
     CONFIRMATION_WINDOW, FALLEN_REASON, MaintenanceReport, MaintenanceSettings, default_floor,
     drop_unconfirmed, run_maintenance, settle_standing,
 };
+pub use mentions::notify_mentioned;
 pub use moderation::{
     DeleteError, RestoreError, delete_comment, delete_topic, restore_comment, restore_topic,
 };

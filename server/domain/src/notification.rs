@@ -18,6 +18,7 @@ impl NotificationId {
 pub enum NotificationKind {
     Reply,
     Watch,
+    Mention,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,6 +29,7 @@ impl NotificationKind {
         match raw {
             "reply" => Ok(Self::Reply),
             "watch" => Ok(Self::Watch),
+            "mention" => Ok(Self::Mention),
             _ => Err(NotificationKindError),
         }
     }
@@ -36,11 +38,12 @@ impl NotificationKind {
         match self {
             Self::Reply => "reply",
             Self::Watch => "watch",
+            Self::Mention => "mention",
         }
     }
 
-    pub fn all() -> [Self; 2] {
-        [Self::Reply, Self::Watch]
+    pub fn all() -> [Self; 3] {
+        [Self::Reply, Self::Watch, Self::Mention]
     }
 }
 
@@ -206,7 +209,10 @@ mod kind_tests {
 
     #[test]
     fn rejects_an_unknown_kind() {
-        assert_eq!(NotificationKind::parse("mention"), Err(NotificationKindError));
+        assert_eq!(
+            NotificationKind::parse("something"),
+            Err(NotificationKindError)
+        );
         assert_eq!(NotificationKind::parse(""), Err(NotificationKindError));
     }
 

@@ -12,6 +12,7 @@ mod comment;
 mod email;
 mod enforcement;
 mod mail_token;
+mod mention;
 mod moderation;
 mod password;
 mod notification;
@@ -56,6 +57,7 @@ pub use invitation::{
     CODE_LENGTH as INVITATION_CODE_LENGTH, Invitation, InvitationCode, InvitationCodeError,
     InvitationId,
 };
+pub use mention::mentioned_in;
 pub use mail_token::{MailToken, MailTokenId, TokenPurpose, TokenPurposeError};
 pub use moderation::{Deletion, Reason, ReasonError};
 pub use password::{Password, PasswordError};
