@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getUnreadCount } from '@/api/client'
@@ -22,8 +22,20 @@ watch(() => auth.currentUser, (newUser) => {
   }
 })
 
+const POLL_MS = Number(import.meta.env.VITE_POLL_MS ?? 15000)
+let watcher: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
   auth.checkSession()
+  if (POLL_MS > 0) {
+    watcher = setInterval(() => {
+      if (auth.currentUser && !document.hidden) void loadUnreadCount()
+    }, POLL_MS)
+  }
+})
+
+onUnmounted(() => {
+  if (watcher !== null) clearInterval(watcher)
 })
 </script>
 
