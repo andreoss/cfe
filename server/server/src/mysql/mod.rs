@@ -1,5 +1,6 @@
 mod abuse;
 mod activity;
+mod attachment;
 mod avatar;
 mod bookmark;
 mod comment;
@@ -23,11 +24,12 @@ mod watch;
 
 use crate::backend::Backend;
 use app::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
-    NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
-    SearchRepository, SectionRepository, SessionRepository, TagRepository, TopicRepository,
-    UserRepository, VersionRepository, WatchRepository,
+    AbuseRepository, ActivityRepository, AttachmentRepository, AvatarRepository,
+    BookmarkRepository, CommentRepository, EnforcementRepository, GroupRepository,
+    InvitationRepository, MailTokenRepository, NotificationRepository, PollRepository,
+    ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
+    SessionRepository, TagRepository, TopicRepository, UserRepository, VersionRepository,
+    WatchRepository,
 };
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlPoolOptions;
@@ -133,6 +135,12 @@ impl Backend for MySqlBackend {
 
     fn tags(&self) -> Arc<dyn TagRepository + Send + Sync> {
         Arc::new(tag::MySqlTagRepository::new(self.pool.clone()))
+    }
+
+    fn attachments(&self) -> Arc<dyn AttachmentRepository + Send + Sync> {
+        Arc::new(attachment::MySqlAttachmentRepository::new(
+            self.pool.clone(),
+        ))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

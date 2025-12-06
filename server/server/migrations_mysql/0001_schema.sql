@@ -186,6 +186,19 @@ CREATE TABLE tag_follows (
 
 CREATE INDEX tag_follows_slug_idx ON tag_follows (slug);
 
+CREATE TABLE attachments (
+    id BINARY(16) PRIMARY KEY,
+    topic_id BINARY(16) NOT NULL,
+    content_type VARCHAR(32) NOT NULL,
+    bytes MEDIUMBLOB NOT NULL,
+    uploaded_by BINARY(16) NOT NULL,
+    uploaded_at TIMESTAMP(6) NOT NULL,
+    FOREIGN KEY (topic_id) REFERENCES topics (id),
+    FOREIGN KEY (uploaded_by) REFERENCES users (id)
+);
+
+CREATE INDEX attachments_topic_idx ON attachments (topic_id, uploaded_at);
+
 CREATE TABLE reactions (
     user_id BINARY(16) NOT NULL,
     target_kind VARCHAR(16) NOT NULL,

@@ -161,6 +161,17 @@ CREATE TABLE tag_follows (
 
 CREATE INDEX tag_follows_slug_idx ON tag_follows (slug);
 
+CREATE TABLE attachments (
+    id UUID PRIMARY KEY,
+    topic_id UUID NOT NULL,
+    content_type VARCHAR NOT NULL,
+    bytes BLOB NOT NULL,
+    uploaded_by UUID NOT NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX attachments_topic_idx ON attachments (topic_id, uploaded_at);
+
 CREATE TABLE reactions (
     user_id UUID NOT NULL,
     target_kind VARCHAR NOT NULL,

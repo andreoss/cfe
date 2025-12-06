@@ -21,11 +21,12 @@ use crate::duckdb::topic::DuckTopicRepository;
 use crate::duckdb::user::DuckUserRepository;
 use crate::duckdb::watch::DuckWatchRepository;
 use app::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
-    NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
-    SearchRepository, SectionRepository, SessionRepository, TagRepository, TopicRepository,
-    UserRepository, VersionRepository, WatchRepository,
+    AbuseRepository, ActivityRepository, AttachmentRepository, AvatarRepository,
+    BookmarkRepository, CommentRepository, EnforcementRepository, GroupRepository,
+    InvitationRepository, MailTokenRepository, NotificationRepository, PollRepository,
+    ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
+    SessionRepository, TagRepository, TopicRepository, UserRepository, VersionRepository,
+    WatchRepository,
 };
 use std::sync::Arc;
 
@@ -132,6 +133,12 @@ impl Backend for DuckDbBackend {
 
     fn tags(&self) -> Arc<dyn TagRepository + Send + Sync> {
         Arc::new(crate::duckdb::tag::DuckTagRepository::new(self.db.clone()))
+    }
+
+    fn attachments(&self) -> Arc<dyn AttachmentRepository + Send + Sync> {
+        Arc::new(crate::duckdb::attachment::DuckAttachmentRepository::new(
+            self.db.clone(),
+        ))
     }
 
     fn search(&self) -> Arc<dyn SearchRepository + Send + Sync> {

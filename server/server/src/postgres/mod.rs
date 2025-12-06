@@ -19,11 +19,12 @@ use crate::session_repository::PgSessionRepository;
 use crate::topic_repository::PgTopicRepository;
 use crate::watch_repository::PgWatchRepository;
 use app::{
-    AbuseRepository, ActivityRepository, AvatarRepository, BookmarkRepository, CommentRepository,
-    EnforcementRepository, GroupRepository, InvitationRepository, MailTokenRepository,
-    NotificationRepository, PollRepository, ReactionRepository, RemarkRepository, ReportRepository,
-    SearchRepository, SectionRepository, SessionRepository, TagRepository, TopicRepository,
-    UserRepository, VersionRepository, WatchRepository,
+    AbuseRepository, ActivityRepository, AttachmentRepository, AvatarRepository,
+    BookmarkRepository, CommentRepository, EnforcementRepository, GroupRepository,
+    InvitationRepository, MailTokenRepository, NotificationRepository, PollRepository,
+    ReactionRepository, RemarkRepository, ReportRepository, SearchRepository, SectionRepository,
+    SessionRepository, TagRepository, TopicRepository, UserRepository, VersionRepository,
+    WatchRepository,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -127,6 +128,12 @@ impl Backend for PostgresBackend {
 
     fn tags(&self) -> Arc<dyn TagRepository + Send + Sync> {
         Arc::new(crate::tag_repository::PgTagRepository::new(
+            self.pool.clone(),
+        ))
+    }
+
+    fn attachments(&self) -> Arc<dyn AttachmentRepository + Send + Sync> {
+        Arc::new(crate::attachment_repository::PgAttachmentRepository::new(
             self.pool.clone(),
         ))
     }

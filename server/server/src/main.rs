@@ -1,5 +1,6 @@
 mod abuse_repository;
 mod activity_repository;
+mod attachment_repository;
 mod auth;
 mod avatar_repository;
 mod backend;
@@ -269,6 +270,14 @@ async fn main() {
         .route(
             "/api/topics/{topic_id}/comments/{id}/history",
             get(handlers::comment_history_handler),
+        )
+        .route(
+            "/api/topics/{id}/images",
+            get(handlers::list_images_handler).post(handlers::attach_image_handler),
+        )
+        .route(
+            "/api/topics/{topic_id}/images/{id}",
+            get(handlers::get_image_handler).delete(handlers::remove_image_handler),
         )
         .route("/api/topics/{id}/postscore", post(set_postscore_handler))
         .route("/api/topics/{id}/commit", post(commit_topic_handler))

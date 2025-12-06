@@ -8,26 +8,26 @@ use app::{
     MarkReadError, MoveTopicError, PollResults, PostCommentError, ReactionSummary, RegisterError,
     RemarkError, ReportError, RestoreError, SectionError, SetPostscoreError, SignInError,
     SpendError, UpdateBioError, VoteError, WatchError, acknowledge_warnings, active_ban,
-    add_bookmark, admit, ban_user, block_address, cast_vote, change_password, clear_avatar,
-    clear_reaction, clear_remark, clear_sign_in_failures, close_report, comment_history,
-    commit_topic, confirm_activation, confirm_email_change, count_open_for_topic, count_unread,
-    create_group, create_poll, create_section, create_session, create_topic, delete_comment,
-    delete_topic, deregister, describe_tag, edit_comment, edit_topic, end_every_session,
-    enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts, follow_tag,
-    followed_tags, get_avatar, get_topic, ignore_user, ignored_by, is_bookmarked, is_following,
-    is_watching, issue_invitation, lift_address_block, lift_ban, list_address_blocks,
-    list_bookmarked_topics, list_comments, list_groups, list_invitations, list_notifications,
-    list_open_reports, list_remarks, list_sections, list_topics, list_topics_by_tag, list_warnings,
-    list_watched, make_synonym, mark_read, may_start_topic, months_with_topics, move_topic,
-    notice_of_new_network, notify_mentioned, notify_watchers, poll_results, post_comment,
-    promote_to_moderator, publish_draft, react, recent_activity, record_post,
-    record_sign_in_failure, register, remark_about, remove_bookmark, remove_posts_from_address,
-    rename_group, rename_section, report_content, reporter_of, request_activation,
-    request_email_change, request_password_reset, reset_password, restore_comment, restore_topic,
-    search, set_avatar, set_off_front, set_postscore, set_remark, set_resolved, set_section_score,
-    set_sticky, sign_in, sign_out as end_session, stop_following, stop_ignoring, stop_watching,
-    summarize_reactions, topic_history, topics_for_tag, topics_in_month, uncommit_topic,
-    update_bio, warn_user, watch_topic, what_changed,
+    add_bookmark, admit, attach_image, ban_user, block_address, cast_vote, change_password,
+    clear_avatar, clear_reaction, clear_remark, clear_sign_in_failures, close_report,
+    comment_history, commit_topic, confirm_activation, confirm_email_change, count_open_for_topic,
+    count_unread, create_group, create_poll, create_section, create_session, create_topic,
+    delete_comment, delete_topic, deregister, describe_tag, edit_comment, edit_topic,
+    end_every_session, enforce_posting, enforce_registration_challenge, enforce_sign_in_attempts,
+    follow_tag, followed_tags, get_avatar, get_topic, ignore_user, ignored_by, image, images_on,
+    is_bookmarked, is_following, is_watching, issue_invitation, lift_address_block, lift_ban,
+    list_address_blocks, list_bookmarked_topics, list_comments, list_groups, list_invitations,
+    list_notifications, list_open_reports, list_remarks, list_sections, list_topics,
+    list_topics_by_tag, list_warnings, list_watched, make_synonym, mark_read, may_start_topic,
+    months_with_topics, move_topic, notice_of_new_network, notify_mentioned, notify_watchers,
+    poll_results, post_comment, promote_to_moderator, publish_draft, react, recent_activity,
+    record_post, record_sign_in_failure, register, remark_about, remove_bookmark, remove_image,
+    remove_posts_from_address, rename_group, rename_section, report_content, reporter_of,
+    request_activation, request_email_change, request_password_reset, reset_password,
+    restore_comment, restore_topic, search, set_avatar, set_off_front, set_postscore, set_remark,
+    set_resolved, set_section_score, set_sticky, sign_in, sign_out as end_session, stop_following,
+    stop_ignoring, stop_watching, summarize_reactions, topic_history, topics_for_tag,
+    topics_in_month, uncommit_topic, update_bio, warn_user, watch_topic, what_changed,
 };
 use axum::Json;
 use axum::extract::{Path, State};
@@ -3092,6 +3092,124 @@ pub async fn delete_avatar_handler(
     let avatars = state.backend.avatars();
     clear_avatar(&*avatars, current.id()).await;
     Json(AvatarStateResponse { has_avatar: false })
+}
+
+#[derive(Deserialize)]
+pub struct AttachRequest {
+    pub data: String,
+}
+
+#[derive(Serialize)]
+pub struct AttachmentResponse {
+    pub id: String,
+    pub content_type: String,
+    pub uploaded_by: String,
+}
+
+fn attach_error(e: app::AttachError) -> (StatusCode, Json<ErrorResponse>) {
+    match e {
+        app::AttachError::TopicNotFound => error(StatusCode::NOT_FOUND, "not found"),
+        app::AttachError::NotAuthorized => error(StatusCode::FORBIDDEN, "not authorized"),
+        app::AttachError::TooMany => error(StatusCode::UNPROCESSABLE_ENTITY, "too many images"),
+        app::AttachError::Rejected(domain::AttachmentError::Empty) => {
+            error(StatusCode::UNPROCESSABLE_ENTITY, "empty image")
+        }
+        app::AttachError::Rejected(domain::AttachmentError::TooLarge) => {
+            error(StatusCode::PAYLOAD_TOO_LARGE, "image too large")
+        }
+        app::AttachError::Rejected(domain::AttachmentError::UnsupportedFormat) => {
+            error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported image")
+        }
+    }
+}
+
+async fn attachment_response(
+    state: &AppState,
+    attachment: &domain::Attachment,
+) -> AttachmentResponse {
+    let uploaded_by = match state
+        .backend
+        .users()
+        .find_by_id(attachment.uploaded_by())
+        .await
+    {
+        Some(user) => user.username().as_str().to_owned(),
+        None => "unknown".to_owned(),
+    };
+    AttachmentResponse {
+        id: attachment.id().as_uuid().to_string(),
+        content_type: attachment.format().content_type().to_owned(),
+        uploaded_by,
+    }
+}
+
+pub async fn attach_image_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    CurrentUser(current): CurrentUser,
+    Json(body): Json<AttachRequest>,
+) -> Result<(StatusCode, Json<AttachmentResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let bytes = BASE64
+        .decode(body.data.as_bytes())
+        .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid encoding"))?;
+    let attachments = state.backend.attachments();
+    let topics = state.backend.topics();
+    let attached = attach_image(
+        &*attachments,
+        &*topics,
+        &current,
+        domain::AttachmentId::new(uuid::Uuid::new_v4()),
+        TopicId::new(id),
+        bytes,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(attach_error)?;
+    let response = attachment_response(&state, &attached).await;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn list_images_handler(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Json<Vec<AttachmentResponse>> {
+    let attachments = state.backend.attachments();
+    let found = images_on(&*attachments, TopicId::new(id)).await;
+    let mut out = Vec::with_capacity(found.len());
+    for attachment in &found {
+        out.push(attachment_response(&state, attachment).await);
+    }
+    Json(out)
+}
+
+pub async fn get_image_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let attachments = state.backend.attachments();
+    let found = image(&*attachments, domain::AttachmentId::new(id))
+        .await
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "no image"))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, found.format().content_type()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        found.bytes().to_vec(),
+    )
+        .into_response())
+}
+
+pub async fn remove_image_handler(
+    State(state): State<AppState>,
+    Path((_topic_id, id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    CurrentUser(current): CurrentUser,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let attachments = state.backend.attachments();
+    remove_image(&*attachments, &current, domain::AttachmentId::new(id))
+        .await
+        .map_err(attach_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_avatar_handler(

@@ -1,5 +1,6 @@
 mod abuse;
 mod activity;
+mod attachment;
 mod avatar;
 mod backend;
 mod bookmark;
