@@ -126,9 +126,21 @@ async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>
     ...init,
   })
   const text = await response.text()
-  const data = text.length > 0 ? JSON.parse(text) : undefined
+  let data: unknown = undefined
+  let readable = true
+  if (text.length > 0) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      readable = false
+    }
+  }
+  const said = (data as { error?: string } | undefined)?.error
   if (!response.ok) {
-    return { ok: false, error: data?.error ?? 'request failed', status: response.status }
+    return { ok: false, error: said ?? 'request failed', status: response.status }
+  }
+  if (!readable) {
+    return { ok: false, error: 'request failed', status: response.status }
   }
   return { ok: true, value: data as T }
 }
