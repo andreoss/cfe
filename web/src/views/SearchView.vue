@@ -1,15 +1,36 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { search, type SearchHit } from '@/api/client'
+import {
+  search,
+  toSearchOrder,
+  toSearchScope,
+  type SearchHit,
+  type SearchOrder,
+  type SearchScope,
+} from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
 
 const draft = ref('')
+const scope = ref<SearchScope>('everything')
+const order = ref<SearchOrder>('relevance')
 const hits = ref<SearchHit[]>([])
 const searchError = ref('')
 const searched = ref(false)
+
+const scopes: { value: SearchScope; label: string }[] = [
+  { value: 'everything', label: 'Everything' },
+  { value: 'topics', label: 'Topics' },
+  { value: 'comments', label: 'Comments' },
+]
+
+const orders: { value: SearchOrder; label: string }[] = [
+  { value: 'relevance', label: 'Best match' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+]
 
 function currentQuery() {
   const q = route.query.q
@@ -19,13 +40,15 @@ function currentQuery() {
 async function load() {
   const q = currentQuery()
   draft.value = q
+  scope.value = toSearchScope(route.query.scope)
+  order.value = toSearchOrder(route.query.order)
   searchError.value = ''
   if (q.length === 0) {
     hits.value = []
     searched.value = false
     return
   }
-  const result = await search(q)
+  const result = await search(q, scope.value, order.value)
   searched.value = true
   if (result.ok) {
     hits.value = result.value
@@ -35,10 +58,21 @@ async function load() {
   }
 }
 
-watch(() => route.query.q, load, { immediate: true })
+watch(() => [route.query.q, route.query.scope, route.query.order], load, { immediate: true })
+
+function ask() {
+  router.push({
+    name: 'search',
+    query: { q: draft.value, scope: scope.value, order: order.value },
+  })
+}
 
 function onSubmit() {
-  router.push({ name: 'search', query: { q: draft.value } })
+  ask()
+}
+
+function onNarrow() {
+  if (currentQuery().length > 0) ask()
 }
 </script>
 
@@ -50,13 +84,33 @@ function onSubmit() {
         Query
         <input v-model="draft" name="query" type="text" />
       </label>
+      <label>
+        Look in
+        <select v-model="scope" name="scope" @change="onNarrow">
+          <option v-for="choice in scopes" :key="choice.value" :value="choice.value">
+            {{ choice.label }}
+          </option>
+        </select>
+      </label>
+      <label>
+        Order
+        <select v-model="order" name="order" @change="onNarrow">
+          <option v-for="choice in orders" :key="choice.value" :value="choice.value">
+            {{ choice.label }}
+          </option>
+        </select>
+      </label>
       <button type="submit">Search</button>
     </form>
 
     <p v-if="searchError" role="alert">{{ searchError }}</p>
 
     <ul>
-      <li v-for="hit in hits" :key="hit.kind === 'topic' ? hit.topic.id : hit.comment.id">
+      <li
+        v-for="hit in hits"
+        :key="hit.kind === 'topic' ? hit.topic.id : hit.comment.id"
+        :class="`hit hit-${hit.kind}`"
+      >
         <template v-if="hit.kind === 'topic'">
           <RouterLink :to="`/t/${hit.topic.id}`">{{ hit.topic.title }}</RouterLink>
           in <RouterLink :to="`/s/${hit.topic.sectionSlug}`">{{ hit.topic.sectionSlug }}</RouterLink>
@@ -79,10 +133,11 @@ form {
   flex-direction: row;
   align-items: flex-end;
   gap: var(--gap-3);
+  flex-wrap: wrap;
 }
 
-form label {
-  flex: 1 1 auto;
+form label:first-of-type {
+  flex: 1 1 12rem;
 }
 
 li {

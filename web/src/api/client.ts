@@ -780,9 +780,31 @@ function toSearchHit(raw: RawSearchHit): SearchHit {
     : { kind: 'comment', comment: toComment(raw) }
 }
 
-export async function search(query: string): Promise<ApiResult<SearchHit[]>> {
+export const SEARCH_SCOPES = ['everything', 'topics', 'comments'] as const
+export const SEARCH_ORDERS = ['relevance', 'newest', 'oldest'] as const
+
+export type SearchScope = (typeof SEARCH_SCOPES)[number]
+export type SearchOrder = (typeof SEARCH_ORDERS)[number]
+
+export const DEFAULT_SEARCH_SCOPE: SearchScope = 'everything'
+export const DEFAULT_SEARCH_ORDER: SearchOrder = 'relevance'
+
+export function toSearchScope(raw: unknown): SearchScope {
+  return SEARCH_SCOPES.includes(raw as SearchScope) ? (raw as SearchScope) : DEFAULT_SEARCH_SCOPE
+}
+
+export function toSearchOrder(raw: unknown): SearchOrder {
+  return SEARCH_ORDERS.includes(raw as SearchOrder) ? (raw as SearchOrder) : DEFAULT_SEARCH_ORDER
+}
+
+export async function search(
+  query: string,
+  scope: SearchScope = DEFAULT_SEARCH_SCOPE,
+  order: SearchOrder = DEFAULT_SEARCH_ORDER,
+): Promise<ApiResult<SearchHit[]>> {
   const result = await request<RawSearchHit[]>(
-    `/api/search?q=${encodeURIComponent(query)}`,
+    `/api/search?q=${encodeURIComponent(query)}` +
+      `&scope=${encodeURIComponent(scope)}&order=${encodeURIComponent(order)}`,
     { method: 'GET' },
   )
   if (!result.ok) return result

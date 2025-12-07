@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
+  toSearchOrder,
+  toSearchScope,
   attachImage,
   getTopicImages,
   removeImage,
@@ -4769,5 +4771,45 @@ describe('topic images', () => {
 
   it('builds an address an image tag can load', () => {
     expect(topicImageUrl('t1', 'i1')).toContain('/api/topics/t1/images/i1')
+  })
+})
+
+describe('search narrowing', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('reads back every narrowing it offers', () => {
+    expect(toSearchScope('everything')).toBe('everything')
+    expect(toSearchScope('topics')).toBe('topics')
+    expect(toSearchScope('comments')).toBe('comments')
+    expect(toSearchOrder('relevance')).toBe('relevance')
+    expect(toSearchOrder('newest')).toBe('newest')
+    expect(toSearchOrder('oldest')).toBe('oldest')
+  })
+
+  it('falls back to the whole board in best-match order', () => {
+    expect(toSearchScope('drafts')).toBe('everything')
+    expect(toSearchScope(undefined)).toBe('everything')
+    expect(toSearchScope(['topics'])).toBe('everything')
+    expect(toSearchOrder('loudest')).toBe('relevance')
+    expect(toSearchOrder(undefined)).toBe('relevance')
+  })
+
+  it('asks the server for what was chosen', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    await search('adapters', 'comments', 'oldest')
+    const [path] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect(path).toContain('q=adapters')
+    expect(path).toContain('scope=comments')
+    expect(path).toContain('order=oldest')
+  })
+
+  it('asks for everything by best match when nothing was chosen', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(true, []))
+    await search('adapters')
+    const [path] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect(path).toContain('scope=everything')
+    expect(path).toContain('order=relevance')
   })
 })
