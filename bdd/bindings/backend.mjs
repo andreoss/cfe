@@ -171,9 +171,76 @@ export function board() {
       const response = await send(`/api/topics/${subject.id}/comments`)
       if (response.status !== 200) return { present: false, author: '' }
       const body = await response.json()
-      const found = (body.items ?? []).find((one) => (one.body ?? '').includes(text))
+      const found = (body.items ?? []).find(
+        (one) => (one.body ?? '').includes(text) && !one.deleted,
+      )
       if (!found) return { present: false, author: '' }
       return { present: true, author: found.author_username ?? '' }
+    },
+
+    async findRemark(text) {
+      const response = await send(`/api/topics/${subject.id}/comments`)
+      if (response.status !== 200) return null
+      const body = await response.json()
+      return (body.items ?? []).find((one) => (one.body ?? '').includes(text)) ?? null
+    },
+
+    async replyToRemark(toText, text) {
+      const parent = await this.findRemark(toText)
+      if (!parent) return { accepted: false }
+      const response = await send(`/api/topics/${subject.id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: text, parent_id: parent.id }),
+      })
+      return { accepted: response.status >= 200 && response.status < 300 }
+    },
+
+    async whatItAnswers(text) {
+      const reply = await this.findRemark(text)
+      return { answers: Boolean(reply && reply.parent_id) }
+    },
+
+    async changeRemark(fromText, toText) {
+      const remark = await this.findRemark(fromText)
+      if (!remark) return { accepted: false }
+      const response = await send(`/api/topics/${subject.id}/comments/${remark.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ body: toText }),
+      })
+      return { accepted: response.status >= 200 && response.status < 300 }
+    },
+
+    async removeRemark(text) {
+      const remark = await this.findRemark(text)
+      if (!remark) return { accepted: false }
+      const response = await send(`/api/topics/${subject.id}/comments/${remark.id}/delete`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'no longer wanted' }),
+      })
+      return { accepted: response.status >= 200 && response.status < 300 }
+    },
+
+    async startSubject() {
+      const where = (await this.sections())[0]
+      const title = `A newly started subject ${Date.now().toString(36)}`
+      const made = await send(`/api/sections/${where}/topics`, {
+        method: 'POST',
+        body: JSON.stringify({ title, body: 'Started so that its place can be seen.', tags: [] }),
+      })
+      if (made.status >= 300) throw new Error('the board would not take a new subject')
+      const topic = await made.json()
+      if (topic?.pending) {
+        await send(`/api/topics/${topic.id}/commit`, { method: 'POST' })
+      }
+      return title
+    },
+
+    async firstSubjectInSection() {
+      const where = (await this.sections())[0]
+      const response = await send(`/api/sections/${where}/topics`)
+      if (response.status !== 200) return ''
+      const body = await response.json()
+      return (body.items ?? [])[0]?.title ?? ''
     },
   }
 }

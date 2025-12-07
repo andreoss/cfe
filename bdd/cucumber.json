@@ -5,6 +5,8 @@
       "features/reading.feature",
       "features/accounts.feature",
       "features/writing.feature",
+      "features/replies.feature",
+      "features/order.feature",
       "features/signing-in.feature"
     ],
     "format": ["progress"]
