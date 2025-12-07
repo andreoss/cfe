@@ -269,6 +269,24 @@ export function board() {
       return { count: 0, titles: [] }
     },
 
+    async makeAccount(name) {
+      const response = await send('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: name,
+          email: `${name}@example.com`,
+          password: 'correcthorse1',
+        }),
+      })
+      jar.forget()
+      return { accepted: response.status >= 200 && response.status < 300 }
+    },
+
+    async lookUpByName(name) {
+      const response = await send(`/api/users/${encodeURIComponent(name)}`)
+      return { found: response.status === 200 }
+    },
+
     async firstSubjectInSection() {
       const where = (await this.sections())[0]
       const response = await send(`/api/sections/${where}/topics`)

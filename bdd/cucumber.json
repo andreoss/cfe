@@ -8,6 +8,7 @@
       "features/replies.feature",
       "features/order.feature",
       "features/finding.feature",
+      "features/joining.feature",
       "features/signing-in.feature"
     ],
     "format": ["progress"]
