@@ -137,6 +137,11 @@ export function board() {
       return { found: true, names: body.username ?? '' }
     },
 
+    async lookUpMissingAccount() {
+      const response = await send('/api/users/nobody-answers-to-this-name')
+      return { found: response.status === 200 }
+    },
+
     async openMissingSubject() {
       const response = await send('/api/topics/00000000-0000-0000-0000-000000000000')
       return { found: response.status === 200 }

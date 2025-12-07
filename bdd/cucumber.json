@@ -3,6 +3,7 @@
     "import": ["steps/**/*.mjs"],
     "paths": [
       "features/reading.feature",
+      "features/accounts.feature",
       "features/writing.feature",
       "features/signing-in.feature"
     ],
