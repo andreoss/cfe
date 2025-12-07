@@ -74,10 +74,9 @@ impl SearchRepository for DuckSearchRepository {
                              ORDER BY {by} LIMIT ?"
                         ))
                         .expect("prepare search topics");
-                    let columns = stmt.column_count();
                     let mapped = stmt
                         .query_map(duckdb::params_from_iter(params.iter()), |row| {
-                            let rank: i32 = row.get(columns - 1).expect("read rank");
+                            let rank: i32 = row.get("rank").expect("read rank");
                             Ok((rank, topic_row(row)))
                         })
                         .expect("query search topics");
