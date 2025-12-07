@@ -2,7 +2,7 @@ use crate::duckdb::comment::{COMMENT_COLUMNS, CommentRow, comment_row, to_commen
 use crate::duckdb::conn::Db;
 use crate::duckdb::topic::{TOPIC_COLUMNS, TopicRow, tags_for, to_topic, topic_row};
 use app::SearchRepository;
-use domain::{ContentItem, Query};
+use domain::{ContentItem, Criteria, Order};
 use duckdb::types::Value;
 
 pub struct DuckSearchRepository {
@@ -28,64 +28,101 @@ pub fn like_pattern(raw: &str) -> String {
     format!("%{escaped}%")
 }
 
+pub fn ordering(order: Order, rank: &str) -> String {
+    match order {
+        Order::Relevance => format!("{rank}, created_at DESC"),
+        Order::Newest => "created_at DESC".to_owned(),
+        Order::Oldest => "created_at ASC".to_owned(),
+    }
+}
+
+fn arrange(order: Order, mut ranked: Vec<(i32, ContentItem)>) -> Vec<ContentItem> {
+    match order {
+        Order::Relevance => {
+            ranked.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.written_at().cmp(&a.1.written_at())))
+        }
+        Order::Newest => ranked.sort_by(|a, b| b.1.written_at().cmp(&a.1.written_at())),
+        Order::Oldest => ranked.sort_by(|a, b| a.1.written_at().cmp(&b.1.written_at())),
+    }
+    ranked.truncate(LIMIT as usize);
+    ranked.into_iter().map(|(_, item)| item).collect()
+}
+
+const TOPIC_RANK: &str = "CASE WHEN lower(title) LIKE ? ESCAPE '\\' THEN 2 ELSE 1 END";
+
 #[async_trait::async_trait]
 impl SearchRepository for DuckSearchRepository {
-    async fn search(&self, query: &Query) -> Vec<ContentItem> {
-        let pattern = like_pattern(query.as_str());
-        let topic_params = vec![
-            Value::Text(pattern.clone()),
-            Value::Text(pattern.clone()),
-            Value::BigInt(LIMIT),
-        ];
-        let topic_rows: Vec<TopicRow> = self
-            .db
-            .call(move |conn| {
-                let mut stmt = conn
-                    .prepare(&format!(
-                        "SELECT {TOPIC_COLUMNS} FROM topics WHERE deleted_at IS NULL \
-                         AND (lower(title) LIKE ? ESCAPE '\\' \
-                         OR lower(body) LIKE ? ESCAPE '\\') \
-                         ORDER BY created_at DESC LIMIT ?"
-                    ))
-                    .expect("prepare search topics");
-                let mapped = stmt
-                    .query_map(duckdb::params_from_iter(topic_params.iter()), |row| {
-                        Ok(topic_row(row))
-                    })
-                    .expect("query search topics");
-                mapped.map(|r| r.expect("read topic")).collect()
-            })
-            .await;
+    async fn search(&self, criteria: &Criteria) -> Vec<ContentItem> {
+        let pattern = like_pattern(criteria.query().as_str());
+        let order = criteria.order();
+        let topic_rows: Vec<(i32, TopicRow)> = if criteria.scope().covers_topics() {
+            let by = ordering(order, "rank DESC");
+            let params = vec![
+                Value::Text(pattern.clone()),
+                Value::Text(pattern.clone()),
+                Value::Text(pattern.clone()),
+                Value::BigInt(LIMIT),
+            ];
+            self.db
+                .call(move |conn| {
+                    let mut stmt = conn
+                        .prepare(&format!(
+                            "SELECT {TOPIC_COLUMNS}, {TOPIC_RANK} AS rank FROM topics \
+                             WHERE deleted_at IS NULL \
+                             AND (lower(title) LIKE ? ESCAPE '\\' \
+                             OR lower(body) LIKE ? ESCAPE '\\') \
+                             ORDER BY {by} LIMIT ?"
+                        ))
+                        .expect("prepare search topics");
+                    let columns = stmt.column_count();
+                    let mapped = stmt
+                        .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                            let rank: i32 = row.get(columns - 1).expect("read rank");
+                            Ok((rank, topic_row(row)))
+                        })
+                        .expect("query search topics");
+                    mapped.map(|r| r.expect("read topic")).collect()
+                })
+                .await
+        } else {
+            Vec::new()
+        };
 
-        let comment_params = vec![Value::Text(pattern), Value::BigInt(LIMIT)];
-        let comment_rows: Vec<CommentRow> = self
-            .db
-            .call(move |conn| {
-                let mut stmt = conn
-                    .prepare(&format!(
-                        "SELECT {COMMENT_COLUMNS} FROM comments WHERE deleted_at IS NULL \
-                         AND lower(body) LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
-                    ))
-                    .expect("prepare search comments");
-                let mapped = stmt
-                    .query_map(duckdb::params_from_iter(comment_params.iter()), |row| {
-                        Ok(comment_row(row))
-                    })
-                    .expect("query search comments");
-                mapped.map(|r| r.expect("read comment")).collect()
-            })
-            .await;
+        let comment_rows: Vec<CommentRow> = if criteria.scope().covers_comments() {
+            let by = match order {
+                Order::Oldest => "created_at ASC",
+                _ => "created_at DESC",
+            };
+            let params = vec![Value::Text(pattern), Value::BigInt(LIMIT)];
+            self.db
+                .call(move |conn| {
+                    let mut stmt = conn
+                        .prepare(&format!(
+                            "SELECT {COMMENT_COLUMNS} FROM comments WHERE deleted_at IS NULL \
+                             AND lower(body) LIKE ? ESCAPE '\\' ORDER BY {by} LIMIT ?"
+                        ))
+                        .expect("prepare search comments");
+                    let mapped = stmt
+                        .query_map(duckdb::params_from_iter(params.iter()), |row| {
+                            Ok(comment_row(row))
+                        })
+                        .expect("query search comments");
+                    mapped.map(|r| r.expect("read comment")).collect()
+                })
+                .await
+        } else {
+            Vec::new()
+        };
 
-        let mut found = Vec::with_capacity(topic_rows.len() + comment_rows.len());
-        for row in topic_rows {
+        let mut ranked = Vec::with_capacity(topic_rows.len() + comment_rows.len());
+        for (rank, row) in topic_rows {
             let tags = tags_for(&self.db, row.id).await;
-            found.push(ContentItem::Topic(to_topic(row, tags)));
+            ranked.push((rank, ContentItem::Topic(to_topic(row, tags))));
         }
         for row in comment_rows {
-            found.push(ContentItem::Comment(to_comment(row)));
+            ranked.push((1, ContentItem::Comment(to_comment(row))));
         }
-        found.truncate(LIMIT as usize);
-        found
+        arrange(order, ranked)
     }
 }
 

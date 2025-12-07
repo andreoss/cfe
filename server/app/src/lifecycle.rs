@@ -2,9 +2,7 @@ use crate::ports::{
     MailTokenRepository, Mailer, Message, PasswordHasher, SessionRepository, TokenDigest,
     UserRepository,
 };
-use domain::{
-    Email, MailToken, MailTokenId, Password, TokenPurpose, User, UserId,
-};
+use domain::{Email, MailToken, MailTokenId, Password, TokenPurpose, User, UserId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -27,14 +25,7 @@ async fn issue(
     payload: Option<String>,
     now: OffsetDateTime,
 ) -> String {
-    let token = MailToken::issue(
-        id,
-        user_id,
-        purpose,
-        digester.digest(&secret),
-        payload,
-        now,
-    );
+    let token = MailToken::issue(id, user_id, purpose, digester.digest(&secret), payload, now);
     tokens.save(&token).await;
     secret
 }
@@ -434,9 +425,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(env.mailer.sent()[0].to, "moved@example.com");
-        let updated = confirm_email_change(&env.users, &env.tokens, &PlainDigest, "secret-code", now())
-            .await
-            .unwrap();
+        let updated =
+            confirm_email_change(&env.users, &env.tokens, &PlainDigest, "secret-code", now())
+                .await
+                .unwrap();
         assert_eq!(updated.email(), &next);
         assert!(updated.is_confirmed());
     }
@@ -481,9 +473,10 @@ mod tests {
             now(),
         )
         .await;
-        let updated = confirm_activation(&env.users, &env.tokens, &PlainDigest, "secret-code", now())
-            .await
-            .unwrap();
+        let updated =
+            confirm_activation(&env.users, &env.tokens, &PlainDigest, "secret-code", now())
+                .await
+                .unwrap();
         assert!(updated.is_confirmed());
     }
 }

@@ -7,7 +7,11 @@ pub enum AvatarLookupError {
     NoAvatar,
 }
 
-pub async fn set_avatar(avatars: &(impl AvatarRepository + ?Sized), user_id: domain::UserId, avatar: Avatar) {
+pub async fn set_avatar(
+    avatars: &(impl AvatarRepository + ?Sized),
+    user_id: domain::UserId,
+    avatar: Avatar,
+) {
     avatars.save(user_id, &avatar).await;
 }
 
@@ -30,7 +34,10 @@ pub async fn get_avatar(
         .ok_or(AvatarLookupError::NoAvatar)
 }
 
-pub async fn has_avatar(avatars: &(impl AvatarRepository + ?Sized), user_id: domain::UserId) -> bool {
+pub async fn has_avatar(
+    avatars: &(impl AvatarRepository + ?Sized),
+    user_id: domain::UserId,
+) -> bool {
     avatars.find_by_user(user_id).await.is_some()
 }
 
@@ -62,7 +69,9 @@ mod tests {
         assert!(!has_avatar(&avatars, user().id()).await);
         set_avatar(&avatars, user().id(), png()).await;
         assert!(has_avatar(&avatars, user().id()).await);
-        let found = get_avatar(&users, &avatars, user().username()).await.unwrap();
+        let found = get_avatar(&users, &avatars, user().username())
+            .await
+            .unwrap();
         assert_eq!(found.format(), ImageFormat::Png);
         assert_eq!(found.bytes(), png().bytes());
     }
@@ -74,7 +83,9 @@ mod tests {
         set_avatar(&avatars, user().id(), png()).await;
         let gif = Avatar::parse(b"GIF89a....".to_vec()).unwrap();
         set_avatar(&avatars, user().id(), gif).await;
-        let found = get_avatar(&users, &avatars, user().username()).await.unwrap();
+        let found = get_avatar(&users, &avatars, user().username())
+            .await
+            .unwrap();
         assert_eq!(found.format(), ImageFormat::Gif);
     }
 

@@ -10,7 +10,7 @@ use crate::ports::{
 };
 use domain::{
     Address, AddressBlock, AddressPost, Attachment, AttachmentId, Avatar, Ban, Body, Bookmark,
-    ClientString, Comment, CommentId, ContentItem, Email, Group, GroupId, Invitation,
+    ClientString, Comment, CommentId, ContentItem, Criteria, Email, Group, GroupId, Invitation,
     InvitationCode, InvitationId, MailToken, Notification, NotificationId, Page, Poll, PollId,
     PollOptionId, PostRef, Query, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
     ReportTarget, Section, SectionId, Session, SessionId, SessionToken, Slug, Tag, TagSet, Title,
@@ -487,9 +487,16 @@ impl FakeSearchRepo {
 
 #[async_trait::async_trait]
 impl SearchRepository for FakeSearchRepo {
-    async fn search(&self, query: &Query) -> Vec<ContentItem> {
-        *self.last_query.lock().unwrap() = Some(query.as_str().to_owned());
-        self.hits.clone()
+    async fn search(&self, criteria: &Criteria) -> Vec<ContentItem> {
+        *self.last_query.lock().unwrap() = Some(criteria.query().as_str().to_owned());
+        self.hits
+            .iter()
+            .filter(|hit| match hit {
+                ContentItem::Topic(_) => criteria.scope().covers_topics(),
+                ContentItem::Comment(_) => criteria.scope().covers_comments(),
+            })
+            .cloned()
+            .collect()
     }
 }
 

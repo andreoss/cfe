@@ -1,7 +1,5 @@
-use crate::ports::{
-    CommentRepository, NotificationRepository, SectionRepository, TopicRepository,
-};
 use crate::paging::Paged;
+use crate::ports::{CommentRepository, NotificationRepository, SectionRepository, TopicRepository};
 use domain::{Body, Comment, CommentId, Notification, NotificationId, Page, TopicId, User};
 use time::OffsetDateTime;
 
@@ -35,11 +33,8 @@ pub async fn post_comment(
         .find_by_id(topic.section_id())
         .await
         .ok_or(PostCommentError::TopicNotFound)?;
-    let restriction = domain::comment_restriction(
-        topic.postscore(),
-        section.topics_score(),
-        comment_count,
-    );
+    let restriction =
+        domain::comment_restriction(topic.postscore(), section.topics_score(), comment_count);
     let by_author = topic.author_id() == author.id();
     if !restriction.allows(author.score(), author.role().is_moderator(), by_author) {
         return Err(PostCommentError::Restricted);
@@ -85,7 +80,9 @@ pub async fn list_comments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FakeCommentRepo, FakeNotificationRepo, FakeSectionRepo, FakeTopicRepo};
+    use crate::test_support::{
+        FakeCommentRepo, FakeNotificationRepo, FakeSectionRepo, FakeTopicRepo,
+    };
     use domain::{Email, Section, SectionId, Slug, TagSet, Title, Topic, User, UserId, Username};
 
     fn topic() -> Topic {
@@ -143,7 +140,13 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(comment.parent_id(), None);
-        assert_eq!(list_comments(&comments, topic().id(), Page::first()).await.items.len(), 1);
+        assert_eq!(
+            list_comments(&comments, topic().id(), Page::first())
+                .await
+                .items
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -168,7 +171,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let raised = notifications.list_by_recipient(topic().author_id(), Page::first()).await;
+        let raised = notifications
+            .list_by_recipient(topic().author_id(), Page::first())
+            .await;
         assert_eq!(raised.len(), 1);
         assert_eq!(raised[0].actor_id(), commenter);
         assert_eq!(raised[0].topic_id(), topic().id());
@@ -213,7 +218,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let raised = notifications.list_by_recipient(parent_author, Page::first()).await;
+        let raised = notifications
+            .list_by_recipient(parent_author, Page::first())
+            .await;
         assert_eq!(raised.len(), 1);
         assert_eq!(raised[0].actor_id(), replier);
         assert_eq!(raised[0].comment_id(), CommentId::new(uuid::Uuid::max()));
@@ -294,23 +301,13 @@ mod tests {
         assert!(first.has_next());
         assert_eq!(first.items.len(), 4);
         assert!(first.items.iter().any(|c| c.id() == roots[0]));
-        assert!(
-            first
-                .items
-                .iter()
-                .any(|c| c.parent_id() == Some(roots[0]))
-        );
+        assert!(first.items.iter().any(|c| c.parent_id() == Some(roots[0])));
         assert!(!first.items.iter().any(|c| c.id() == roots[2]));
 
         let second = list_comments(&comments, topic().id(), Page::parse(2, 2).unwrap()).await;
         assert_eq!(second.items.len(), 2);
         assert!(second.items.iter().any(|c| c.id() == roots[2]));
-        assert!(
-            second
-                .items
-                .iter()
-                .any(|c| c.parent_id() == Some(roots[2]))
-        );
+        assert!(second.items.iter().any(|c| c.parent_id() == Some(roots[2])));
         assert!(!second.has_next());
     }
 
@@ -374,7 +371,13 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(reply.parent_id(), Some(root.id()));
-        assert_eq!(list_comments(&comments, topic().id(), Page::first()).await.items.len(), 2);
+        assert_eq!(
+            list_comments(&comments, topic().id(), Page::first())
+                .await
+                .items
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -435,9 +438,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_low_score_user_is_refused_in_a_restricted_topic() {
-        let topics = FakeTopicRepo::with(
-            topic().with_postscore(domain::PostScore::NoComments),
-        );
+        let topics = FakeTopicRepo::with(topic().with_postscore(domain::PostScore::NoComments));
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
         let sections = repo_with_section(&topic());
@@ -460,9 +461,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_moderator_can_comment_when_only_moderators_may() {
-        let topics = FakeTopicRepo::with(
-            topic().with_postscore(domain::PostScore::ModeratorsOnly),
-        );
+        let topics = FakeTopicRepo::with(topic().with_postscore(domain::PostScore::ModeratorsOnly));
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
         let sections = repo_with_section(&topic());
@@ -487,9 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn even_a_moderator_is_refused_when_comments_are_closed() {
-        let topics = FakeTopicRepo::with(
-            topic().with_postscore(domain::PostScore::NoComments),
-        );
+        let topics = FakeTopicRepo::with(topic().with_postscore(domain::PostScore::NoComments));
         let comments = FakeCommentRepo::new();
         let notifications = FakeNotificationRepo::new();
         let sections = repo_with_section(&topic());

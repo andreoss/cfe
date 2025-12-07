@@ -55,10 +55,7 @@ pub async fn record_sign_in_failure(
         .await;
 }
 
-pub async fn clear_sign_in_failures(
-    abuse: &(impl AbuseRepository + ?Sized),
-    username: &Username,
-) {
+pub async fn clear_sign_in_failures(abuse: &(impl AbuseRepository + ?Sized), username: &Username) {
     abuse.clear_sign_in_failures(username.as_str()).await;
 }
 
@@ -245,7 +242,8 @@ mod tests {
         let mailer = FakeMailer::new();
         let now = OffsetDateTime::UNIX_EPOCH;
         notice_of_new_network(&abuse, &mailer, &user(5, "owner_05"), &addr(), now).await;
-        let other = notice_of_new_network(&abuse, &mailer, &user(6, "owner_06"), &addr(), now).await;
+        let other =
+            notice_of_new_network(&abuse, &mailer, &user(6, "owner_06"), &addr(), now).await;
         assert!(other);
     }
 }

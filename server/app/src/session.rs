@@ -107,7 +107,11 @@ mod tests {
         );
         let sessions = FakeSessionRepo::with(session);
         let users = FakeUserRepo::with(user().deregistered(now));
-        assert!(current_user(&sessions, &users, &token(), now).await.is_none());
+        assert!(
+            current_user(&sessions, &users, &token(), now)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]

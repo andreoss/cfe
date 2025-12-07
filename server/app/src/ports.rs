@@ -1,8 +1,8 @@
 use domain::{
     Address, AddressBlock, AddressPost, Attachment, AttachmentId, Avatar, Ban, Bookmark,
-    ClientString, Comment, CommentId, ContentItem, Email, Group, GroupId, Invitation,
+    ClientString, Comment, CommentId, ContentItem, Criteria, Email, Group, GroupId, Invitation,
     InvitationCode, InvitationId, MailToken, Notification, NotificationId, Page, Poll, PollId,
-    PollOptionId, PostRef, Query, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
+    PollOptionId, PostRef, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
     ReportTarget, Section, SectionId, Session, SessionId, SessionToken, Slug, Tag, Topic, TopicId,
     User, UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
@@ -186,7 +186,7 @@ pub trait NotificationRepository {
 
 #[async_trait::async_trait]
 pub trait SearchRepository {
-    async fn search(&self, query: &Query) -> Vec<ContentItem>;
+    async fn search(&self, criteria: &Criteria) -> Vec<ContentItem>;
 }
 
 #[async_trait::async_trait]

@@ -1,5 +1,5 @@
-use crate::ports::{BookmarkRepository, TopicRepository};
 use crate::paging::Paged;
+use crate::ports::{BookmarkRepository, TopicRepository};
 use domain::{Bookmark, Page, Topic, TopicId, UserId};
 use time::OffsetDateTime;
 
@@ -19,9 +19,7 @@ pub async fn add_bookmark(
         .find_by_id(topic_id)
         .await
         .ok_or(BookmarkError::TopicNotFound)?;
-    bookmarks
-        .save(&Bookmark::new(user_id, topic_id, now))
-        .await;
+    bookmarks.save(&Bookmark::new(user_id, topic_id, now)).await;
     Ok(())
 }
 
@@ -108,7 +106,13 @@ mod tests {
             .await
             .unwrap();
         }
-        assert_eq!(list_bookmarked_topics(&bookmarks, user_id(), Page::first()).await.items.len(), 1);
+        assert_eq!(
+            list_bookmarked_topics(&bookmarks, user_id(), Page::first())
+                .await
+                .items
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -141,7 +145,12 @@ mod tests {
         .unwrap();
         remove_bookmark(&bookmarks, user_id(), topic().id()).await;
         assert!(!is_bookmarked(&bookmarks, user_id(), topic().id()).await);
-        assert!(list_bookmarked_topics(&bookmarks, user_id(), Page::first()).await.items.is_empty());
+        assert!(
+            list_bookmarked_topics(&bookmarks, user_id(), Page::first())
+                .await
+                .items
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -159,6 +168,11 @@ mod tests {
         .unwrap();
         let other = UserId::new(uuid::Uuid::max());
         assert!(!is_bookmarked(&bookmarks, other, topic().id()).await);
-        assert!(list_bookmarked_topics(&bookmarks, other, Page::first()).await.items.is_empty());
+        assert!(
+            list_bookmarked_topics(&bookmarks, other, Page::first())
+                .await
+                .items
+                .is_empty()
+        );
     }
 }

@@ -61,9 +61,7 @@ pub struct MonthCount {
     pub topics: u64,
 }
 
-pub async fn months_with_topics(
-    topics: &(impl TopicRepository + ?Sized),
-) -> Vec<MonthCount> {
+pub async fn months_with_topics(topics: &(impl TopicRepository + ?Sized)) -> Vec<MonthCount> {
     let mut counted: Vec<MonthCount> = Vec::new();
     for topic in topics.all_for_archive().await {
         let month = ArchiveMonth::of(topic.created_at());
@@ -201,12 +199,7 @@ mod tests {
             .await;
         repo.save(&topic(3, at(2024, 7, 1))).await;
         repo.save(&topic(4, at(2024, 5, 31))).await;
-        let june = topics_in_month(
-            &repo,
-            ArchiveMonth::new(2024, 6).unwrap(),
-            Page::first(),
-        )
-        .await;
+        let june = topics_in_month(&repo, ArchiveMonth::new(2024, 6).unwrap(), Page::first()).await;
         assert_eq!(june.items.len(), 2);
         assert_eq!(june.total, 2);
     }
@@ -216,12 +209,7 @@ mod tests {
         let repo = FakeTopicRepo::new();
         repo.save(&topic(1, at(2024, 6, 1))).await;
         repo.save(&topic(2, at(2024, 7, 1))).await;
-        let june = topics_in_month(
-            &repo,
-            ArchiveMonth::new(2024, 6).unwrap(),
-            Page::first(),
-        )
-        .await;
+        let june = topics_in_month(&repo, ArchiveMonth::new(2024, 6).unwrap(), Page::first()).await;
         assert_eq!(june.items.len(), 1);
         assert_eq!(june.items[0].id(), TopicId::new(uuid::Uuid::from_u128(1)));
     }
@@ -241,12 +229,8 @@ mod tests {
     #[tokio::test]
     async fn a_month_with_nothing_in_it_is_empty_rather_than_an_error() {
         let repo = FakeTopicRepo::new();
-        let empty = topics_in_month(
-            &repo,
-            ArchiveMonth::new(2024, 6).unwrap(),
-            Page::first(),
-        )
-        .await;
+        let empty =
+            topics_in_month(&repo, ArchiveMonth::new(2024, 6).unwrap(), Page::first()).await;
         assert!(empty.items.is_empty());
         assert_eq!(empty.total, 0);
     }

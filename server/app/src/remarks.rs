@@ -129,7 +129,10 @@ mod tests {
                 .map(|r| r.text().as_str().to_owned()),
             Some("second".to_owned())
         );
-        assert_eq!(list_remarks(&remarks, &author, Page::first()).await.total, 1);
+        assert_eq!(
+            list_remarks(&remarks, &author, Page::first()).await.total,
+            1
+        );
     }
 
     #[tokio::test]
@@ -195,7 +198,10 @@ mod tests {
         .unwrap();
         clear_remark(&remarks, &author, subject.id()).await;
         assert_eq!(remark_about(&remarks, &author, subject.id()).await, None);
-        assert_eq!(list_remarks(&remarks, &author, Page::first()).await.total, 0);
+        assert_eq!(
+            list_remarks(&remarks, &author, Page::first()).await.total,
+            0
+        );
     }
 
     #[tokio::test]
@@ -223,7 +229,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(list_remarks(&remarks, &author, Page::first()).await.total, 1);
+        assert_eq!(
+            list_remarks(&remarks, &author, Page::first()).await.total,
+            1
+        );
         assert_eq!(list_remarks(&remarks, &other, Page::first()).await.total, 1);
         assert_eq!(
             remark_about(&remarks, &other, subject.id())

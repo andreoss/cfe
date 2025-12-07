@@ -232,6 +232,8 @@ pub struct EditCommentRequest {
 #[derive(Deserialize)]
 pub struct SearchParams {
     pub q: String,
+    pub scope: Option<String>,
+    pub order: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3350,8 +3352,17 @@ pub async fn search_handler(
 ) -> Result<Json<Vec<ContentItemResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let query = domain::Query::parse(&params.q)
         .map_err(|_| error(StatusCode::UNPROCESSABLE_ENTITY, "invalid query"))?;
+    let criteria = domain::Criteria::parse(query, params.scope.as_deref(), params.order.as_deref())
+        .map_err(|reason| match reason {
+            domain::CriteriaError::UnknownScope => {
+                error(StatusCode::UNPROCESSABLE_ENTITY, "unknown scope")
+            }
+            domain::CriteriaError::UnknownOrder => {
+                error(StatusCode::UNPROCESSABLE_ENTITY, "unknown order")
+            }
+        })?;
     let repo = state.backend.search();
-    let hits: Vec<ContentItem> = search(&*repo, &query)
+    let hits: Vec<ContentItem> = search(&*repo, &criteria)
         .await
         .into_iter()
         .filter(|hit| match hit {

@@ -1,7 +1,5 @@
 use crate::ports::{PollRepository, TopicRepository};
-use domain::{
-    Poll, PollError, PollId, PollOption, PollOptionId, Question, TopicId, User, Vote,
-};
+use domain::{Poll, PollError, PollId, PollOption, PollOptionId, Question, TopicId, User, Vote};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,11 +78,7 @@ pub async fn poll_results(
         Some(id) => polls.find_vote(poll.id(), id).await,
         None => None,
     };
-    Some(PollResults {
-        poll,
-        counts,
-        mine,
-    })
+    Some(PollResults { poll, counts, mine })
 }
 
 #[cfg(test)]

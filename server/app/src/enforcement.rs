@@ -1,5 +1,5 @@
 use crate::ports::{EnforcementRepository, SessionRepository, UserRepository};
-use domain::{Role, Ban, Reason, User, UserId, Warning, WarningId};
+use domain::{Ban, Reason, Role, User, UserId, Warning, WarningId};
 use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -122,7 +122,10 @@ pub async fn list_warnings(
     enforcement.list_warnings(user_id).await
 }
 
-pub async fn acknowledge_warnings(enforcement: &(impl EnforcementRepository + ?Sized), user_id: UserId) {
+pub async fn acknowledge_warnings(
+    enforcement: &(impl EnforcementRepository + ?Sized),
+    user_id: UserId,
+) {
     for warning in enforcement.list_warnings(user_id).await {
         if !warning.is_acknowledged() {
             enforcement.save_warning(&warning.acknowledged()).await;
@@ -307,7 +310,11 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(active_ban(&enforcement, plain().id(), start).await.is_some());
+        assert!(
+            active_ban(&enforcement, plain().id(), start)
+                .await
+                .is_some()
+        );
         assert!(
             active_ban(&enforcement, plain().id(), start + Duration::days(2))
                 .await
@@ -366,7 +373,11 @@ mod tests {
         let theirs = list_warnings(&enforcement, plain().id()).await;
         assert_eq!(theirs.len(), 1);
         assert!(!theirs[0].is_acknowledged());
-        assert!(list_warnings(&enforcement, moderator().id()).await.is_empty());
+        assert!(
+            list_warnings(&enforcement, moderator().id())
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -437,7 +448,10 @@ mod tests {
         ignore_user(&users, &enforcement, &moderator(), plain().id())
             .await
             .unwrap();
-        assert_eq!(ignored_by(&enforcement, moderator().id()).await, vec![plain().id()]);
+        assert_eq!(
+            ignored_by(&enforcement, moderator().id()).await,
+            vec![plain().id()]
+        );
         assert!(ignored_by(&enforcement, plain().id()).await.is_empty());
     }
 

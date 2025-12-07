@@ -1,5 +1,5 @@
-use crate::ports::NotificationRepository;
 use crate::paging::Paged;
+use crate::ports::NotificationRepository;
 use domain::{Notification, NotificationId, Page, UserId};
 use time::OffsetDateTime;
 
@@ -18,7 +18,10 @@ pub async fn list_notifications(
     Paged::new(items, page, total)
 }
 
-pub async fn count_unread(repo: &(impl NotificationRepository + ?Sized), recipient_id: UserId) -> u64 {
+pub async fn count_unread(
+    repo: &(impl NotificationRepository + ?Sized),
+    recipient_id: UserId,
+) -> u64 {
     repo.count_unread(recipient_id).await
 }
 

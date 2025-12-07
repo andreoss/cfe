@@ -129,13 +129,7 @@ mod tests {
         let sessions = FakeSessionRepo::with(session_for(&user()));
         let gone = deregister(&users, &sessions, &user(), OffsetDateTime::UNIX_EPOCH).await;
         assert!(!gone.is_active());
-        assert!(
-            !users
-                .find_by_id(user().id())
-                .await
-                .unwrap()
-                .is_active()
-        );
+        assert!(!users.find_by_id(user().id()).await.unwrap().is_active());
         assert!(
             sessions
                 .find_by_token(session_for(&user()).token())

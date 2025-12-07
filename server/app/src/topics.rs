@@ -1,5 +1,5 @@
-use crate::ports::{GroupRepository, SectionRepository, TopicRepository};
 use crate::paging::Paged;
+use crate::ports::{GroupRepository, SectionRepository, TopicRepository};
 use domain::{Body, GroupId, Page, Section, Slug, TagSet, Title, Topic, TopicId, User, UserId};
 use time::OffsetDateTime;
 
@@ -271,7 +271,13 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(topic.section_id(), section().id());
-        assert_eq!(topics.list_by_section(section().id(), Page::first()).await.len(), 1);
+        assert_eq!(
+            topics
+                .list_by_section(section().id(), Page::first())
+                .await
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -312,9 +318,15 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics(&sections, &topics, &Slug::parse("general").unwrap(), Page::first(), Visibility::moderator())
-            .await
-            .unwrap();
+        let listed = list_topics(
+            &sections,
+            &topics,
+            &Slug::parse("general").unwrap(),
+            Page::first(),
+            Visibility::moderator(),
+        )
+        .await
+        .unwrap();
         assert_eq!(listed.items.len(), 1);
     }
 
@@ -322,7 +334,14 @@ mod tests {
     async fn rejects_listing_an_unknown_section() {
         let sections = FakeSectionRepo::new();
         let topics = FakeTopicRepo::new();
-        let result = list_topics(&sections, &topics, &Slug::parse("ghost").unwrap(), Page::first(), Visibility::moderator()).await;
+        let result = list_topics(
+            &sections,
+            &topics,
+            &Slug::parse("ghost").unwrap(),
+            Page::first(),
+            Visibility::moderator(),
+        )
+        .await;
         assert!(matches!(result, Err(ListTopicsError::SectionNotFound)));
     }
 
@@ -330,9 +349,13 @@ mod tests {
     async fn get_topic_returns_none_for_unknown_id() {
         let topics = FakeTopicRepo::new();
         assert!(
-            get_topic(&topics, TopicId::new(uuid::Uuid::nil()), Visibility::moderator())
-                .await
-                .is_none()
+            get_topic(
+                &topics,
+                TopicId::new(uuid::Uuid::nil()),
+                Visibility::moderator()
+            )
+            .await
+            .is_none()
         );
     }
 
@@ -354,9 +377,21 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = list_topics_by_tag(&topics, &Slug::parse("rust").unwrap(), Page::first(), Visibility::moderator()).await;
+        let listed = list_topics_by_tag(
+            &topics,
+            &Slug::parse("rust").unwrap(),
+            Page::first(),
+            Visibility::moderator(),
+        )
+        .await;
         assert_eq!(listed.items.len(), 1);
-        let empty = list_topics_by_tag(&topics, &Slug::parse("nothing").unwrap(), Page::first(), Visibility::moderator()).await;
+        let empty = list_topics_by_tag(
+            &topics,
+            &Slug::parse("nothing").unwrap(),
+            Page::first(),
+            Visibility::moderator(),
+        )
+        .await;
         assert_eq!(empty.items.len(), 0);
     }
 
@@ -432,17 +467,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_moderator_can_set_a_topics_comment_restriction() {
-        let topics = FakeTopicRepo::with(
-            Topic::new(
-                TopicId::new(uuid::Uuid::nil()),
-                DomainSectionId::new(uuid::Uuid::max()),
-                UserId::new(uuid::Uuid::nil()),
-                Title::parse("Hello").unwrap(),
-                Body::parse("World").unwrap(),
-                TagSet::empty(),
-                OffsetDateTime::UNIX_EPOCH,
-            ),
-        );
+        let topics = FakeTopicRepo::with(Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            DomainSectionId::new(uuid::Uuid::max()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        ));
         let moderator = plain_user(uuid::Uuid::max()).promoted_to_moderator();
         let updated = set_postscore(
             &topics,
@@ -453,23 +486,27 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(updated.postscore(), domain::PostScore::NoComments);
-        let stored = get_topic(&topics, TopicId::new(uuid::Uuid::nil()), Visibility::moderator()).await.unwrap();
+        let stored = get_topic(
+            &topics,
+            TopicId::new(uuid::Uuid::nil()),
+            Visibility::moderator(),
+        )
+        .await
+        .unwrap();
         assert_eq!(stored.postscore(), domain::PostScore::NoComments);
     }
 
     #[tokio::test]
     async fn a_plain_user_cannot_set_a_topics_restriction() {
-        let topics = FakeTopicRepo::with(
-            Topic::new(
-                TopicId::new(uuid::Uuid::nil()),
-                DomainSectionId::new(uuid::Uuid::max()),
-                UserId::new(uuid::Uuid::nil()),
-                Title::parse("Hello").unwrap(),
-                Body::parse("World").unwrap(),
-                TagSet::empty(),
-                OffsetDateTime::UNIX_EPOCH,
-            ),
-        );
+        let topics = FakeTopicRepo::with(Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            DomainSectionId::new(uuid::Uuid::max()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        ));
         let result = set_postscore(
             &topics,
             &plain_user(uuid::Uuid::max()),
@@ -579,9 +616,21 @@ mod tests {
         .unwrap();
         assert_eq!(theirs.items.len(), 0);
 
-        assert!(get_topic(&topics, topic.id(), Visibility::of(Some(&author))).await.is_some());
-        assert!(get_topic(&topics, topic.id(), Visibility::of(Some(&stranger))).await.is_none());
-        assert!(get_topic(&topics, topic.id(), Visibility::anonymous()).await.is_none());
+        assert!(
+            get_topic(&topics, topic.id(), Visibility::of(Some(&author)))
+                .await
+                .is_some()
+        );
+        assert!(
+            get_topic(&topics, topic.id(), Visibility::of(Some(&stranger)))
+                .await
+                .is_none()
+        );
+        assert!(
+            get_topic(&topics, topic.id(), Visibility::anonymous())
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -629,23 +678,26 @@ mod tests {
             .await
             .unwrap();
         assert!(uncommitted.is_pending());
-        let refused = uncommit_topic(&topics, &plain_user(uuid::Uuid::nil()), TopicId::new(uuid::Uuid::nil())).await;
+        let refused = uncommit_topic(
+            &topics,
+            &plain_user(uuid::Uuid::nil()),
+            TopicId::new(uuid::Uuid::nil()),
+        )
+        .await;
         assert_eq!(refused, Err(CommitTopicError::NotAuthorized));
     }
 
     #[tokio::test]
     async fn a_moderator_moves_a_topic_between_groups_in_one_section() {
-        let topics = FakeTopicRepo::with(
-            Topic::new(
-                TopicId::new(uuid::Uuid::nil()),
-                DomainSectionId::new(uuid::Uuid::nil()),
-                UserId::new(uuid::Uuid::nil()),
-                Title::parse("Hello").unwrap(),
-                Body::parse("World").unwrap(),
-                TagSet::empty(),
-                OffsetDateTime::UNIX_EPOCH,
-            ),
-        );
+        let topics = FakeTopicRepo::with(Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            DomainSectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        ));
         let groups = FakeGroupRepo::new();
         let group = Group::new(
             GroupId::new(uuid::Uuid::max()),
@@ -678,17 +730,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_move_rejects_a_group_in_another_section() {
-        let topics = FakeTopicRepo::with(
-            Topic::new(
-                TopicId::new(uuid::Uuid::nil()),
-                DomainSectionId::new(uuid::Uuid::nil()),
-                UserId::new(uuid::Uuid::nil()),
-                Title::parse("Hello").unwrap(),
-                Body::parse("World").unwrap(),
-                TagSet::empty(),
-                OffsetDateTime::UNIX_EPOCH,
-            ),
-        );
+        let topics = FakeTopicRepo::with(Topic::new(
+            TopicId::new(uuid::Uuid::nil()),
+            DomainSectionId::new(uuid::Uuid::nil()),
+            UserId::new(uuid::Uuid::nil()),
+            Title::parse("Hello").unwrap(),
+            Body::parse("World").unwrap(),
+            TagSet::empty(),
+            OffsetDateTime::UNIX_EPOCH,
+        ));
         let groups = FakeGroupRepo::new();
         let other = Group::new(
             GroupId::new(uuid::Uuid::max()),

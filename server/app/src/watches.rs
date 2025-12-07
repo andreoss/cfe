@@ -1,5 +1,5 @@
-use crate::ports::{NotificationRepository, TopicRepository, WatchRepository};
 use crate::paging::Paged;
+use crate::ports::{NotificationRepository, TopicRepository, WatchRepository};
 use domain::{
     CommentId, Notification, NotificationId, NotificationKind, Page, Topic, TopicId, User, UserId,
     Watch,
@@ -22,9 +22,7 @@ pub async fn watch_topic(
         .find_by_id(topic_id)
         .await
         .ok_or(WatchError::TopicNotFound)?;
-    watches
-        .save(&Watch::new(user.id(), topic_id, now))
-        .await;
+    watches.save(&Watch::new(user.id(), topic_id, now)).await;
     Ok(())
 }
 
@@ -124,9 +122,15 @@ mod tests {
         let watches = FakeWatchRepo::new();
         let topics = FakeTopicRepo::with(topic());
         let watcher = user(2, "watcher_01");
-        watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-            .await
-            .unwrap();
+        watch_topic(
+            &watches,
+            &topics,
+            &watcher,
+            topic().id(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
         assert!(is_watching(&watches, watcher.id(), topic().id()).await);
     }
 
@@ -136,9 +140,15 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let watcher = user(2, "watcher_01");
         for _ in 0..2 {
-            watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-                .await
-                .unwrap();
+            watch_topic(
+                &watches,
+                &topics,
+                &watcher,
+                topic().id(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .unwrap();
         }
         assert_eq!(watches.watchers(topic().id()).await.len(), 1);
     }
@@ -163,9 +173,15 @@ mod tests {
         let watches = FakeWatchRepo::new();
         let topics = FakeTopicRepo::with(topic());
         let watcher = user(2, "watcher_01");
-        watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-            .await
-            .unwrap();
+        watch_topic(
+            &watches,
+            &topics,
+            &watcher,
+            topic().id(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
         stop_watching(&watches, &watcher, topic().id()).await;
         assert!(!is_watching(&watches, watcher.id(), topic().id()).await);
     }
@@ -178,9 +194,15 @@ mod tests {
         let first = user(2, "watcher_01");
         let second = user(3, "watcher_02");
         for watcher in [&first, &second] {
-            watch_topic(&watches, &topics, watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-                .await
-                .unwrap();
+            watch_topic(
+                &watches,
+                &topics,
+                watcher,
+                topic().id(),
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .await
+            .unwrap();
         }
         let told = notify_watchers(
             &watches,
@@ -194,7 +216,9 @@ mod tests {
         )
         .await;
         assert_eq!(told, 2);
-        let listed = notifications.list_by_recipient(first.id(), Page::first()).await;
+        let listed = notifications
+            .list_by_recipient(first.id(), Page::first())
+            .await;
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].kind(), NotificationKind::Watch);
     }
@@ -205,9 +229,15 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let notifications = FakeNotificationRepo::new();
         let watcher = user(2, "watcher_01");
-        watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-            .await
-            .unwrap();
+        watch_topic(
+            &watches,
+            &topics,
+            &watcher,
+            topic().id(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
         let told = notify_watchers(
             &watches,
             &notifications,
@@ -228,9 +258,15 @@ mod tests {
         let topics = FakeTopicRepo::with(topic());
         let notifications = FakeNotificationRepo::new();
         let watcher = user(2, "watcher_01");
-        watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-            .await
-            .unwrap();
+        watch_topic(
+            &watches,
+            &topics,
+            &watcher,
+            topic().id(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
         let told = notify_watchers(
             &watches,
             &notifications,
@@ -251,9 +287,15 @@ mod tests {
         watches.hold(topic());
         let topics = FakeTopicRepo::with(topic());
         let watcher = user(2, "watcher_01");
-        watch_topic(&watches, &topics, &watcher, topic().id(), OffsetDateTime::UNIX_EPOCH)
-            .await
-            .unwrap();
+        watch_topic(
+            &watches,
+            &topics,
+            &watcher,
+            topic().id(),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
         let listed = list_watched(&watches, watcher.id(), Page::first()).await;
         assert_eq!(listed.total, 1);
         assert_eq!(listed.items[0].id(), topic().id());

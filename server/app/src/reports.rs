@@ -171,7 +171,11 @@ mod tests {
     async fn env() -> (FakeReportRepo, FakeTopicRepo, FakeCommentRepo) {
         let comments = FakeCommentRepo::new();
         comments.save(&comment()).await;
-        (FakeReportRepo::new(), FakeTopicRepo::with(topic()), comments)
+        (
+            FakeReportRepo::new(),
+            FakeTopicRepo::with(topic()),
+            comments,
+        )
     }
 
     #[tokio::test]

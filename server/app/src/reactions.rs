@@ -161,7 +161,14 @@ mod tests {
             )
             .await;
         }
-        clear_reaction(&repo, &FakeUserRepo::new(), author_id(), user_id(), target()).await;
+        clear_reaction(
+            &repo,
+            &FakeUserRepo::new(),
+            author_id(),
+            user_id(),
+            target(),
+        )
+        .await;
         let summary = summarize_reactions(&repo, Some(user_id()), target()).await;
         assert_eq!(count_of(&summary, ReactionKind::Like), 1);
         assert_eq!(summary.mine, None);

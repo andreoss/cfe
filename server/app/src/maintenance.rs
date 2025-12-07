@@ -235,7 +235,9 @@ mod tests {
 
     #[tokio::test]
     async fn one_run_does_both_jobs_and_reports_what_it_did() {
-        let fallen = user(20, "both_01", SCORE_MIN).registered(day(0)).confirmed(day(0));
+        let fallen = user(20, "both_01", SCORE_MIN)
+            .registered(day(0))
+            .confirmed(day(0));
         let stale = user(21, "both_02", 0).registered(day(0));
         let (users, bans) = repos(vec![fallen.clone(), stale.clone()]).await;
         let report = run_maintenance(
@@ -256,7 +258,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_run_over_settled_data_reports_nothing() {
-        let fallen = user(22, "again_02", SCORE_MIN).registered(day(0)).confirmed(day(0));
+        let fallen = user(22, "again_02", SCORE_MIN)
+            .registered(day(0))
+            .confirmed(day(0));
         let (users, bans) = repos(vec![fallen]).await;
         let settings = MaintenanceSettings::default();
         run_maintenance(&users, &bans, settings, day(8)).await;

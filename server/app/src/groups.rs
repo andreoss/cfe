@@ -26,11 +26,7 @@ pub async fn create_group(
         .find_by_slug(section_slug)
         .await
         .ok_or(CreateGroupError::SectionNotFound)?;
-    if groups
-        .find_by_slug(section.id(), &slug)
-        .await
-        .is_some()
-    {
+    if groups.find_by_slug(section.id(), &slug).await.is_some() {
         return Err(CreateGroupError::SlugTaken);
     }
     let group = Group::new(id, section.id(), name, slug);
