@@ -1,0 +1,7 @@
+{
+  "default": {
+    "import": ["steps/**/*.mjs"],
+    "paths": ["features/**/*.feature"],
+    "format": ["progress"]
+  }
+}
