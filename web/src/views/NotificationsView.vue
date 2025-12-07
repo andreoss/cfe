@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   getNotifications,
   markNotificationRead,
@@ -7,12 +8,20 @@ import {
   type PageInfo,
 } from '@/api/client'
 
+const auth = useAuthStore()
+
 const notifications = ref<Notification[]>([])
 const page = ref<PageInfo | null>(null)
 const currentPage = ref(1)
 const loadError = ref('')
 
 async function load() {
+  if (auth.currentUser === null) {
+    notifications.value = []
+    page.value = null
+    loadError.value = ''
+    return
+  }
   loadError.value = ''
   const result = await getNotifications(currentPage.value)
   if (result.ok) {
@@ -51,6 +60,7 @@ load()
 <template>
   <main>
     <h1>Notifications</h1>
+    <p v-if="!auth.currentUser">Sign in to see your notifications.</p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li

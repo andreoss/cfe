@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { getBookmarks, type PageInfo, type Topic } from '@/api/client'
+
+const auth = useAuthStore()
 
 const topics = ref<Topic[]>([])
 const page = ref<PageInfo | null>(null)
@@ -8,6 +11,12 @@ const currentPage = ref(1)
 const loadError = ref('')
 
 async function load() {
+  if (auth.currentUser === null) {
+    topics.value = []
+    page.value = null
+    loadError.value = ''
+    return
+  }
   loadError.value = ''
   const result = await getBookmarks(currentPage.value)
   if (result.ok) {
@@ -37,6 +46,7 @@ load()
 <template>
   <main>
     <h1>Bookmarks</h1>
+    <p v-if="!auth.currentUser">Sign in to see what you have saved.</p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="topic in topics" :key="topic.id">

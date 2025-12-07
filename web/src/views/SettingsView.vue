@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useDisplayStore } from '@/stores/display'
@@ -39,6 +39,7 @@ const emailUpdated = ref(false)
 const emailCodeError = ref('')
 
 async function loadWarnings() {
+  if (!auth.currentUser) return
   warningsError.value = ''
   const result = await getMyWarnings()
   if (!result.ok) {
@@ -47,10 +48,6 @@ async function loadWarnings() {
   }
   warnings.value = result.value
 }
-
-onMounted(() => {
-  loadWarnings()
-})
 
 const blocks = ref<AddressBlock[]>([])
 const blockError = ref('')
@@ -74,6 +71,7 @@ async function loadBlocks() {
 watch(
   () => auth.currentUser,
   () => {
+    loadWarnings()
     loadBlocks()
   },
   { immediate: true },

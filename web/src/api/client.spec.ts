@@ -4813,3 +4813,40 @@ describe('search narrowing', () => {
     expect(path).toContain('order=relevance')
   })
 })
+
+describe('an answer that is not what was promised', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('reports a refusal whose body is not json, rather than throwing', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'Invalid URL segment',
+    } as Response)
+    const result = await getTopic('not-a-real-id')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(400)
+  })
+
+  it('reports a success whose body is not json, rather than throwing', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '<!doctype html>',
+    } as Response)
+    const result = await getTopic('t1')
+    expect(result.ok).toBe(false)
+  })
+
+  it('still repeats what the server said when it says it properly', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => JSON.stringify({ error: 'topic not found' }),
+    } as Response)
+    const result = await getTopic('t1')
+    expect(result).toEqual({ ok: false, error: 'topic not found', status: 404 })
+  })
+})
