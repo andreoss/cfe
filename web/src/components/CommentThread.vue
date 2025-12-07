@@ -18,6 +18,7 @@ import {
 } from '@/api/client'
 import { renderMarkdown } from '@/lib/markdown'
 import { exactWhen, readableWhen } from '@/lib/when'
+import { useDisplayStore } from '@/stores/display'
 import ReactionBar from '@/components/ReactionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -27,6 +28,12 @@ const props = defineProps<{
   topicId: string
   onPosted: () => void
 }>()
+
+const display = useDisplayStore()
+
+function shownWhen(iso: string) {
+  return display.timeStyle === "exact" ? exactWhen(iso) : readableWhen(iso)
+}
 
 const auth = useAuthStore()
 const replyingTo = ref<string | null>(null)
@@ -221,7 +228,7 @@ async function onEdit(commentId: string) {
         <UserAvatar :username="comment.authorUsername" />
         <strong>{{ comment.authorUsername }}</strong>
         <time :datetime="comment.createdAt" :title="exactWhen(comment.createdAt)">{{
-          readableWhen(comment.createdAt)
+          shownWhen(comment.createdAt)
         }}</time>
         <button
           v-if="replyCount(comment.id) > 0"

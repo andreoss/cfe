@@ -46,6 +46,7 @@ import ReactionBar from '@/components/ReactionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { renderMarkdown } from '@/lib/markdown'
 import { exactWhen, readableWhen } from '@/lib/when'
+import { useDisplayStore } from '@/stores/display'
 import {
   attachImage,
   getTopicImages,
@@ -56,6 +57,11 @@ import {
 
 const props = defineProps<{ id: string }>()
 const auth = useAuthStore()
+const display = useDisplayStore()
+
+function shownWhen(iso: string) {
+  return display.timeStyle === "exact" ? exactWhen(iso) : readableWhen(iso)
+}
 
 const topic = ref<Topic | null>(null)
 const notFound = ref(false)
@@ -619,7 +625,7 @@ async function onUnsave() {
       <h1>{{ topic.title }}</h1>
       <p class="byline">
         <time :datetime="topic.createdAt" :title="exactWhen(topic.createdAt)">{{
-          readableWhen(topic.createdAt)
+          shownWhen(topic.createdAt)
         }}</time>
         by <UserAvatar :username="topic.authorUsername" />
         <RouterLink :to="`/u/${topic.authorUsername}`">{{ topic.authorUsername }}</RouterLink>
@@ -864,7 +870,7 @@ h1 {
 
 .waiting {
   display: block;
-  margin: var(--space-3) 0;
+  margin: var(--gap-3) 0;
   font: inherit;
   font-weight: 600;
 }

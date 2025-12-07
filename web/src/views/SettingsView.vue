@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useDisplayStore } from '@/stores/display'
 import {
   changePassword,
   deregister,
@@ -18,6 +19,7 @@ import {
 } from '@/api/client'
 
 const auth = useAuthStore()
+const display = useDisplayStore()
 const router = useRouter()
 
 const currentPassword = ref('')
@@ -189,9 +191,35 @@ async function onEndAllSessions() {
 
 <template>
   <main>
+    <h1>Settings</h1>
+    <section>
+      <h2>Display</h2>
+      <label>
+        Theme
+        <select v-model="display.theme" name="theme">
+          <option value="system">Match my system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <label>
+        Times
+        <select v-model="display.timeStyle" name="time-style">
+          <option value="relative">How long ago</option>
+          <option value="exact">Date and time</option>
+        </select>
+      </label>
+      <label>
+        Spacing
+        <select v-model="display.density" name="density">
+          <option value="comfortable">Comfortable</option>
+          <option value="compact">Compact</option>
+        </select>
+      </label>
+      <p role="status">These are kept in this browser.</p>
+    </section>
     <p v-if="!auth.currentUser">Sign in to manage your account.</p>
     <template v-else>
-      <h1>Settings</h1>
       <section>
         <p v-if="warnings.length === 0">No warnings.</p>
         <template v-else>
