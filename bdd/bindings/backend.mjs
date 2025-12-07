@@ -72,5 +72,73 @@ export function board() {
     nameFor(role) {
       return people[role]?.name ?? null
     },
+
+    async sections() {
+      const response = await send('/api/sections')
+      const body = await response.json()
+      return body.map((one) => one.slug)
+    },
+
+    async openSection() {
+      const listed = await send('/api/sections')
+      if (listed.status !== 200) return { found: false, names: '' }
+      const sections = await listed.json()
+      const first = sections[0]
+      if (!first) return { found: false, names: '' }
+      const opened = await send(`/api/sections/${first.slug}/topics`)
+      return {
+        found: opened.status === 200,
+        names: first.title ?? first.slug ?? '',
+      }
+    },
+
+    async ensureSubject() {
+      const where = (await this.sections())[0]
+      const listing = await send(`/api/sections/${where}/topics`)
+      if (listing.status === 200) {
+        const body = await listing.json()
+        if ((body.items ?? []).length > 0) return true
+      }
+      await this.signIn('administrator')
+      const made = await send(`/api/sections/${where}/topics`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Something worth reading',
+          body: 'A subject put here so that anybody may read one.',
+          tags: [],
+        }),
+      })
+      if (made.status < 300) {
+        const topic = await made.json()
+        if (topic?.pending) {
+          await send(`/api/topics/${topic.id}/commit`, { method: 'POST' })
+        }
+      }
+      await this.signOut()
+      return true
+    },
+
+    async openSubject() {
+      const where = (await this.sections())[0]
+      const response = await send(`/api/sections/${where}/topics`)
+      if (response.status !== 200) return { found: false, title: '', author: '' }
+      const body = await response.json()
+      const first = (body.items ?? [])[0]
+      if (!first) return { found: false, title: '', author: '' }
+      return { found: true, title: first.title ?? '', author: first.author_username ?? '' }
+    },
+
+    async lookUpAccount(role) {
+      const who = people[role]
+      const response = await send(`/api/users/${encodeURIComponent(who.name)}`)
+      if (response.status !== 200) return { found: false, names: '' }
+      const body = await response.json()
+      return { found: true, names: body.username ?? '' }
+    },
+
+    async openMissingSubject() {
+      const response = await send('/api/topics/00000000-0000-0000-0000-000000000000')
+      return { found: response.status === 200 }
+    },
   }
 }
