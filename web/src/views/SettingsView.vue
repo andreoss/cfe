@@ -13,7 +13,6 @@ import {
   listAddressBlocks,
   blockAddress,
   liftAddressBlock,
-  runMaintenance,
   type Warning,
   type AddressBlock,
 } from '@/api/client'
@@ -79,20 +78,6 @@ watch(
   },
   { immediate: true },
 )
-
-const maintenance = ref('')
-const maintenanceError = ref('')
-
-async function onRunMaintenance() {
-  maintenanceError.value = ''
-  maintenance.value = ''
-  const result = await runMaintenance()
-  if (!result.ok) {
-    maintenanceError.value = result.error
-    return
-  }
-  maintenance.value = `Blocked ${result.value.blocked}, dropped ${result.value.dropped}.`
-}
 
 async function onBlock() {
   blockError.value = ''
@@ -229,12 +214,6 @@ async function onEndAllSessions() {
           <button type="button" @click="onAcknowledge">Acknowledge warnings</button>
         </template>
         <p v-if="warningsError" role="alert">{{ warningsError }}</p>
-      </section>
-      <section v-if="isModerator()">
-        <h2>Maintenance</h2>
-        <button type="button" @click="onRunMaintenance">Run maintenance</button>
-        <p v-if="maintenance" role="status">{{ maintenance }}</p>
-        <p v-if="maintenanceError" role="alert">{{ maintenanceError }}</p>
       </section>
       <section v-if="isModerator()">
         <h2>Blocked addresses</h2>

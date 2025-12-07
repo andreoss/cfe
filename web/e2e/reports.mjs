@@ -181,8 +181,8 @@ async function run() {
       10000,
       'a plain user must not read the queue',
     )
-    const noLink = await author.findElements(By.linkText('Reports'))
-    assert(noLink.length === 0, 'a plain user must not see the reports link')
+    const noLink = await author.findElements(By.linkText('Operator'))
+    assert(noLink.length === 0, 'a plain user must not see the operator link')
 
     await mod.get(`${baseUrl}/reports`)
     await mod.wait(

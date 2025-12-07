@@ -76,7 +76,7 @@ async function signIn(driver, username) {
 }
 
 async function runMaintenance(driver) {
-  await driver.get(`${baseUrl}/settings`)
+  await driver.get(`${baseUrl}/operator`)
   await clickWhenReady(
     driver,
     By.xpath("//button[text()='Run maintenance']"),
@@ -108,8 +108,15 @@ async function run() {
     await signIn(mod, modName)
     await register(doomed, doomedName)
 
-    await doomed.get(`${baseUrl}/settings`)
-    await doomed.wait(until.elementLocated(By.css('main')), 10000)
+    await doomed.get(`${baseUrl}/operator`)
+    await doomed.wait(
+      async () =>
+        (await doomed.findElement(By.css('main')).getText()).includes(
+          'Only a moderator can run the board.',
+        ),
+      10000,
+      'a plain user must be turned away from the operator surface',
+    )
     const noControl = await doomed.findElements(
       By.xpath("//button[text()='Run maintenance']"),
     )
@@ -134,7 +141,7 @@ async function run() {
       `a dropped account should be refused, saw: ${refusedAt}`,
     )
 
-    await mod.get(`${baseUrl}/settings`)
+    await mod.get(`${baseUrl}/operator`)
     await mod.wait(
       until.elementLocated(By.xpath("//button[text()='Run maintenance']")),
       10000,

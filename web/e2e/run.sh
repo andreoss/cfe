@@ -169,6 +169,8 @@ node e2e/tag-depth.mjs
 node e2e/images.mjs
 node e2e/live-comments.mjs
 node e2e/search-filters.mjs
+node e2e/operator.mjs
+node e2e/display.mjs
 
 restart_api 100000 1000 3600
 node e2e/abuse-slow.mjs
