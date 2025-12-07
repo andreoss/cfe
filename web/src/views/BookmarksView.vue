@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { getBookmarks, type PageInfo, type Topic } from '@/api/client'
 
@@ -40,7 +40,7 @@ function nextPage() {
   if (page.value) void goToPage(page.value.number + 1)
 }
 
-load()
+watch(() => auth.currentUser, load, { immediate: true })
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   getNotifications,
@@ -54,7 +54,7 @@ async function onMarkRead(notification: Notification) {
   }
 }
 
-load()
+watch(() => auth.currentUser, load, { immediate: true })
 </script>
 
 <template>
