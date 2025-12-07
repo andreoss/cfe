@@ -219,8 +219,8 @@ export function signIn(username: string, password: string): Promise<ApiResult<Us
   return post<User>('/api/sign-in', { username, password })
 }
 
-export function me(): Promise<ApiResult<User>> {
-  return request<User>('/api/me', { method: 'GET' })
+export function me(): Promise<ApiResult<User | null>> {
+  return request<User | null>('/api/me', { method: 'GET' })
 }
 
 export function signOut(): Promise<ApiResult<void>> {

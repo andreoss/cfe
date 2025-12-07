@@ -4850,3 +4850,28 @@ describe('an answer that is not what was promised', () => {
     expect(result).toEqual({ ok: false, error: 'topic not found', status: 404 })
   })
 })
+
+describe('asking who is signed in', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('says nobody rather than failing when no one is signed in', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => 'null',
+    } as Response)
+    const result = await me()
+    expect(result).toEqual({ ok: true, value: null })
+  })
+
+  it('names whoever is signed in', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(true, { id: 'u1', username: 'someone', role: 'user' }),
+    )
+    const result = await me()
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value?.username).toBe('someone')
+  })
+})

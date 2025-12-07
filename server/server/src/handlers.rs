@@ -491,8 +491,8 @@ pub async fn sign_in_handler(
     Ok((jar.add(session_cookie(&token)), to_response(&user)))
 }
 
-pub async fn me_handler(CurrentUser(user): CurrentUser) -> Json<UserResponse> {
-    to_response(&user)
+pub async fn me_handler(OptionalUser(user): OptionalUser) -> Json<Option<UserResponse>> {
+    Json(user.map(|who| to_response(&who).0))
 }
 
 pub async fn sign_out_handler(State(state): State<AppState>, jar: CookieJar) -> CookieJar {
