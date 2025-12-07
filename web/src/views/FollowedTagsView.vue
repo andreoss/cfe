@@ -23,7 +23,7 @@ watch(() => auth.currentUser, load, { immediate: true })
 
 <template>
   <main>
-    <p v-if="!auth.currentUser">Sign in to see the tags you follow.</p>
+    <p v-if="auth.checked && !auth.currentUser">Sign in to see the tags you follow.</p>
     <template v-else>
       <h1>Followed tags</h1>
       <p v-if="loadError" role="alert">{{ loadError }}</p>

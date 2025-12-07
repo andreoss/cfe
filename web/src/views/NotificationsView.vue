@@ -60,7 +60,7 @@ watch(() => auth.currentUser, load, { immediate: true })
 <template>
   <main>
     <h1>Notifications</h1>
-    <p v-if="!auth.currentUser">Sign in to see your notifications.</p>
+    <p v-if="auth.checked && !auth.currentUser">Sign in to see your notifications.</p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li
@@ -80,7 +80,7 @@ watch(() => auth.currentUser, load, { immediate: true })
         </button>
       </li>
     </ul>
-    <p v-if="notifications.length === 0 && !loadError">No notifications.</p>
+    <p v-if="auth.checked && notifications.length === 0 && !loadError">No notifications.</p>
 
     <nav v-if="page && page.totalPages > 1">
       <button type="button" :disabled="!page.hasPrevious" @click="previousPage">Previous</button>

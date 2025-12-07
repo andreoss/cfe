@@ -46,14 +46,14 @@ watch(() => auth.currentUser, load, { immediate: true })
 <template>
   <main>
     <h1>Bookmarks</h1>
-    <p v-if="!auth.currentUser">Sign in to see what you have saved.</p>
+    <p v-if="auth.checked && !auth.currentUser">Sign in to see what you have saved.</p>
     <p v-if="loadError" role="alert">{{ loadError }}</p>
     <ul>
       <li v-for="topic in topics" :key="topic.id">
         <RouterLink :to="`/t/${topic.id}`">{{ topic.title }}</RouterLink>
       </li>
     </ul>
-    <p v-if="topics.length === 0 && !loadError">No saved topics.</p>
+    <p v-if="auth.checked && topics.length === 0 && !loadError">No saved topics.</p>
 
     <nav v-if="page && page.totalPages > 1">
       <button type="button" :disabled="!page.hasPrevious" @click="previousPage">Previous</button>

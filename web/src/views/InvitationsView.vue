@@ -63,7 +63,7 @@ watch(() => auth.currentUser, load, { immediate: true })
 
 <template>
   <main>
-    <p v-if="!auth.currentUser">Sign in to see your invitations.</p>
+    <p v-if="auth.checked && !auth.currentUser">Sign in to see your invitations.</p>
     <template v-else>
       <h1>Invitations</h1>
       <button type="button" @click="onIssue">Issue code</button>

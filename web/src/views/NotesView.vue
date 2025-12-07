@@ -44,7 +44,7 @@ watch(() => auth.currentUser, load, { immediate: true })
 
 <template>
   <main>
-    <p v-if="!auth.currentUser">Sign in to see your notes.</p>
+    <p v-if="auth.checked && !auth.currentUser">Sign in to see your notes.</p>
     <template v-else>
       <h1>Notes</h1>
       <p v-if="loadError" role="alert">{{ loadError }}</p>
