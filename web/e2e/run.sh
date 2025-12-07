@@ -56,8 +56,7 @@ case "$VENDOR" in
     ;;
 esac
 
-VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" \
-  VITE_POLL_MS="${VITE_POLL_MS:-2000}" npm run build
+VITE_API_BASE_URL="http://127.0.0.1:$API_PORT" npm run build
 
 start_api() {
   (cd "$ROOT/server" && \

@@ -121,7 +121,7 @@ async function run() {
 
     await reader.wait(
       until.elementLocated(By.css('button.waiting')),
-      30000,
+      45000,
       'a remark posted by somebody else should be offered without a reload',
     )
     const offer = await reader.findElement(By.css('button.waiting')).getText()
@@ -158,7 +158,7 @@ async function run() {
         if (found.length === 0) return false
         return (await found[0].getText()) === 'Show 2 new comments'
       },
-      30000,
+      45000,
       'two remarks should be counted, and read as plural',
     )
 
@@ -183,7 +183,7 @@ async function run() {
     await comment(talker, topicUrl, `A remark for the count ${suffix}`)
     await reader.wait(
       async () => (await unread(reader)) > before,
-      30000,
+      45000,
       `the unread count should climb on its own from ${before}, without a reload`,
     )
 
