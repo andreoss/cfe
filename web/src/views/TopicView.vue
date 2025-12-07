@@ -620,7 +620,14 @@ async function onUnsave() {
 
 <template>
   <main>
-    <p v-if="notFound">Topic not found.</p>
+    <template v-if="notFound">
+      <h1>There is nothing here</h1>
+      <p>
+        This subject is not here. It may have been removed, or the address may have a typo in
+        it. From here you can <RouterLink to="/">go back to the sections</RouterLink> or
+        <RouterLink to="/search">search for what you wanted</RouterLink>.
+      </p>
+    </template>
     <template v-else-if="topic">
       <h1>{{ topic.title }}</h1>
       <p class="byline">

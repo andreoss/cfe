@@ -147,7 +147,53 @@ const router = createRouter({
       name: 'sectionSettings',
       component: () => import('../views/SectionSettingsView.vue'),
     },
+    {
+      path: '/:missing(.*)*',
+      name: 'notFound',
+      component: () => import('../views/NotFoundView.vue'),
+    },
   ],
+})
+
+const BOARD = 'Community Forum'
+
+const NAMES: Record<string, string> = {
+  home: 'Sections',
+  register: 'Register',
+  'sign-in': 'Sign in',
+  'forgot-password': 'Forgotten password',
+  activate: 'Activate',
+  search: 'Search',
+  activity: 'Activity',
+  archive: 'Archive',
+  archiveMonth: 'Archive',
+  notifications: 'Notifications',
+  bookmarks: 'Bookmarks',
+  watched: 'Watched',
+  followedTags: 'Followed tags',
+  notes: 'Notes',
+  invitations: 'Invitations',
+  settings: 'Settings',
+  operator: 'Operator',
+  reports: 'Reports',
+  addresses: 'Addresses',
+  sectionSettings: 'Section settings',
+  notFound: 'Nothing here',
+}
+
+function nameFor(route: { name?: unknown; params: Record<string, unknown> }) {
+  const known = typeof route.name === 'string' ? NAMES[route.name] : undefined
+  if (known) return known
+  const params = route.params
+  if (typeof params.username === 'string') return params.username
+  if (typeof params.slug === 'string') return params.slug
+  if (typeof params.tag === 'string') return params.tag
+  return ''
+}
+
+router.afterEach((to) => {
+  const named = nameFor(to)
+  document.title = named ? `${named} — ${BOARD}` : BOARD
 })
 
 export default router
