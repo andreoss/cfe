@@ -235,6 +235,40 @@ export function board() {
       return title
     },
 
+    async startSubjectCarrying(word) {
+      const where = (await this.sections())[0]
+      const title = `A subject about ${word}`
+      const made = await send(`/api/sections/${where}/topics`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          body: `Written so that ${word} can be looked for.`,
+          tags: [],
+        }),
+      })
+      if (made.status >= 300) throw new Error('the board would not start a subject')
+      const topic = await made.json()
+      if (topic?.pending) {
+        await send(`/api/topics/${topic.id}/commit`, { method: 'POST' })
+      }
+      return title
+    },
+
+    async findByWord(word) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const response = await send(`/api/search?q=${encodeURIComponent(word)}`)
+        if (response.status === 200) {
+          const body = await response.json()
+          const titles = (Array.isArray(body) ? body : (body.items ?? []))
+            .map((one) => one.topic?.title ?? one.title ?? '')
+            .filter((one) => one.length > 0)
+          if (titles.length > 0) return { count: titles.length, titles }
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      return { count: 0, titles: [] }
+    },
+
     async firstSubjectInSection() {
       const where = (await this.sections())[0]
       const response = await send(`/api/sections/${where}/topics`)
