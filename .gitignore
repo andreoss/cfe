@@ -4,3 +4,4 @@ web/dist/
 .bsp/
 .idea/
 *.log
+.e2e-tmp/
