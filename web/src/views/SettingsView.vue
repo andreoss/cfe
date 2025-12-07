@@ -201,7 +201,7 @@ async function onEndAllSessions() {
           <option value="compact">Compact</option>
         </select>
       </label>
-      <p role="status">These are kept in this browser.</p>
+      <p class="note">These are kept in this browser.</p>
     </section>
     <p v-if="!auth.currentUser">Sign in to manage your account.</p>
     <template v-else>
