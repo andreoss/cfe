@@ -1,6 +1,6 @@
 function required(name) {
   const value = process.env[name]
-  if (!value) throw new Error(`set ${name} to reach the board being compared against`)
+  if (!value) throw new Error(`set ${name} before running these`)
   return value
 }
 

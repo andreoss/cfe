@@ -2,7 +2,8 @@ Feature: Signing in
   A board tells somebody who they are, refuses a wrong password,
   and lets them leave again.
 
-  The refusal is asked for last on purpose. A board may answer a wrong
+  This is asked last of all, on purpose, and the order is set out where
+  the scenarios are gathered rather than left to chance. A board may answer a wrong
   password by demanding proof that the caller is human, for a good
   while afterwards and for everyone at that address, so anything that
   needs a successful sign-in has to be asked before it.

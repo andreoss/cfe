@@ -10,6 +10,7 @@ const people = {
 
 export function board() {
   const jar = cookieJar()
+  let subject = null
 
   async function send(path, init = {}) {
     const response = await fetch(`${base}${path}`, {
@@ -139,6 +140,35 @@ export function board() {
     async openMissingSubject() {
       const response = await send('/api/topics/00000000-0000-0000-0000-000000000000')
       return { found: response.status === 200 }
+    },
+
+    async subjectToWriteOn() {
+      const where = (await this.sections())[0]
+      const response = await send(`/api/sections/${where}/topics`)
+      const body = await response.json()
+      const first = (body.items ?? [])[0]
+      if (!first) throw new Error('the board offered nothing to write on')
+      subject = { id: first.id }
+      return subject.id
+    },
+
+    async addRemark(text) {
+      if (!subject) await this.subjectToWriteOn()
+      const response = await send(`/api/topics/${subject.id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: text }),
+      })
+      return { accepted: response.status >= 200 && response.status < 300 }
+    },
+
+    async remarksOn(text) {
+      if (!subject) return { present: false, author: '' }
+      const response = await send(`/api/topics/${subject.id}/comments`)
+      if (response.status !== 200) return { present: false, author: '' }
+      const body = await response.json()
+      const found = (body.items ?? []).find((one) => (one.body ?? '').includes(text))
+      if (!found) return { present: false, author: '' }
+      return { present: true, author: found.author_username ?? '' }
     },
   }
 }

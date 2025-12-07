@@ -1,7 +1,11 @@
 {
   "default": {
     "import": ["steps/**/*.mjs"],
-    "paths": ["features/**/*.feature"],
+    "paths": [
+      "features/reading.feature",
+      "features/writing.feature",
+      "features/signing-in.feature"
+    ],
     "format": ["progress"]
   }
 }
