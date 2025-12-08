@@ -106,22 +106,22 @@ impl CommentRepository for MySqlCommentRepository {
 
     async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
         sqlx::query_as::<_, CommentRow>(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM comments WHERE topic_id = ? AND (\
-             id IN (SELECT id FROM (\
+            "WITH RECURSIVE roots AS (\
              SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
-             ORDER BY created_at LIMIT ? OFFSET ?) r) \
-             OR parent_id IN (SELECT id FROM (\
-             SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
-             ORDER BY created_at LIMIT ? OFFSET ?) r2)) \
+             ORDER BY created_at LIMIT ? OFFSET ?\
+             ), tree AS (\
+             SELECT id FROM roots \
+             UNION ALL \
+             SELECT c.id FROM comments c JOIN tree t ON c.parent_id = t.id\
+             ) \
+             SELECT {COMMENT_COLUMNS} FROM comments \
+             WHERE topic_id = ? AND id IN (SELECT id FROM tree) \
              ORDER BY created_at"
         ))
         .bind(topic_id.as_uuid())
-        .bind(topic_id.as_uuid())
         .bind(page.limit() as i64)
         .bind(page.offset() as i64)
         .bind(topic_id.as_uuid())
-        .bind(page.limit() as i64)
-        .bind(page.offset() as i64)
         .fetch_all(&self.pool)
         .await
         .expect("query comments")

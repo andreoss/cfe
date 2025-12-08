@@ -7,6 +7,7 @@
       "features/writing.feature",
       "features/replies.feature",
       "features/permissions.feature",
+      "features/subjects.feature",
       "features/order.feature",
       "features/finding.feature",
       "features/joining.feature",

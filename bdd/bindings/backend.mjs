@@ -232,6 +232,7 @@ export function board() {
       if (topic?.pending) {
         await send(`/api/topics/${topic.id}/commit`, { method: 'POST' })
       }
+      subject = { id: topic.id }
       return title
     },
 
@@ -285,6 +286,43 @@ export function board() {
     async lookUpByName(name) {
       const response = await send(`/api/users/${encodeURIComponent(name)}`)
       return { found: response.status === 200 }
+    },
+
+    async changeSubject(body) {
+      const response = await send(`/api/topics/${subject.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: 'A subject, retitled', body, tags: [] }),
+      })
+      if (response.status >= 400) return { accepted: false }
+      const after = await send(`/api/topics/${subject.id}`)
+      if (after.status !== 200) return { accepted: false }
+      const topic = await after.json()
+      return { accepted: (topic.body ?? '').includes(body) }
+    },
+
+    async tagForSubjects() {
+      return 'bddtag'
+    },
+
+    async startSubjectTagged(tag) {
+      const where = (await this.sections())[0]
+      const title = `A tagged subject ${Date.now().toString(36)}`
+      const made = await send(`/api/sections/${where}/topics`, {
+        method: 'POST',
+        body: JSON.stringify({ title, body: 'Given a tag so it can be seen.', tags: [tag] }),
+      })
+      if (made.status >= 300) throw new Error('the board would not start a subject')
+      const topic = await made.json()
+      if (topic?.pending) await send(`/api/topics/${topic.id}/commit`, { method: 'POST' })
+      subject = { id: topic.id }
+      return title
+    },
+
+    async tagsOnSubject() {
+      const response = await send(`/api/topics/${subject.id}`)
+      if (response.status !== 200) return []
+      const topic = await response.json()
+      return topic.tags ?? []
     },
 
     async firstSubjectInSection() {

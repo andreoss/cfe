@@ -125,13 +125,17 @@ impl CommentRepository for PgCommentRepository {
 
     async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
         sqlx::query_as::<_, Row>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM comments WHERE topic_id = $1 AND (id IN (\
+            "WITH RECURSIVE roots AS (\
              SELECT id FROM comments WHERE topic_id = $1 AND parent_id IS NULL \
              ORDER BY created_at ASC LIMIT $2 OFFSET $3\
-             ) OR parent_id IN (\
-             SELECT id FROM comments WHERE topic_id = $1 AND parent_id IS NULL \
-             ORDER BY created_at ASC LIMIT $2 OFFSET $3\
-             )) ORDER BY created_at ASC"
+             ), tree AS (\
+             SELECT id FROM roots \
+             UNION ALL \
+             SELECT c.id FROM comments c JOIN tree t ON c.parent_id = t.id\
+             ) \
+             SELECT {SELECT_COLUMNS} FROM comments \
+             WHERE topic_id = $1 AND id IN (SELECT id FROM tree) \
+             ORDER BY created_at ASC"
         ))
         .bind(topic_id.as_uuid())
         .bind(page.limit() as i64)

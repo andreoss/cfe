@@ -146,20 +146,26 @@ impl CommentRepository for DuckCommentRepository {
     }
 
     async fn list_by_topic(&self, topic_id: TopicId, page: Page) -> Vec<Comment> {
-        let roots = "SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
-                     ORDER BY created_at ASC LIMIT ? OFFSET ?";
-        let mut params = Vec::with_capacity(7);
-        params.push(uuid_value(topic_id.as_uuid()));
-        for _ in 0..2 {
-            params.push(uuid_value(topic_id.as_uuid()));
-            params.push(limit_value(page));
-            params.push(offset_value(page));
-        }
+        let params = vec![
+            uuid_value(topic_id.as_uuid()),
+            limit_value(page),
+            offset_value(page),
+            uuid_value(topic_id.as_uuid()),
+        ];
         load_comments(
             &self.db,
             format!(
-                "SELECT {COMMENT_COLUMNS} FROM comments WHERE topic_id = ? \
-                 AND (id IN ({roots}) OR parent_id IN ({roots})) ORDER BY created_at ASC"
+                "WITH RECURSIVE roots AS (\
+                 SELECT id FROM comments WHERE topic_id = ? AND parent_id IS NULL \
+                 ORDER BY created_at ASC LIMIT ? OFFSET ?\
+                 ), tree AS (\
+                 SELECT id FROM roots \
+                 UNION ALL \
+                 SELECT c.id FROM comments c JOIN tree t ON c.parent_id = t.id\
+                 ) \
+                 SELECT {COMMENT_COLUMNS} FROM comments \
+                 WHERE topic_id = ? AND id IN (SELECT id FROM tree) \
+                 ORDER BY created_at ASC"
             ),
             params,
         )
