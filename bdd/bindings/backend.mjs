@@ -325,6 +325,17 @@ export function board() {
       return topic.tags ?? []
     },
 
+    async remarksPerPage() {
+      return 25
+    },
+
+    async remarksOnPage(number) {
+      const response = await send(`/api/topics/${subject.id}/comments?page=${number}`)
+      if (response.status !== 200) return []
+      const body = await response.json()
+      return (body.items ?? []).map((one) => one.body ?? '')
+    },
+
     async firstSubjectInSection() {
       const where = (await this.sections())[0]
       const response = await send(`/api/sections/${where}/topics`)

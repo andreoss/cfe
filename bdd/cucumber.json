@@ -8,6 +8,7 @@
       "features/replies.feature",
       "features/permissions.feature",
       "features/subjects.feature",
+      "features/paging.feature",
       "features/order.feature",
       "features/finding.feature",
       "features/joining.feature",
