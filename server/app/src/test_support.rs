@@ -12,7 +12,7 @@ use domain::{
     Address, AddressBlock, AddressPost, Attachment, AttachmentId, Avatar, Ban, Body, Bookmark,
     ClientString, Comment, CommentId, ContentItem, Criteria, Email, Group, GroupId, Invitation,
     InvitationCode, InvitationId, MailToken, Notification, NotificationId, Page, Poll, PollId,
-    PollOptionId, PostRef, Query, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
+    PollOptionId, PostRef, Reaction, ReactionKind, ReactionTarget, Remark, Report, ReportId,
     ReportTarget, Section, SectionId, Session, SessionId, SessionToken, Slug, Tag, TagSet, Title,
     Topic, TopicId, User, UserId, Username, Version, VersionId, VersionOf, Vote, Warning, Watch,
 };
