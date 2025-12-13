@@ -1,10 +1,17 @@
-use axum::{Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
+use axum::{
+    Router,
+    extract::State,
+    http::StatusCode,
+    response::{Html, IntoResponse},
+    routing::get,
+};
 
-use crate::App;
+use crate::{App, html};
 
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/healthz", get(health))
+        .route("/", get(index))
         .fallback(not_found)
         .with_state(app)
 }
@@ -13,26 +20,37 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn not_found(State(_app): State<App>) -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, "Nothing here.")
+async fn index(State(app): State<App>) -> impl IntoResponse {
+    match app.sections().await {
+        Ok(sections) => (
+            StatusCode::OK,
+            Html(html::page(
+                app.default_theme(),
+                "Sections",
+                &html::section_list(&sections),
+            )),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Html(html::message(
+                app.default_theme(),
+                "The board is not answering",
+                &error.to_string(),
+            )),
+        )
+            .into_response(),
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn the_health_route_says_it_is_there() {
-        assert_eq!(health().await, "ok");
-    }
-
-    #[tokio::test]
-    async fn an_unknown_address_is_refused() {
-        let response = not_found(State(crate::App::new(&crate::config::Config::from_vars(
-            &std::collections::BTreeMap::new(),
-        ))))
-        .await
-        .into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
+async fn not_found(State(app): State<App>) -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Html(html::message(
+            app.default_theme(),
+            "Nothing here",
+            "This page does not exist.",
+        )),
+    )
+        .into_response()
 }

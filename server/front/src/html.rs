@@ -25,13 +25,11 @@ pub fn page(theme: Theme, title: &str, body: &str) -> String {
             "<meta charset=\"utf-8\">\n",
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
             "<title>{title} &#183; Forum</title>\n",
-            "<link rel=\"stylesheet\" href=\"/static/style.css\">\n",
             "</head>\n",
             "<body class=\"theme-{theme}\">\n",
             "<p class=\"skip\"><a href=\"#main\">Skip to the content</a></p>\n",
             "<header class=\"masthead\">\n",
             "<h1><a href=\"/\">Forum</a></h1>\n",
-            "{picker}",
             "</header>\n",
             "<main id=\"main\">\n",
             "{body}\n",
@@ -42,7 +40,6 @@ pub fn page(theme: Theme, title: &str, body: &str) -> String {
         ),
         theme = theme.name(),
         title = escape(title),
-        picker = theme_picker(theme, "/"),
         body = body,
     )
 }
@@ -62,30 +59,6 @@ pub fn section_list(sections: &[Section]) -> String {
     }
     out.push_str("</tbody>\n</table>\n");
     out
-}
-
-pub fn theme_picker(current: Theme, return_to: &str) -> String {
-    let mut options = String::new();
-    for theme in Theme::ALL {
-        options.push_str(&format!(
-            "<option value=\"{name}\"{selected}>{label}</option>",
-            name = theme.name(),
-            label = escape(theme.label()),
-            selected = if theme == current { " selected" } else { "" },
-        ));
-    }
-    format!(
-        concat!(
-            "<form class=\"theme-picker\" method=\"post\" action=\"/theme\">\n",
-            "<label for=\"theme\">Theme</label>\n",
-            "<select id=\"theme\" name=\"theme\">{options}</select>\n",
-            "<input type=\"hidden\" name=\"return_to\" value=\"{return_to}\">\n",
-            "<button type=\"submit\">Apply</button>\n",
-            "</form>\n"
-        ),
-        options = options,
-        return_to = escape(return_to),
-    )
 }
 
 pub fn message(theme: Theme, heading: &str, detail: &str) -> String {
@@ -146,12 +119,11 @@ mod tests {
     }
 
     #[test]
-    fn a_page_is_a_whole_document_with_a_title_and_a_stylesheet() {
+    fn a_page_is_a_whole_document_with_a_title() {
         let html = page(Theme::Light, "Sections", "<p>body</p>");
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains("<html lang=\"en\" class=\"theme-light\">"));
         assert!(html.contains("<title>Sections &#183; Forum</title>"));
-        assert!(html.contains("href=\"/static/style.css\""));
         assert!(html.contains("<p>body</p>"));
         assert!(html.ends_with("</html>\n"));
     }
@@ -183,17 +155,6 @@ mod tests {
     }
 
     #[test]
-    fn the_theme_picker_offers_every_theme_and_remembers_the_current_one() {
-        let html = theme_picker(Theme::Contrast, "/sections/general");
-        for theme in Theme::ALL {
-            assert!(html.contains(&format!("value=\"{}\"", theme.name())));
-        }
-        assert!(html.contains("value=\"contrast\" selected"));
-        assert!(html.contains("value=\"/sections/general\""));
-        assert!(html.contains("method=\"post\" action=\"/theme\""));
-    }
-
-    #[test]
     fn a_message_page_names_its_heading_and_its_detail() {
         let html = message(Theme::Light, "Unavailable", "The board is not answering");
         assert!(html.contains("<h2>Unavailable</h2>"));
@@ -203,7 +164,11 @@ mod tests {
     #[test]
     fn rendered_pages_carry_no_scripting() {
         let pages = [
-            page(Theme::Light, "Sections", &section_list(&[section("general", "General", true)])),
+            page(
+                Theme::Light,
+                "Sections",
+                &section_list(&[section("general", "General", true)]),
+            ),
             message(Theme::Dark, "Unavailable", "try again"),
         ];
         for html in pages {

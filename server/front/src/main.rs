@@ -3,7 +3,13 @@ use front::config::Config;
 #[tokio::main]
 async fn main() {
     let config = Config::from_env();
-    let app = front::App::new(&config);
+    let app = match front::App::new(&config) {
+        Ok(app) => app,
+        Err(error) => {
+            eprintln!("front: {error}");
+            std::process::exit(1);
+        }
+    };
     let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
         Ok(listener) => listener,
         Err(error) => {
