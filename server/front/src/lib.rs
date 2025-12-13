@@ -28,6 +28,10 @@ impl App {
     pub async fn sections(&self) -> Result<Vec<Section>, ClientError> {
         self.client.sections().await
     }
+
+    pub fn theme_for(&self, cookie: Option<&str>) -> Theme {
+        cookie.and_then(Theme::parse).unwrap_or(self.default_theme)
+    }
 }
 
 #[cfg(test)]
@@ -53,5 +57,13 @@ mod tests {
         );
         let config = Config::from_vars(&vars);
         assert!(App::new(&config).is_err());
+    }
+
+    #[test]
+    fn a_cookie_chooses_the_theme_and_an_unreadable_one_does_not() {
+        let app = App::new(&config()).unwrap();
+        assert_eq!(app.theme_for(Some("dark")), Theme::Dark);
+        assert_eq!(app.theme_for(Some("neon")), Theme::Light);
+        assert_eq!(app.theme_for(None), Theme::Light);
     }
 }
