@@ -9,6 +9,7 @@ moderation, reputation, and abuse defence.
   * `domain` -- pure types, invariants, typed IDs
   * `app` -- use cases and repository ports
   * `server` -- HTTP API and per-vendor adapters
+  * `front` -- html-only presentation service
 - `web/` -- single-page application
 - `bdd/` -- end-to-end suites
 
