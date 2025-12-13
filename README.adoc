@@ -1,0 +1,59 @@
+= Community Forum Engine
+
+A community forum engine: sections, tagged and threaded topics,
+moderation, reputation, and abuse defence.
+
+== Layout
+
+- `server/` -- Rust workspace:
+  * `domain` -- pure types, invariants, typed IDs
+  * `app` -- use cases and repository ports
+  * `server` -- HTTP API and per-vendor adapters
+- `web/` -- single-page application
+- `bdd/` -- end-to-end suites
+
+== Architecture
+
+Hexagonal: the domain is dependency-free, use cases speak to repository
+ports, and adapters implement those ports per storage vendor. The vendor
+is chosen at startup from the `DATABASE_URL` scheme: PostgreSQL
+(primary), MySQL, DuckDB. SQL is written per vendor; migrations apply on
+startup.
+
+== Run
+
+. Point `DATABASE_URL` at a database -- `duckdb://forum.db` for a
+  single-process local run, or a PostgreSQL/MySQL URL.
+. `cd server && cargo run -p server` -- binds to `BIND_ADDR`
+  (default `127.0.0.1:8080`).
+. `cd web && npm run dev`.
+
+Behaviour knobs (`RATE_LIMIT_*`, `SLOW_MODE_*`, `CHALLENGE_*`,
+`INVITATION_REQUIRED`, ...) are configuration with defaults, settable
+without a rebuild.
+
+== Web development
+
+The single-page application is Vue 3 on Vite. Setup and day-to-day:
+
+```sh
+npm install
+npm run dev
+npm run build
+npm run test:unit
+```
+
+- TypeScript cannot read `.vue` types by itself; `vue-tsc` does the
+  type-check and needs the Volar extension in VS Code.
+- Configuration: see the Vite configuration reference.
+
+== Test
+
+- `cd server && cargo test` -- domain, app, and adapter tests
+- `cd server && ./check-coverage.sh` -- coverage floor
+- `cd web && npm run test:unit` -- frontend unit tests
+- `cd bdd && npm test` -- end-to-end suite against a running API
+
+== License
+
+GPL-3.0
