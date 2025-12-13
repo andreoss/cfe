@@ -3,7 +3,7 @@ pub mod html;
 pub mod routes;
 pub mod theme;
 
-use client::{ApiClient, ClientError, Section};
+use client::{ApiClient, ClientError, Paged, Section, Topic, find_section};
 use config::Config;
 use theme::Theme;
 
@@ -27,6 +27,14 @@ impl App {
 
     pub async fn sections(&self) -> Result<Vec<Section>, ClientError> {
         self.client.sections().await
+    }
+
+    pub async fn section(&self, slug: &str) -> Result<Option<Section>, ClientError> {
+        Ok(find_section(&self.sections().await?, slug).cloned())
+    }
+
+    pub async fn topics(&self, slug: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.client.topics(slug, page).await
     }
 
     pub fn theme_for(&self, cookie: Option<&str>) -> Theme {
