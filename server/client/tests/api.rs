@@ -58,7 +58,10 @@ async fn an_empty_list_is_an_empty_page() {
 async fn a_status_outside_the_success_range_is_an_error() {
     let base = stub("503 Service Unavailable", "application/json", "{}").await;
     let client = ApiClient::new(&base).unwrap();
-    assert_eq!(client.sections().await.unwrap_err(), ClientError::Status(503));
+    assert_eq!(
+        client.sections().await.unwrap_err(),
+        ClientError::Status(503)
+    );
 }
 
 #[tokio::test]

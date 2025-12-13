@@ -22,9 +22,13 @@ impl std::fmt::Display for ClientError {
             ClientError::BadBaseUrl(raw) => {
                 write!(f, "the server address is not an http address: {raw}")
             }
-            ClientError::Transport(detail) => write!(f, "the server could not be reached: {detail}"),
+            ClientError::Transport(detail) => {
+                write!(f, "the server could not be reached: {detail}")
+            }
             ClientError::Status(status) => write!(f, "the server answered {status}"),
-            ClientError::Detail(detail) => write!(f, "the server sent an unreadable answer: {detail}"),
+            ClientError::Detail(detail) => {
+                write!(f, "the server sent an unreadable answer: {detail}")
+            }
         }
     }
 }
@@ -46,7 +50,10 @@ impl ApiClient {
         let http = reqwest::Client::builder()
             .build()
             .map_err(|e| ClientError::Transport(e.to_string()))?;
-        Ok(Self { base: trimmed, http })
+        Ok(Self {
+            base: trimmed,
+            http,
+        })
     }
 
     pub fn base(&self) -> &str {
@@ -110,11 +117,15 @@ mod tests {
             ClientError::BadBaseUrl("ftp://x".to_owned()).to_string(),
             "the server address is not an http address: ftp://x"
         );
-        assert!(ClientError::Transport("timeout".to_owned())
-            .to_string()
-            .contains("timeout"));
-        assert!(ClientError::Detail("bad json".to_owned())
-            .to_string()
-            .contains("bad json"));
+        assert!(
+            ClientError::Transport("timeout".to_owned())
+                .to_string()
+                .contains("timeout")
+        );
+        assert!(
+            ClientError::Detail("bad json".to_owned())
+                .to_string()
+                .contains("bad json")
+        );
     }
 }

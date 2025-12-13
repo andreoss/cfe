@@ -44,10 +44,7 @@ async fn closed_address() -> String {
 
 async fn front(server_url: &str) -> String {
     let mut vars = std::collections::BTreeMap::new();
-    vars.insert(
-        front::config::SERVER_URL.to_owned(),
-        server_url.to_owned(),
-    );
+    vars.insert(front::config::SERVER_URL.to_owned(), server_url.to_owned());
     let config = Config::from_vars(&vars);
     let app = front::App::new(&config).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -69,7 +66,14 @@ async fn the_health_route_says_it_is_there() {
 #[tokio::test]
 async fn the_section_list_comes_from_the_api() {
     let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
-    let page = http().get(&base).send().await.unwrap().text().await.unwrap();
+    let page = http()
+        .get(&base)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
     assert!(page.contains("href=\"/sections/general\""));
     assert!(page.contains("General Talk"));
     assert!(page.contains("href=\"/sections/news\""));
@@ -88,7 +92,10 @@ async fn a_rendered_page_carries_no_scripting() {
             .text()
             .await
             .unwrap();
-        assert!(front::html::scripting_free(&body), "{path} carries scripting");
+        assert!(
+            front::html::scripting_free(&body),
+            "{path} carries scripting"
+        );
         assert!(!body.to_ascii_lowercase().contains("<script"), "{path}");
     }
 }
@@ -125,7 +132,12 @@ async fn a_theme_choice_sets_a_cookie_and_returns_to_the_page() {
         .unwrap();
     assert_eq!(response.status(), 303);
     assert_eq!(
-        response.headers().get("location").unwrap().to_str().unwrap(),
+        response
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "/sections/general"
     );
     let cookie = response
@@ -177,7 +189,12 @@ async fn a_return_address_that_leaves_the_site_is_ignored() {
         .await
         .unwrap();
     assert_eq!(
-        response.headers().get("location").unwrap().to_str().unwrap(),
+        response
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "/"
     );
 }
@@ -187,11 +204,13 @@ async fn a_board_that_does_not_answer_gives_a_page_and_not_a_crash() {
     let base = front(&closed_address().await).await;
     let response = http().get(&base).send().await.unwrap();
     assert_eq!(response.status(), 503);
-    assert!(response
-        .text()
-        .await
-        .unwrap()
-        .contains("The board is not answering"));
+    assert!(
+        response
+            .text()
+            .await
+            .unwrap()
+            .contains("The board is not answering")
+    );
 }
 
 #[tokio::test]

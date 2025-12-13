@@ -51,7 +51,9 @@ pub fn section_list(sections: &[Section]) -> String {
     if sections.is_empty() {
         return "<p>No sections yet.</p>\n".to_owned();
     }
-    let mut out = String::from("<table class=\"sections\">\n<caption>Sections</caption>\n<thead>\n<tr><th scope=\"col\">Section</th><th scope=\"col\">Address</th><th scope=\"col\">May post</th></tr>\n</thead>\n<tbody>\n");
+    let mut out = String::from(
+        "<table class=\"sections\">\n<caption>Sections</caption>\n<thead>\n<tr><th scope=\"col\">Section</th><th scope=\"col\">Address</th><th scope=\"col\">May post</th></tr>\n</thead>\n<tbody>\n",
+    );
     for section in sections {
         out.push_str(&format!(
             "<tr><th scope=\"row\"><a href=\"/sections/{slug}\">{title}</a></th><td><code>{slug}</code></td><td>{may_post}</td></tr>\n",
@@ -118,8 +120,16 @@ pub fn scripting_free(html: &str) -> bool {
         if !rest.starts_with("on") {
             continue;
         }
-        let tail: String = rest.chars().skip(2).take_while(|c| c.is_alphanumeric()).collect();
-        let after: String = rest.chars().skip(2 + tail.chars().count()).take(2).collect();
+        let tail: String = rest
+            .chars()
+            .skip(2)
+            .take_while(|c| c.is_alphanumeric())
+            .collect();
+        let after: String = rest
+            .chars()
+            .skip(2 + tail.chars().count())
+            .take(2)
+            .collect();
         if !tail.is_empty() && after.starts_with('=') {
             return false;
         }
@@ -203,7 +213,11 @@ mod tests {
     #[test]
     fn rendered_pages_carry_no_scripting() {
         let pages = [
-            page(Theme::Light, "Sections", &section_list(&[section("general", "General", true)])),
+            page(
+                Theme::Light,
+                "Sections",
+                &section_list(&[section("general", "General", true)]),
+            ),
             message(Theme::Dark, "Unavailable", "try again"),
         ];
         for html in pages {
