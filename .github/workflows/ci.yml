@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo test
+      - run: ./check-coverage.sh
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run test:unit -- --run
+      - run: npm run build-only
+
+  bdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: bdd/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build -p server
+        working-directory: server
+      - run: npm ci
+        working-directory: bdd
+      - name: Start the board
+        working-directory: server
+        run: |
+          (env BIND_ADDR=127.0.0.1:58080 DATABASE_URL=duckdb:///tmp/ci.db OPERATOR_USERNAME=admin OPERATOR_PASSWORD=admin ./target/debug/server > /tmp/server.log 2>&1 &)
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://127.0.0.1:58080/api/sections && exit 0 || sleep 1
+          done
+          cat /tmp/server.log
+          exit 1
+      - name: Run the scenario suite against the clone
+        working-directory: bdd
+        run: TARGET=clone CLONE_URL=http://127.0.0.1:58080 npm test
