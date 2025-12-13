@@ -8,6 +8,55 @@ pub struct Section {
     pub may_post: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Topic {
+    pub id: String,
+    pub section_slug: String,
+    pub title: String,
+    pub author_username: String,
+    pub created_at: String,
+    pub tags: Vec<String>,
+    pub sticky: bool,
+    pub resolved: bool,
+    pub deleted: bool,
+    pub pending: bool,
+    pub draft: bool,
+    pub postscore: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PageInfo {
+    pub number: u32,
+    pub size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+    pub has_next: bool,
+    pub has_previous: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub page: PageInfo,
+}
+
+pub fn find_section<'a>(sections: &'a [Section], slug: &str) -> Option<&'a Section> {
+    sections.iter().find(|section| section.slug == slug)
+}
+
+pub fn encode_path(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for byte in raw.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BadBaseUrl(String),
@@ -64,6 +113,15 @@ impl ApiClient {
         self.get("/api/sections").await
     }
 
+    pub async fn topics(&self, slug: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.get(&format!(
+            "/api/sections/{}/topics?page={}",
+            encode_path(slug),
+            page
+        ))
+        .await
+    }
+
     async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, ClientError> {
         let response = self
             .http
@@ -105,6 +163,39 @@ mod tests {
     #[test]
     fn an_empty_address_is_refused() {
         assert!(ApiClient::new("").is_err());
+    }
+
+    #[test]
+    fn an_odd_slug_stays_inside_one_step_of_the_address() {
+        assert_eq!(encode_path("general"), "general");
+        assert_eq!(encode_path("a/b"), "a%2Fb");
+        assert_eq!(encode_path("a?b c"), "a%3Fb%20c");
+        assert_eq!(encode_path("a-b_c.d~e"), "a-b_c.d~e");
+        assert_eq!(encode_path(""), "");
+    }
+
+    #[test]
+    fn a_section_is_found_by_its_address_only() {
+        let sections = vec![
+            Section {
+                slug: "general".to_owned(),
+                title: "General Talk".to_owned(),
+                topics_score: "anyone".to_owned(),
+                may_post: true,
+            },
+            Section {
+                slug: "news".to_owned(),
+                title: "News".to_owned(),
+                topics_score: "moderators".to_owned(),
+                may_post: false,
+            },
+        ];
+        assert_eq!(
+            find_section(&sections, "news").map(|s| s.slug.as_str()),
+            Some("news")
+        );
+        assert!(find_section(&sections, "general-2").is_none());
+        assert!(find_section(&[], "general").is_none());
     }
 
     #[test]
