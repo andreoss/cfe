@@ -363,19 +363,26 @@ pub fn message(theme: Theme, heading: &str, detail: &str) -> String {
 
 pub fn scripting_free(html: &str) -> bool {
     let lower = html.to_ascii_lowercase();
-    if lower.contains("<script")
-        || lower.contains("<noscript")
-        || lower.contains("javascript:")
-        || lower.contains("<iframe")
-    {
+    if lower.contains("<script") || lower.contains("<noscript") || lower.contains("<iframe") {
         return false;
     }
     let bytes: Vec<char> = lower.chars().collect();
     let mut inside_tag = false;
+    let mut tag_starts_at = 0;
     for (index, character) in bytes.iter().enumerate() {
         match character {
-            '<' => inside_tag = true,
-            '>' => inside_tag = false,
+            '<' => {
+                inside_tag = true;
+                tag_starts_at = index;
+                continue;
+            }
+            '>' => {
+                if inside_tag && tag(&bytes, tag_starts_at..index + 1).contains("javascript:") {
+                    return false;
+                }
+                inside_tag = false;
+                continue;
+            }
             ' ' if inside_tag => {}
             _ => continue,
         }
@@ -397,7 +404,11 @@ pub fn scripting_free(html: &str) -> bool {
             return false;
         }
     }
-    true
+    !inside_tag || !tag(&bytes, tag_starts_at..bytes.len()).contains("javascript:")
+}
+
+fn tag(bytes: &[char], span: std::ops::Range<usize>) -> String {
+    bytes[span].iter().collect()
 }
 
 #[cfg(test)]
@@ -828,5 +839,7 @@ mod tests {
         assert!(scripting_free("<p>on click = nothing happens</p>"));
         assert!(scripting_free("<p class=\"online\">online</p>"));
         assert!(scripting_free("<p>&lt;img src=1 onerror=go()&gt;</p>"));
+        assert!(!scripting_free("<a href=\"javascript:go()\">x</a>"));
+        assert!(scripting_free("<p>the words javascript: on a page</p>"));
     }
 }

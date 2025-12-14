@@ -1,5 +1,6 @@
 pub mod config;
 pub mod html;
+pub mod markup;
 pub mod routes;
 pub mod theme;
 
