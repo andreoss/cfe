@@ -1,4 +1,4 @@
-use client::{ApiClient, ClientError, Comment, Section, Subject};
+use client::{ApiClient, ClientError, Section};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

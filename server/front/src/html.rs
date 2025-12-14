@@ -1,5 +1,5 @@
 use crate::theme::Theme;
-use client::{PageInfo, Paged, Section, Topic};
+use client::{Comment, PageInfo, Paged, Section, Subject, Topic};
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -92,7 +92,10 @@ pub fn topic_list(section: &Section, topics: &Paged<Topic>) -> String {
         ));
     }
     out.push_str("</tbody>\n</table>\n");
-    out.push_str(&pager(&section.slug, &topics.page));
+    out.push_str(&pager(
+        &format!("/sections/{}", client::encode_path(&section.slug)),
+        &topics.page,
+    ));
     out
 }
 
@@ -145,7 +148,8 @@ fn tag_links(tags: &[String]) -> String {
         .join(", ")
 }
 
-pub fn pager(slug: &str, page: &PageInfo) -> String {
+pub fn pager(address: &str, page: &PageInfo) -> String {
+    let base = escape(address);
     let mut out = format!(
         "<nav class=\"pager\">\n<p>Page {number} of {pages}</p>\n<ul>\n",
         number = page.number,
@@ -153,20 +157,135 @@ pub fn pager(slug: &str, page: &PageInfo) -> String {
     );
     if page.has_previous {
         out.push_str(&format!(
-            "<li><a rel=\"prev\" href=\"/sections/{slug}?page={previous}\">Previous page</a></li>\n",
-            slug = escape(slug),
+            "<li><a rel=\"prev\" href=\"{base}?page={previous}\">Previous page</a></li>\n",
             previous = page.number.saturating_sub(1),
         ));
     }
     if page.has_next {
         out.push_str(&format!(
-            "<li><a rel=\"next\" href=\"/sections/{slug}?page={next}\">Next page</a></li>\n",
-            slug = escape(slug),
+            "<li><a rel=\"next\" href=\"{base}?page={next}\">Next page</a></li>\n",
             next = page.number.saturating_add(1),
         ));
     }
     out.push_str("</ul>\n</nav>\n");
     out
+}
+
+pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
+    let mut out = format!(
+        concat!(
+            "<article class=\"subject\">\n",
+            "<h2>{title}</h2>\n",
+            "<p class=\"byline\">Written by <span class=\"writer\">{author}</span> at ",
+            "<time datetime=\"{stamp}\">{shown}</time> in ",
+            "<a href=\"/sections/{section}\">{section}</a>{marks}</p>\n",
+            "<div class=\"remark-text\">{body}</div>\n",
+            "<p class=\"tags\">Tags: {tags}</p>\n",
+            "<p><a href=\"/sections/{section}\">Back to the section</a></p>\n",
+            "</article>\n",
+            "<h3>{count}</h3>\n",
+        ),
+        title = escape(&subject.title),
+        author = escape(&subject.author_username),
+        stamp = escape(&subject.created_at),
+        shown = escape(&shown_date(&subject.created_at)),
+        section = escape(&subject.section_slug),
+        marks = subject_marks(subject),
+        body = escape(&subject.body),
+        tags = tag_links(&subject.tags),
+        count = escape(&remark_count(comments.page.total)),
+    );
+    out.push_str(&comment_list(&comments.items));
+    out.push_str(&pager(
+        &format!("/topics/{}", client::encode_path(&subject.id)),
+        &comments.page,
+    ));
+    out
+}
+
+fn remark_count(total: u64) -> String {
+    match total {
+        1 => "1 remark".to_owned(),
+        other => format!("{other} remarks"),
+    }
+}
+
+fn subject_marks(subject: &Subject) -> String {
+    let mut marks = Vec::new();
+    if subject.sticky {
+        marks.push("pinned".to_owned());
+    }
+    if subject.resolved {
+        marks.push("resolved".to_owned());
+    }
+    if subject.pending {
+        marks.push("awaiting a look".to_owned());
+    }
+    if subject.draft {
+        marks.push("draft".to_owned());
+    }
+    if subject.minor {
+        marks.push("minor".to_owned());
+    }
+    if subject.edited {
+        marks.push("edited".to_owned());
+    }
+    if subject.deleted {
+        marks.push(match &subject.deleted_reason {
+            Some(reason) => format!("removed: {reason}"),
+            None => "removed".to_owned(),
+        });
+    }
+    if marks.is_empty() {
+        return String::new();
+    }
+    format!(
+        " <span class=\"marks\">({})</span>",
+        escape(&marks.join(", "))
+    )
+}
+
+pub fn comment_list(comments: &[Comment]) -> String {
+    if comments.is_empty() {
+        return "<p>No remarks here yet.</p>\n".to_owned();
+    }
+    let mut out = String::from("<ol class=\"remarks\">\n");
+    for comment in comments {
+        out.push_str(&format!(
+            "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{body}\n</li>\n",
+            id = escape(&comment.id),
+            author = escape(&comment.author_username),
+            stamp = escape(&comment.created_at),
+            shown = escape(&shown_date(&comment.created_at)),
+            marks = comment_marks(comment),
+            body = remark_body(comment),
+        ));
+    }
+    out.push_str("</ol>\n");
+    out
+}
+
+fn remark_body(comment: &Comment) -> String {
+    if comment.ignored {
+        return "<div class=\"remark-text\">Kept from you.</div>".to_owned();
+    }
+    if comment.deleted {
+        return match &comment.deleted_reason {
+            Some(reason) => format!(
+                "<div class=\"remark-text\">Removed: {}</div>",
+                escape(reason)
+            ),
+            None => "<div class=\"remark-text\">Removed.</div>".to_owned(),
+        };
+    }
+    format!("<div class=\"remark-text\">{}</div>", escape(&comment.body))
+}
+
+fn comment_marks(comment: &Comment) -> String {
+    if !comment.edited {
+        return String::new();
+    }
+    " <span class=\"marks\">(edited)</span>".to_owned()
 }
 
 pub fn shown_date(raw: &str) -> String {
@@ -228,9 +347,13 @@ pub fn scripting_free(html: &str) -> bool {
         return false;
     }
     let bytes: Vec<char> = lower.chars().collect();
+    let mut inside_tag = false;
     for (index, character) in bytes.iter().enumerate() {
-        if *character != ' ' {
-            continue;
+        match character {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            ' ' if inside_tag => {}
+            _ => continue,
         }
         let rest: String = bytes[index + 1..].iter().collect();
         if !rest.starts_with("on") {
@@ -410,7 +533,7 @@ mod tests {
         page.number = 2;
         page.has_previous = true;
         page.has_next = true;
-        let html = pager("general", &page);
+        let html = pager("/sections/general", &page);
         assert!(html.contains("<p>Page 2 of 2</p>"));
         assert!(html.contains("href=\"/sections/general?page=1\""));
         assert!(html.contains("rel=\"prev\""));
@@ -420,7 +543,7 @@ mod tests {
 
     #[test]
     fn the_first_page_offers_no_step_back() {
-        let html = pager("general", &paged(vec![], 0).page);
+        let html = pager("/sections/general", &paged(vec![], 0).page);
         assert!(html.contains("<p>Page 1 of 1</p>"));
         assert!(!html.contains("rel=\"prev\""));
         assert!(!html.contains("rel=\"next\""));
@@ -480,6 +603,154 @@ mod tests {
         }
     }
 
+    fn subject(title: &str, body: &str) -> Subject {
+        Subject {
+            id: "11111111-1111-1111-1111-111111111111".to_owned(),
+            section_slug: "general".to_owned(),
+            group_slug: None,
+            title: title.to_owned(),
+            body: body.to_owned(),
+            tags: vec!["rust".to_owned()],
+            author_username: "alice".to_owned(),
+            created_at: "2024-06-07T10:11:12Z".to_owned(),
+            deleted: false,
+            deleted_reason: None,
+            edited: false,
+            postscore: 0,
+            pending: false,
+            draft: false,
+            sticky: false,
+            off_front: false,
+            resolved: false,
+            minor: false,
+            open_reports: 0,
+        }
+    }
+
+    fn remark(id: &str, author: &str, body: &str) -> Comment {
+        Comment {
+            id: id.to_owned(),
+            topic_id: "11111111-1111-1111-1111-111111111111".to_owned(),
+            parent_id: None,
+            body: body.to_owned(),
+            author_username: author.to_owned(),
+            created_at: "2024-06-07T11:00:00Z".to_owned(),
+            deleted: false,
+            deleted_reason: None,
+            edited: false,
+            ignored: false,
+        }
+    }
+
+    fn remarks(items: Vec<Comment>, total: u64) -> Paged<Comment> {
+        Paged {
+            items,
+            page: PageInfo {
+                number: 1,
+                size: 25,
+                total,
+                total_pages: 1,
+                has_next: false,
+                has_previous: false,
+            },
+        }
+    }
+
+    #[test]
+    fn a_subject_page_shows_the_remark_and_the_remarks_under_it() {
+        let html = subject_page(
+            &subject("First subject", "The opening remark"),
+            &remarks(
+                vec![
+                    remark("1", "bob", "A reply"),
+                    remark("2", "carol", "Another"),
+                ],
+                2,
+            ),
+        );
+        assert!(html.contains("<h2>First subject</h2>"));
+        assert!(html.contains(">alice<"));
+        assert!(html.contains("datetime=\"2024-06-07T10:11:12Z\""));
+        assert!(html.contains("The opening remark"));
+        assert!(html.contains("href=\"/sections/general\""));
+        assert!(html.contains("<h3>2 remarks</h3>"));
+        assert!(html.contains("id=\"remark-1\""));
+        assert!(html.contains(">bob<"));
+        assert!(html.contains("A reply"));
+        assert!(html.contains(">carol<"));
+        assert!(html.contains("Another"));
+    }
+
+    #[test]
+    fn one_remark_is_counted_in_the_singular() {
+        let html = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![remark("1", "bob", "x")], 1),
+        );
+        assert!(html.contains("<h3>1 remark</h3>"));
+    }
+
+    #[test]
+    fn a_subject_with_no_remarks_says_so() {
+        let html = subject_page(&subject("First", "body"), &remarks(vec![], 0));
+        assert!(html.contains("No remarks here yet."));
+        assert!(html.contains("<h3>0 remarks</h3>"));
+    }
+
+    #[test]
+    fn what_a_subject_and_a_remark_are_carries_as_a_mark() {
+        let mut pinned = subject("First", "body");
+        pinned.sticky = true;
+        pinned.edited = true;
+        let html = subject_page(&pinned, &remarks(vec![], 0));
+        assert!(html.contains("(pinned, edited)"));
+        let mut edited = remark("1", "bob", "x");
+        edited.edited = true;
+        assert!(
+            subject_page(&subject("First", "body"), &remarks(vec![edited], 1)).contains("(edited)")
+        );
+    }
+
+    #[test]
+    fn a_removed_remark_says_why_and_a_kept_one_says_so() {
+        let mut removed = remark("1", "bob", "gone");
+        removed.deleted = true;
+        removed.deleted_reason = Some("off topic".to_owned());
+        let mut kept = remark("2", "carol", "hidden");
+        kept.ignored = true;
+        let html = subject_page(&subject("First", "body"), &remarks(vec![removed, kept], 2));
+        assert!(html.contains("Removed: off topic"));
+        assert!(!html.contains(">gone<"));
+        assert!(html.contains("Kept from you."));
+        assert!(!html.contains(">hidden<"));
+    }
+
+    #[test]
+    fn text_from_the_api_cannot_become_markup_in_a_subject_page() {
+        let html = subject_page(
+            &subject("<b>bold</b>", "<img src=1 onerror=alert(1)>"),
+            &remarks(vec![remark("1", "<i>bob", "<script>go()</script>")], 1),
+        );
+        assert!(!html.contains("<b>"));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("<script"));
+        assert!(html.contains("&lt;b&gt;bold&lt;/b&gt;"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_subject_page_carries_no_scripting() {
+        let html = page(
+            Theme::Light,
+            "First subject",
+            &subject_page(
+                &subject("First", "body"),
+                &remarks(vec![remark("1", "bob", "A reply")], 1),
+            ),
+        );
+        assert!(scripting_free(&html), "not scripting free: {html}");
+    }
+
     #[test]
     fn scripting_is_recognised_wherever_it_hides() {
         assert!(!scripting_free("<p onclick=\"go()\">x</p>"));
@@ -489,5 +760,6 @@ mod tests {
         assert!(!scripting_free("<iframe src=\"/a\"></iframe>"));
         assert!(scripting_free("<p>on click = nothing happens</p>"));
         assert!(scripting_free("<p class=\"online\">online</p>"));
+        assert!(scripting_free("<p>&lt;img src=1 onerror=go()&gt;</p>"));
     }
 }

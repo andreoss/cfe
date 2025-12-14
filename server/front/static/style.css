@@ -163,6 +163,40 @@ code {
   gap: 12px;
 }
 
+.byline {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+
+.writer {
+  color: var(--text);
+  font-weight: bold;
+}
+
+.tags {
+  margin: 6px 0;
+}
+
+.remark-text {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+ol.remarks {
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+}
+
+li.remark {
+  margin: 0 0 12px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
 .foot {
   padding: 8px 16px;
   border-top: 1px solid var(--line);

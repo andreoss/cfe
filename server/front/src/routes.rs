@@ -17,6 +17,7 @@ pub fn router(app: App) -> Router {
         .route("/healthz", get(health))
         .route("/", get(index))
         .route("/sections/{slug}", get(section))
+        .route("/topics/{id}", get(topic))
         .route("/static/style.css", get(stylesheet))
         .route("/theme", post(set_theme))
         .fallback(not_found)
@@ -97,6 +98,51 @@ async fn section(
         )
             .into_response(),
         Err(error) => unavailable(theme, &error).into_response(),
+    }
+}
+
+async fn topic(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let Some(subject) = (match app.subject(&id).await {
+        Ok(subject) => subject,
+        Err(error) => return unavailable(theme, &error).into_response(),
+    }) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html(html::message(
+                theme,
+                "No such subject",
+                "This board has no subject at that address.",
+            )),
+        )
+            .into_response();
+    };
+    match app.comments(&id, number).await {
+        Ok(comments) => (
+            StatusCode::OK,
+            Html(html::page_at(
+                theme,
+                &subject.title,
+                &html::subject_page(&subject, &comments),
+                &topic_address(&id, number),
+            )),
+        )
+            .into_response(),
+        Err(error) => unavailable(theme, &error).into_response(),
+    }
+}
+
+fn topic_address(id: &str, page: u32) -> String {
+    if page <= 1 {
+        format!("/topics/{}", client::encode_path(id))
+    } else {
+        format!("/topics/{}?page={}", client::encode_path(id), page)
     }
 }
 

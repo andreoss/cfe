@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Section {

@@ -3,7 +3,7 @@ pub mod html;
 pub mod routes;
 pub mod theme;
 
-use client::{ApiClient, ClientError, Paged, Section, Topic, find_section};
+use client::{ApiClient, ClientError, Comment, Paged, Section, Subject, Topic, find_section};
 use config::Config;
 use theme::Theme;
 
@@ -35,6 +35,18 @@ impl App {
 
     pub async fn topics(&self, slug: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
         self.client.topics(slug, page).await
+    }
+
+    pub async fn subject(&self, id: &str) -> Result<Option<Subject>, ClientError> {
+        match self.client.subject(id).await {
+            Ok(subject) => Ok(Some(subject)),
+            Err(ClientError::Status(404)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
+        self.client.comments(id, page).await
     }
 
     pub fn theme_for(&self, cookie: Option<&str>) -> Theme {
