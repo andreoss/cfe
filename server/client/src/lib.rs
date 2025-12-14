@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Section {
@@ -22,6 +23,43 @@ pub struct Topic {
     pub pending: bool,
     pub draft: bool,
     pub postscore: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Subject {
+    pub id: String,
+    pub section_slug: String,
+    pub group_slug: Option<String>,
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub author_username: String,
+    pub created_at: String,
+    pub deleted: bool,
+    pub deleted_reason: Option<String>,
+    pub edited: bool,
+    pub postscore: i32,
+    pub pending: bool,
+    pub draft: bool,
+    pub sticky: bool,
+    pub off_front: bool,
+    pub resolved: bool,
+    pub minor: bool,
+    pub open_reports: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Comment {
+    pub id: String,
+    pub topic_id: String,
+    pub parent_id: Option<String>,
+    pub body: String,
+    pub author_username: String,
+    pub created_at: String,
+    pub deleted: bool,
+    pub deleted_reason: Option<String>,
+    pub edited: bool,
+    pub ignored: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -117,6 +155,19 @@ impl ApiClient {
         self.get(&format!(
             "/api/sections/{}/topics?page={}",
             encode_path(slug),
+            page
+        ))
+        .await
+    }
+
+    pub async fn subject(&self, id: &str) -> Result<Subject, ClientError> {
+        self.get(&format!("/api/topics/{}", encode_path(id))).await
+    }
+
+    pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
+        self.get(&format!(
+            "/api/topics/{}/comments?page={}",
+            encode_path(id),
             page
         ))
         .await
