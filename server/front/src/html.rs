@@ -246,23 +246,47 @@ fn subject_marks(subject: &Subject) -> String {
 }
 
 pub fn comment_list(comments: &[Comment]) -> String {
-    if comments.is_empty() {
+    let branches = client::thread(comments);
+    if branches.is_empty() {
         return "<p>No remarks here yet.</p>\n".to_owned();
     }
     let mut out = String::from("<ol class=\"remarks\">\n");
-    for comment in comments {
-        out.push_str(&format!(
-            "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{body}\n</li>\n",
-            id = escape(&comment.id),
-            author = escape(&comment.author_username),
-            stamp = escape(&comment.created_at),
-            shown = escape(&shown_date(&comment.created_at)),
-            marks = comment_marks(comment),
-            body = remark_body(comment),
-        ));
+    let mut before: Option<usize> = None;
+    for branch in &branches {
+        match before {
+            None => {}
+            Some(last) if branch.depth > last => out.push_str("<ol>\n"),
+            Some(last) if branch.depth < last => {
+                for _ in branch.depth..last {
+                    out.push_str("</ol>\n</li>\n");
+                }
+                out.push_str("</li>\n");
+            }
+            Some(_) => out.push_str("</li>\n"),
+        }
+        out.push_str(&remark_item(&branch.comment));
+        before = Some(branch.depth);
+    }
+    if let Some(last) = before {
+        for _ in 0..last {
+            out.push_str("</ol>\n</li>\n");
+        }
+        out.push_str("</li>\n");
     }
     out.push_str("</ol>\n");
     out
+}
+
+fn remark_item(comment: &Comment) -> String {
+    format!(
+        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{body}\n",
+        id = escape(&comment.id),
+        author = escape(&comment.author_username),
+        stamp = escape(&comment.created_at),
+        shown = escape(&shown_date(&comment.created_at)),
+        marks = comment_marks(comment),
+        body = remark_body(comment),
+    )
 }
 
 fn remark_body(comment: &Comment) -> String {
@@ -736,6 +760,49 @@ mod tests {
         assert!(!html.contains("<script"));
         assert!(html.contains("&lt;b&gt;bold&lt;/b&gt;"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_reply_is_set_under_the_remark_it_answers_however_deep() {
+        let mut answer = remark("2", "carol", "An answer");
+        answer.parent_id = Some("1".to_owned());
+        let mut deeper = remark("3", "dave", "Deeper still");
+        deeper.parent_id = Some("2".to_owned());
+        let html = comment_list(&[remark("1", "bob", "A reply"), answer, deeper]);
+        let opened = html.matches("<ol").count();
+        let closed = html.matches("</ol>").count();
+        assert_eq!(
+            opened, 3,
+            "one list for the top and one per nesting: {html}"
+        );
+        assert_eq!(closed, 3, "every list is closed: {html}");
+        let first = html.find("id=\"remark-1\"").unwrap();
+        let second = html.find("id=\"remark-2\"").unwrap();
+        let third = html.find("id=\"remark-3\"").unwrap();
+        assert!(first < second);
+        assert!(second < third);
+        assert!(
+            html[first..second].contains("<ol>"),
+            "the answer opens a list inside its remark: {html}"
+        );
+        assert!(html[second..third].contains("<ol>"));
+    }
+
+    #[test]
+    fn a_reply_comes_after_the_remark_it_answers_whatever_order_they_arrive_in() {
+        let mut answer = remark("2", "carol", "An answer");
+        answer.parent_id = Some("1".to_owned());
+        let html = comment_list(&[answer, remark("1", "bob", "A reply")]);
+        assert!(html.find("id=\"remark-1\"").unwrap() < html.find("id=\"remark-2\"").unwrap());
+    }
+
+    #[test]
+    fn a_reply_whose_remark_is_not_on_this_page_is_still_shown() {
+        let mut orphan = remark("2", "carol", "An answer");
+        orphan.parent_id = Some("gone".to_owned());
+        let html = comment_list(&[orphan]);
+        assert!(html.contains("id=\"remark-2\""));
+        assert!(html.contains("An answer"));
     }
 
     #[test]

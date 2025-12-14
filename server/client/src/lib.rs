@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Section {
@@ -61,6 +62,12 @@ pub struct Comment {
     pub ignored: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Branch {
+    pub comment: Comment,
+    pub depth: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PageInfo {
     pub number: u32,
@@ -79,6 +86,44 @@ pub struct Paged<T> {
 
 pub fn find_section<'a>(sections: &'a [Section], slug: &str) -> Option<&'a Section> {
     sections.iter().find(|section| section.slug == slug)
+}
+
+pub fn thread(comments: &[Comment]) -> Vec<Branch> {
+    let known: BTreeMap<&str, &Comment> = comments
+        .iter()
+        .map(|comment| (comment.id.as_str(), comment))
+        .collect();
+    let mut replies: BTreeMap<&str, Vec<&Comment>> = BTreeMap::new();
+    let mut roots: Vec<&Comment> = Vec::new();
+    for comment in comments {
+        match comment.parent_id.as_deref() {
+            Some(parent) if parent != comment.id.as_str() && known.contains_key(parent) => {
+                replies.entry(parent).or_default().push(comment)
+            }
+            _ => roots.push(comment),
+        }
+    }
+    let by_age = |left: &&Comment, right: &&Comment| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    };
+    for siblings in replies.values_mut() {
+        siblings.sort_by(by_age);
+    }
+    roots.sort_by(by_age);
+    let mut out = Vec::with_capacity(comments.len());
+    let mut stack: Vec<(&Comment, usize)> = roots.into_iter().rev().map(|c| (c, 0)).collect();
+    while let Some((comment, depth)) = stack.pop() {
+        out.push(Branch {
+            comment: comment.clone(),
+            depth,
+        });
+        if let Some(children) = replies.get(comment.id.as_str()) {
+            stack.extend(children.iter().rev().map(|child| (*child, depth + 1)));
+        }
+    }
+    out
 }
 
 pub fn encode_path(raw: &str) -> String {

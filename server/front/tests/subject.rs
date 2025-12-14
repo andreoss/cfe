@@ -8,6 +8,8 @@ const SUBJECT: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"sectio
 
 const COMMENTS: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"First reply\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"Second reply\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":true,\"deleted_reason\":\"off topic\",\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
 
+const REPLIES: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"First reply\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"body\":\"An answer to the first\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
+
 const NO_COMMENTS: &str = "{\"items\":[],\"page\":{\"number\":1,\"size\":25,\"total\":0,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
 
 const MARKUP: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"section_slug\":\"general\",\"group_slug\":null,\"title\":\"<script>alert(1)</script>\",\"body\":\"<img src=1 onerror=alert(1)>\",\"tags\":[\"<b>\"],\"author_username\":\"<i>alice\",\"created_at\":\"2024-06-07T10:11:12Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"postscore\":0,\"pending\":false,\"draft\":false,\"sticky\":false,\"off_front\":false,\"resolved\":false,\"minor\":false,\"open_reports\":0}";
@@ -105,6 +107,35 @@ async fn a_subject_page_shows_the_remark_and_the_remarks_under_it() {
     assert!(page.contains(">carol<"));
     assert!(page.contains("(resolved, edited)"), "no marks: {page}");
     assert!(page.contains("Removed: off topic"));
+}
+
+#[tokio::test]
+async fn a_reply_is_set_under_the_remark_it_answers() {
+    let (board_url, _) = board(SUBJECT, REPLIES).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!(
+            "{base}/topics/11111111-1111-1111-1111-111111111111"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let answered = page
+        .find("id=\"remark-aaaaaaaa-0000-0000-0000-000000000000\"")
+        .unwrap();
+    let answer = page
+        .find("id=\"remark-bbbbbbbb-0000-0000-0000-000000000000\"")
+        .unwrap();
+    assert!(answered < answer);
+    assert!(
+        page[answered..answer].contains("<ol>"),
+        "the answer opens a list inside the remark it answers: {page}"
+    );
+    assert!(page.contains("An answer to the first"));
+    assert_eq!(page.matches("<ol").count(), page.matches("</ol>").count());
 }
 
 #[tokio::test]
