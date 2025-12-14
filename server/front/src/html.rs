@@ -1,3 +1,4 @@
+use crate::markup;
 use crate::theme::Theme;
 use client::{Comment, PageInfo, Paged, Section, Subject, Topic};
 
@@ -191,7 +192,7 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
         shown = escape(&shown_date(&subject.created_at)),
         section = escape(&subject.section_slug),
         marks = subject_marks(subject),
-        body = escape(&subject.body),
+        body = markup::render(&subject.body),
         tags = tag_links(&subject.tags),
         count = escape(&remark_count(comments.page.total)),
     );
@@ -302,7 +303,10 @@ fn remark_body(comment: &Comment) -> String {
             None => "<div class=\"remark-text\">Removed.</div>".to_owned(),
         };
     }
-    format!("<div class=\"remark-text\">{}</div>", escape(&comment.body))
+    format!(
+        "<div class=\"remark-text\">{}</div>",
+        markup::render(&comment.body)
+    )
 }
 
 fn comment_marks(comment: &Comment) -> String {
@@ -771,6 +775,66 @@ mod tests {
         assert!(!html.contains("<script"));
         assert!(html.contains("&lt;b&gt;bold&lt;/b&gt;"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_subject_written_in_markup_is_rendered() {
+        let html = subject_page(
+            &subject("First", "One.\n\nTwo *soft* lines"),
+            &remarks(vec![], 0),
+        );
+        assert!(html.contains("<p>One.</p>"), "no paragraph: {html}");
+        assert!(
+            html.contains("<p>Two <em>soft</em> lines</p>"),
+            "markup was not rendered: {html}"
+        );
+        assert!(!html.contains("*soft*"), "the source was left in: {html}");
+    }
+
+    #[test]
+    fn a_remark_written_in_markup_is_rendered() {
+        let html = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![remark("1", "bob", "> spoken\n\n- one")], 1),
+        );
+        assert!(html.contains("<blockquote>"), "no quote: {html}");
+        assert!(html.contains("<li>one</li>"), "no item: {html}");
+        assert!(!html.contains("> spoken"), "the source was left in: {html}");
+    }
+
+    #[test]
+    fn a_removed_remark_keeps_its_reason_as_text() {
+        let mut removed = remark("1", "bob", "gone");
+        removed.deleted = true;
+        removed.deleted_reason = Some("*why*".to_owned());
+        let html = subject_page(&subject("First", "body"), &remarks(vec![removed], 1));
+        assert!(html.contains("Removed: *why*"), "the reason: {html}");
+        assert!(!html.contains("<em>"));
+    }
+
+    #[test]
+    fn a_subject_page_written_in_markup_carries_no_scripting() {
+        let sources = [
+            "<script>alert(1)</script>",
+            "[go](javascript:alert(1))",
+            "> <iframe src=\"/a\"></iframe>",
+            "**<b onclick=\"go()\">x</b>**",
+            "```\n<script>go()</script>\n```",
+        ];
+        for source in sources {
+            let html = page(
+                Theme::Light,
+                "First subject",
+                &subject_page(
+                    &subject("First", source),
+                    &remarks(vec![remark("1", "bob", source)], 1),
+                ),
+            );
+            assert!(
+                scripting_free(&html),
+                "not scripting free: {source} -> {html}"
+            );
+        }
     }
 
     #[test]

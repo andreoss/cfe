@@ -14,6 +14,10 @@ const NO_COMMENTS: &str = "{\"items\":[],\"page\":{\"number\":1,\"size\":25,\"to
 
 const MARKUP: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"section_slug\":\"general\",\"group_slug\":null,\"title\":\"<script>alert(1)</script>\",\"body\":\"<img src=1 onerror=alert(1)>\",\"tags\":[\"<b>\"],\"author_username\":\"<i>alice\",\"created_at\":\"2024-06-07T10:11:12Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"postscore\":0,\"pending\":false,\"draft\":false,\"sticky\":false,\"off_front\":false,\"resolved\":false,\"minor\":false,\"open_reports\":0}";
 
+const RENDERED: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"section_slug\":\"general\",\"group_slug\":null,\"title\":\"First subject\",\"body\":\"# Heading\\n\\nA **bold** claim and a [link](https://example.org).\",\"tags\":[\"rust\"],\"author_username\":\"alice\",\"created_at\":\"2024-06-07T10:11:12Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"postscore\":0,\"pending\":false,\"draft\":false,\"sticky\":false,\"off_front\":false,\"resolved\":false,\"minor\":false,\"open_reports\":0}";
+
+const RENDERED_COMMENTS: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"> spoken\\n\\n- one\\n- two\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"An answer with `code`\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
+
 #[derive(Clone)]
 struct Log(Arc<Mutex<Vec<String>>>);
 
@@ -227,6 +231,40 @@ async fn text_from_the_board_cannot_become_markup_on_a_subject_page() {
     assert!(!page.contains("<img"));
     assert!(!page.contains("<b>"));
     assert!(page.contains("&lt;script&gt;"));
+    assert!(
+        front::html::scripting_free(&page),
+        "not scripting free: {page}"
+    );
+}
+
+#[tokio::test]
+async fn a_subject_and_its_remarks_come_back_rendered() {
+    let (board_url, _) = board(RENDERED, RENDERED_COMMENTS).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!(
+            "{base}/topics/11111111-1111-1111-1111-111111111111"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("<h4>Heading</h4>"), "no heading: {page}");
+    assert!(page.contains("<strong>bold</strong>"), "no strong: {page}");
+    assert!(
+        page.contains("<a href=\"https://example.org\">link</a>"),
+        "no link: {page}"
+    );
+    assert!(page.contains("<blockquote>"), "no quote: {page}");
+    assert!(page.contains("<li>one</li>"), "no item: {page}");
+    assert!(page.contains("<code>code</code>"), "no code: {page}");
+    assert!(
+        !page.contains("# Heading"),
+        "the source was left in: {page}"
+    );
+    assert!(!page.contains("**bold**"), "the source was left in: {page}");
     assert!(
         front::html::scripting_free(&page),
         "not scripting free: {page}"
