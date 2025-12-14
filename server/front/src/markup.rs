@@ -150,6 +150,10 @@ fn heading(line: &str) -> Option<(usize, &str)> {
 }
 
 fn inline(raw: &str) -> String {
+    inline_in(raw, true)
+}
+
+fn inline_in(raw: &str, mentions: bool) -> String {
     let chars: Vec<char> = raw.chars().collect();
     let mut out = String::new();
     let mut index = 0;
@@ -168,7 +172,10 @@ fn inline(raw: &str) -> String {
             && let Some(end) = pair(&chars, '*', index + 2).filter(|end| *end > index + 2)
         {
             out.push_str("<strong>");
-            out.push_str(&inline(&chars[index + 2..end].iter().collect::<String>()));
+            out.push_str(&inline_in(
+                &chars[index + 2..end].iter().collect::<String>(),
+                mentions,
+            ));
             out.push_str("</strong>");
             index = end + 2;
             continue;
@@ -177,7 +184,10 @@ fn inline(raw: &str) -> String {
             && let Some(end) = at(&chars, chars[index], index + 1).filter(|end| *end > index + 1)
         {
             out.push_str("<em>");
-            out.push_str(&inline(&chars[index + 1..end].iter().collect::<String>()));
+            out.push_str(&inline_in(
+                &chars[index + 1..end].iter().collect::<String>(),
+                mentions,
+            ));
             out.push_str("</em>");
             index = end + 1;
             continue;
@@ -189,7 +199,7 @@ fn inline(raw: &str) -> String {
                 Some(href) => {
                     out.push_str(&format!(
                         "<a href=\"{href}\">{}</a>",
-                        inline(&text),
+                        inline_in(&text, false),
                         href = escape(&href)
                     ));
                 }
@@ -198,10 +208,46 @@ fn inline(raw: &str) -> String {
             index = end;
             continue;
         }
+        if mentions
+            && chars[index] == '@'
+            && let Some((name, end)) = named(&chars, index)
+        {
+            out.push_str(&format!(
+                "<a class=\"mention\" href=\"/u/{name}\">@{name}</a>"
+            ));
+            index = end;
+            continue;
+        }
         out.push_str(&escape(&chars[index].to_string()));
         index += 1;
     }
     out
+}
+
+fn named(chars: &[char], from: usize) -> Option<(String, usize)> {
+    if let Some(before) = from.checked_sub(1).and_then(|index| chars.get(index))
+        && (before.is_ascii_alphanumeric() || *before == '_' || *before == '@')
+    {
+        return None;
+    }
+    let first = *chars.get(from + 1)?;
+    if !first.is_ascii_alphabetic() {
+        return None;
+    }
+    let mut end = from + 2;
+    while let Some(next) = chars.get(end) {
+        if next.is_ascii_alphanumeric() || *next == '_' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    let name: String = chars[from + 1..end].iter().collect();
+    if (3..=32).contains(&name.len()) {
+        Some((name, end))
+    } else {
+        None
+    }
 }
 
 fn at(chars: &[char], wanted: char, from: usize) -> Option<usize> {
@@ -321,6 +367,36 @@ mod tests {
         assert_eq!(
             render("[no](javascript:alert(1))"),
             "<p>[no](javascript:alert(1))</p>\n"
+        );
+    }
+
+    #[test]
+    fn an_account_named_in_the_text_is_linked() {
+        assert_eq!(
+            render("ask @alice about it"),
+            "<p>ask <a class=\"mention\" href=\"/u/alice\">@alice</a> about it</p>\n"
+        );
+        assert_eq!(
+            render("@bob_one"),
+            "<p><a class=\"mention\" href=\"/u/bob_one\">@bob_one</a></p>\n"
+        );
+    }
+
+    #[test]
+    fn a_name_that_is_not_one_is_left_as_it_was_written() {
+        assert_eq!(render("a@alice"), "<p>a@alice</p>\n");
+        assert_eq!(render("@@alice"), "<p>@@alice</p>\n");
+        assert_eq!(render("@ab"), "<p>@ab</p>\n");
+        assert_eq!(render("@"), "<p>@</p>\n");
+        assert_eq!(render("@1alice"), "<p>@1alice</p>\n");
+    }
+
+    #[test]
+    fn a_name_inside_code_or_a_link_is_left_alone() {
+        assert_eq!(render("`@alice`"), "<p><code>@alice</code></p>\n");
+        assert_eq!(
+            render("[@alice](/sections/general)"),
+            "<p><a href=\"/sections/general\">@alice</a></p>\n"
         );
     }
 

@@ -16,7 +16,9 @@ const MARKUP: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"section
 
 const RENDERED: &str = "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"section_slug\":\"general\",\"group_slug\":null,\"title\":\"First subject\",\"body\":\"# Heading\\n\\nA **bold** claim and a [link](https://example.org).\",\"tags\":[\"rust\"],\"author_username\":\"alice\",\"created_at\":\"2024-06-07T10:11:12Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"postscore\":0,\"pending\":false,\"draft\":false,\"sticky\":false,\"off_front\":false,\"resolved\":false,\"minor\":false,\"open_reports\":0}";
 
-const RENDERED_COMMENTS: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"> spoken\\n\\n- one\\n- two\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"An answer with `code`\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
+const RENDERED_COMMENTS: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"> spoken\\n\\n- one\\n- two\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"An answer with `code`\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
+
+const QUOTED: &str = "{\"items\":[{\"id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,\"body\":\"Spoken by bob\",\"author_username\":\"bob\",\"created_at\":\"2024-06-07T11:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false},{\"id\":\"bbbbbbbb-0000-0000-0000-000000000000\",\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":\"aaaaaaaa-0000-0000-0000-000000000000\",\"body\":\"Agreed, @carol says so\",\"author_username\":\"carol\",\"created_at\":\"2024-06-07T12:00:00Z\",\"deleted\":false,\"deleted_reason\":null,\"edited\":false,\"ignored\":false}],\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}";
 
 #[derive(Clone)]
 struct Log(Arc<Mutex<Vec<String>>>);
@@ -231,6 +233,36 @@ async fn text_from_the_board_cannot_become_markup_on_a_subject_page() {
     assert!(!page.contains("<img"));
     assert!(!page.contains("<b>"));
     assert!(page.contains("&lt;script&gt;"));
+    assert!(
+        front::html::scripting_free(&page),
+        "not scripting free: {page}"
+    );
+}
+
+#[tokio::test]
+async fn a_reply_carries_a_quote_of_what_it_answers() {
+    let (board_url, _) = board(SUBJECT, QUOTED).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!(
+            "{base}/topics/11111111-1111-1111-1111-111111111111"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        page.contains(
+            "<a href=\"#remark-aaaaaaaa-0000-0000-0000-000000000000\">bob wrote</a>: Spoken by bob"
+        ),
+        "no quote of what it answers: {page}"
+    );
+    assert!(
+        page.contains("<a class=\"mention\" href=\"/u/carol\">@carol</a>"),
+        "the account it names is not linked: {page}"
+    );
     assert!(
         front::html::scripting_free(&page),
         "not scripting free: {page}"

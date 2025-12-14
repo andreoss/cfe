@@ -265,7 +265,10 @@ pub fn comment_list(comments: &[Comment]) -> String {
             }
             Some(_) => out.push_str("</li>\n"),
         }
-        out.push_str(&remark_item(&branch.comment));
+        out.push_str(&remark_item(
+            &branch.comment,
+            answered(&branch.comment, comments),
+        ));
         before = Some(branch.depth);
     }
     if let Some(last) = before {
@@ -278,16 +281,57 @@ pub fn comment_list(comments: &[Comment]) -> String {
     out
 }
 
-fn remark_item(comment: &Comment) -> String {
-    format!(
-        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{body}\n",
+fn remark_item(comment: &Comment, answered: Option<&Comment>) -> String {
+    let out = format!(
+        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n",
         id = escape(&comment.id),
         author = escape(&comment.author_username),
         stamp = escape(&comment.created_at),
         shown = escape(&shown_date(&comment.created_at)),
         marks = comment_marks(comment),
+        quote = answered.map(quote_of).unwrap_or_default(),
         body = remark_body(comment),
+    );
+    out
+}
+
+fn answered<'a>(comment: &'a Comment, known: &'a [Comment]) -> Option<&'a Comment> {
+    let parent = comment.parent_id.as_deref()?;
+    known.iter().find(|other| other.id == parent)
+}
+
+fn quote_of(parent: &Comment) -> String {
+    let said = match (parent.ignored, parent.deleted, &parent.deleted_reason) {
+        (true, _, _) => return String::new(),
+        (false, true, Some(reason)) => format!("Removed: {reason}"),
+        (false, true, None) => "Removed.".to_owned(),
+        (false, false, _) => excerpt(&parent.body),
+    };
+    if said.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<blockquote class=\"answer\"><p><a href=\"#remark-{id}\">{author} wrote</a>: {said}</p></blockquote>\n",
+        id = escape(&parent.id),
+        author = escape(&parent.author_username),
+        said = escape(&said),
     )
+}
+
+const QUOTE_WORDS: usize = 120;
+
+fn excerpt(body: &str) -> String {
+    let line = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let cut: String = line.chars().take(QUOTE_WORDS).collect();
+    if cut.chars().count() < line.chars().count() {
+        format!("{cut}...")
+    } else {
+        cut
+    }
 }
 
 fn remark_body(comment: &Comment) -> String {
@@ -835,6 +879,75 @@ mod tests {
                 "not scripting free: {source} -> {html}"
             );
         }
+    }
+
+    #[test]
+    fn a_reply_quotes_the_remark_it_answers() {
+        let mut answer = remark("2", "carol", "I agree");
+        answer.parent_id = Some("1".to_owned());
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer]);
+        assert!(html.contains("class=\"answer\""), "no quote: {html}");
+        assert!(
+            html.contains("<a href=\"#remark-1\">bob wrote</a>: First thought"),
+            "the writer and the words are missing: {html}"
+        );
+    }
+
+    #[test]
+    fn a_remark_that_answers_nothing_carries_no_quote() {
+        let html = comment_list(&[remark("1", "bob", "First thought")]);
+        assert!(!html.contains("class=\"answer\""), "a quote: {html}");
+    }
+
+    #[test]
+    fn a_reply_to_a_remark_off_the_page_carries_no_quote() {
+        let mut answer = remark("2", "carol", "I agree");
+        answer.parent_id = Some("9".to_owned());
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer]);
+        assert!(!html.contains("class=\"answer\""), "a quote: {html}");
+        assert!(html.contains("I agree"), "the reply is missing: {html}");
+    }
+
+    #[test]
+    fn a_quote_of_a_remark_that_was_taken_away_says_so() {
+        let mut gone = remark("1", "bob", "First thought");
+        gone.deleted = true;
+        gone.deleted_reason = Some("off topic".to_owned());
+        let mut answer = remark("2", "carol", "I agree");
+        answer.parent_id = Some("1".to_owned());
+        let html = comment_list(&[gone, answer]);
+        assert!(
+            html.contains("Removed: off topic"),
+            "the reason is missing: {html}"
+        );
+        assert!(!html.contains("First thought"), "the text leaked: {html}");
+    }
+
+    #[test]
+    fn a_long_remark_is_quoted_only_in_part() {
+        let long = "x".repeat(400);
+        let mut answer = remark("2", "carol", "I agree");
+        answer.parent_id = Some("1".to_owned());
+        let html = comment_list(&[remark("1", "bob", &long), answer]);
+        let quote = html.split("class=\"answer\"").nth(1).unwrap_or_default();
+        assert!(
+            quote.contains(&format!("{}...", "x".repeat(120))),
+            "not cut at 120: {quote}"
+        );
+        assert!(
+            !quote.contains(&"x".repeat(121)),
+            "the cut came too late: {quote}"
+        );
+        assert!(html.contains(&long), "the remark itself was cut: {html}");
+    }
+
+    #[test]
+    fn an_account_named_in_a_remark_is_a_link() {
+        let html = comment_list(&[remark("1", "bob", "ask @alice")]);
+        assert!(
+            html.contains("<a class=\"mention\" href=\"/u/alice\">@alice</a>"),
+            "no link: {html}"
+        );
     }
 
     #[test]
