@@ -173,12 +173,15 @@ async fn a_section_with_no_subjects_is_an_empty_page() {
 }
 
 #[tokio::test]
-async fn a_section_that_is_not_there_is_reported_as_a_status() {
+async fn a_section_that_is_not_there_is_reported_with_the_reason() {
     let base = stub("404 Not Found", "application/json", "{\"error\":\"no\"}").await;
     let client = ApiClient::new(&base).unwrap();
     assert_eq!(
         client.topics("nope", 1).await.unwrap_err(),
-        ClientError::Status(404)
+        ClientError::Rejected {
+            status: 404,
+            reason: "no".to_owned()
+        }
     );
 }
 
@@ -219,12 +222,15 @@ async fn a_subject_is_read_from_the_api() {
 }
 
 #[tokio::test]
-async fn a_subject_that_is_not_there_is_reported_as_a_status() {
+async fn a_subject_that_is_not_there_is_reported_with_the_reason() {
     let base = stub("404 Not Found", "application/json", "{\"error\":\"no\"}").await;
     let client = ApiClient::new(&base).unwrap();
     assert_eq!(
         client.subject("nope").await.unwrap_err(),
-        ClientError::Status(404)
+        ClientError::Rejected {
+            status: 404,
+            reason: "no".to_owned()
+        }
     );
 }
 

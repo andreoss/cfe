@@ -1,5 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+pub const SESSION_COOKIE: &str = "session";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Section {
@@ -60,6 +62,62 @@ pub struct Comment {
     pub deleted_reason: Option<String>,
     pub edited: bool,
     pub ignored: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct User {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    token: String,
+    cookie: String,
+}
+
+impl Session {
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub fn cookie(&self) -> &str {
+        &self.cookie
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RegisterBody {
+    pub username: String,
+    pub email: String,
+    pub password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub challenge: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invitation: Option<String>,
+}
+
+impl RegisterBody {
+    pub fn new(username: &str, email: &str, password: &str) -> Self {
+        Self {
+            username: username.to_owned(),
+            email: email.to_owned(),
+            password: password.to_owned(),
+            challenge: None,
+            invitation: None,
+        }
+    }
+
+    pub fn invitation(mut self, code: &str) -> Self {
+        self.invitation = Some(code.to_owned());
+        self
+    }
+
+    pub fn challenge(mut self, answer: &str) -> Self {
+        self.challenge = Some(answer.to_owned());
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +202,7 @@ pub enum ClientError {
     BadBaseUrl(String),
     Transport(String),
     Status(u16),
+    Rejected { status: u16, reason: String },
     Detail(String),
 }
 
@@ -157,6 +216,7 @@ impl std::fmt::Display for ClientError {
                 write!(f, "the server could not be reached: {detail}")
             }
             ClientError::Status(status) => write!(f, "the server answered {status}"),
+            ClientError::Rejected { reason, .. } => write!(f, "{reason}"),
             ClientError::Detail(detail) => {
                 write!(f, "the server sent an unreadable answer: {detail}")
             }
@@ -192,47 +252,146 @@ impl ApiClient {
     }
 
     pub async fn sections(&self) -> Result<Vec<Section>, ClientError> {
-        self.get("/api/sections").await
+        self.get("/api/sections", None).await
     }
 
     pub async fn topics(&self, slug: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
-        self.get(&format!(
-            "/api/sections/{}/topics?page={}",
-            encode_path(slug),
-            page
-        ))
+        self.get(
+            &format!("/api/sections/{}/topics?page={}", encode_path(slug), page),
+            None,
+        )
         .await
     }
 
     pub async fn subject(&self, id: &str) -> Result<Subject, ClientError> {
-        self.get(&format!("/api/topics/{}", encode_path(id))).await
+        self.get(&format!("/api/topics/{}", encode_path(id)), None)
+            .await
     }
 
     pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
-        self.get(&format!(
-            "/api/topics/{}/comments?page={}",
-            encode_path(id),
-            page
-        ))
+        self.get(
+            &format!("/api/topics/{}/comments?page={}", encode_path(id), page),
+            None,
+        )
         .await
     }
 
-    async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, ClientError> {
+    pub async fn me(&self, session: Option<&str>) -> Result<Option<User>, ClientError> {
+        self.get("/api/me", session).await
+    }
+
+    pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {
+        session_of(self.post("/api/register", body, None).await?).await
+    }
+
+    pub async fn sign_in(&self, username: &str, password: &str) -> Result<Session, ClientError> {
+        let body = SignInBody {
+            username: username.to_owned(),
+            password: password.to_owned(),
+        };
+        session_of(self.post("/api/sign-in", &body, None).await?).await
+    }
+
+    pub async fn sign_out(&self, session: &str) -> Result<(), ClientError> {
+        self.post("/api/sign-out", &Nothing {}, Some(session))
+            .await?;
+        Ok(())
+    }
+
+    async fn get<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        session: Option<&str>,
+    ) -> Result<T, ClientError> {
         let response = self
-            .http
-            .get(format!("{}{}", self.base, path))
-            .send()
-            .await
-            .map_err(|e| ClientError::Transport(e.to_string()))?;
+            .send(self.http.get(self.address(path)), session)
+            .await?;
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
-            return Err(ClientError::Status(status));
+            return Err(refusal(status, response).await);
         }
         response
             .json()
             .await
             .map_err(|e| ClientError::Detail(e.to_string()))
     }
+
+    async fn post<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        session: Option<&str>,
+    ) -> Result<reqwest::Response, ClientError> {
+        let response = self
+            .send(self.http.post(self.address(path)).json(body), session)
+            .await?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        Ok(response)
+    }
+
+    fn address(&self, path: &str) -> String {
+        format!("{}{}", self.base, path)
+    }
+
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+        session: Option<&str>,
+    ) -> Result<reqwest::Response, ClientError> {
+        let request = match session {
+            Some(token) => request.header("cookie", format!("{SESSION_COOKIE}={token}")),
+            None => request,
+        };
+        request
+            .send()
+            .await
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+}
+
+#[derive(Serialize)]
+struct SignInBody {
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize)]
+struct Nothing {}
+
+#[derive(Deserialize)]
+struct Refusal {
+    error: Option<String>,
+}
+
+async fn refusal(status: u16, response: reqwest::Response) -> ClientError {
+    match response.json::<Refusal>().await {
+        Ok(Refusal {
+            error: Some(reason),
+        }) => ClientError::Rejected { status, reason },
+        _ => ClientError::Status(status),
+    }
+}
+
+async fn session_of(response: reqwest::Response) -> Result<Session, ClientError> {
+    let cookie = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|raw| raw.starts_with(&format!("{SESSION_COOKIE}=")))
+        .map(|raw| raw.to_owned())
+        .ok_or_else(|| ClientError::Detail("the board answered without a session".to_owned()))?;
+    let token = cookie
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .strip_prefix(&format!("{SESSION_COOKIE}="))
+        .unwrap_or("")
+        .to_owned();
+    Ok(Session { token, cookie })
 }
 
 #[cfg(test)]
@@ -312,6 +471,14 @@ mod tests {
             ClientError::Detail("bad json".to_owned())
                 .to_string()
                 .contains("bad json")
+        );
+        assert_eq!(
+            ClientError::Rejected {
+                status: 409,
+                reason: "username taken".to_owned()
+            }
+            .to_string(),
+            "username taken"
         );
     }
 }
