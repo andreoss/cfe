@@ -3,8 +3,12 @@ pub mod html;
 pub mod markup;
 pub mod routes;
 pub mod theme;
+pub mod token;
 
-use client::{ApiClient, ClientError, Comment, Paged, Section, Subject, Topic, find_section};
+use client::{
+    ApiClient, ClientError, Comment, Paged, RegisterBody, Section, Session, Subject, Topic, User,
+    find_section,
+};
 use config::Config;
 use theme::Theme;
 
@@ -41,13 +45,29 @@ impl App {
     pub async fn subject(&self, id: &str) -> Result<Option<Subject>, ClientError> {
         match self.client.subject(id).await {
             Ok(subject) => Ok(Some(subject)),
-            Err(ClientError::Status(404)) => Ok(None),
+            Err(error) if error.status() == Some(404) => Ok(None),
             Err(error) => Err(error),
         }
     }
 
     pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
         self.client.comments(id, page).await
+    }
+
+    pub async fn account(&self, session: &str) -> Option<User> {
+        self.client.me(Some(session)).await.ok().flatten()
+    }
+
+    pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {
+        self.client.register(body).await
+    }
+
+    pub async fn sign_in(&self, username: &str, password: &str) -> Result<Session, ClientError> {
+        self.client.sign_in(username, password).await
+    }
+
+    pub async fn sign_out(&self, session: &str) -> Option<String> {
+        self.client.sign_out(session).await.ok().flatten()
     }
 
     pub fn theme_for(&self, cookie: Option<&str>) -> Theme {

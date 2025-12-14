@@ -206,6 +206,15 @@ pub enum ClientError {
     Detail(String),
 }
 
+impl ClientError {
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            ClientError::Status(status) | ClientError::Rejected { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
+}
+
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -292,10 +301,17 @@ impl ApiClient {
         session_of(self.post("/api/sign-in", &body, None).await?).await
     }
 
-    pub async fn sign_out(&self, session: &str) -> Result<(), ClientError> {
-        self.post("/api/sign-out", &Nothing {}, Some(session))
+    pub async fn sign_out(&self, session: &str) -> Result<Option<String>, ClientError> {
+        let response = self
+            .post("/api/sign-out", &Nothing {}, Some(session))
             .await?;
-        Ok(())
+        Ok(response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .find(|raw| raw.starts_with(&format!("{SESSION_COOKIE}=")))
+            .map(|raw| raw.to_owned()))
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(
@@ -450,6 +466,22 @@ mod tests {
         );
         assert!(find_section(&sections, "general-2").is_none());
         assert!(find_section(&[], "general").is_none());
+    }
+
+    #[test]
+    fn a_status_is_read_from_every_answer_that_has_one() {
+        assert_eq!(ClientError::Status(404).status(), Some(404));
+        assert_eq!(
+            ClientError::Rejected {
+                status: 409,
+                reason: "taken".to_owned()
+            }
+            .status(),
+            Some(409)
+        );
+        assert_eq!(ClientError::Detail("x".to_owned()).status(), None);
+        assert_eq!(ClientError::Transport("x".to_owned()).status(), None);
+        assert_eq!(ClientError::BadBaseUrl("x".to_owned()).status(), None);
     }
 
     #[test]

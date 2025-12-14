@@ -17,11 +17,36 @@ pub fn escape(raw: &str) -> String {
     out
 }
 
-pub fn page(theme: Theme, title: &str, body: &str) -> String {
-    page_at(theme, title, body, "/")
+#[derive(Clone)]
+pub struct Chrome {
+    theme: Theme,
+    token: String,
+    account: Option<String>,
+    return_to: String,
 }
 
-pub fn page_at(theme: Theme, title: &str, body: &str, return_to: &str) -> String {
+impl Chrome {
+    pub fn new(theme: Theme, token: &str) -> Self {
+        Self {
+            theme,
+            token: token.to_owned(),
+            account: None,
+            return_to: "/".to_owned(),
+        }
+    }
+
+    pub fn account(mut self, name: &str) -> Self {
+        self.account = Some(name.to_owned());
+        self
+    }
+
+    pub fn return_to(mut self, address: &str) -> Self {
+        self.return_to = address.to_owned();
+        self
+    }
+}
+
+pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
     format!(
         concat!(
             "<!DOCTYPE html>\n",
@@ -36,6 +61,7 @@ pub fn page_at(theme: Theme, title: &str, body: &str, return_to: &str) -> String
             "<p class=\"skip\"><a href=\"#main\">Skip to the content</a></p>\n",
             "<header class=\"masthead\">\n",
             "<h1><a href=\"/\">Forum</a></h1>\n",
+            "{account}",
             "{picker}",
             "</header>\n",
             "<main id=\"main\">\n",
@@ -45,11 +71,38 @@ pub fn page_at(theme: Theme, title: &str, body: &str, return_to: &str) -> String
             "</body>\n",
             "</html>\n"
         ),
-        theme = theme.name(),
+        theme = chrome.theme.name(),
         title = escape(title),
-        picker = theme_picker(theme, return_to),
+        account = account_box(chrome),
+        picker = theme_picker(chrome.theme, &chrome.return_to, &chrome.token),
         body = body,
     )
+}
+
+pub fn account_box(chrome: &Chrome) -> String {
+    match chrome.account.as_deref() {
+        Some(name) => format!(
+            concat!(
+                "<div class=\"account\">\n",
+                "<p class=\"who\">Signed in as <a href=\"/u/{name}\">{shown}</a></p>\n",
+                "<form method=\"post\" action=\"/sign-out\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<button type=\"submit\">Sign out</button>\n",
+                "</form>\n",
+                "</div>\n"
+            ),
+            name = escape(name),
+            shown = escape(name),
+            token = escape(&chrome.token),
+        ),
+        None => concat!(
+            "<div class=\"account\">\n",
+            "<p class=\"who\"><a href=\"/sign-in\">Sign in</a> or ",
+            "<a href=\"/register\">register</a></p>\n",
+            "</div>\n"
+        )
+        .to_owned(),
+    }
 }
 
 pub fn section_list(sections: &[Section]) -> String {
@@ -373,7 +426,7 @@ pub fn shown_date(raw: &str) -> String {
     }
 }
 
-pub fn theme_picker(current: Theme, return_to: &str) -> String {
+pub fn theme_picker(current: Theme, return_to: &str, token: &str) -> String {
     let mut options = String::new();
     for theme in Theme::ALL {
         options.push_str(&format!(
@@ -389,17 +442,72 @@ pub fn theme_picker(current: Theme, return_to: &str) -> String {
             "<label for=\"theme\">Theme</label>\n",
             "<select id=\"theme\" name=\"theme\">{options}</select>\n",
             "<input type=\"hidden\" name=\"return_to\" value=\"{return_to}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
             "<button type=\"submit\">Apply</button>\n",
             "</form>\n"
         ),
         options = options,
         return_to = escape(return_to),
+        token = escape(token),
     )
 }
 
-pub fn message(theme: Theme, heading: &str, detail: &str) -> String {
+pub fn register_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Register</h2>\n",
+            "{problem}",
+            "<form class=\"account-form\" method=\"post\" action=\"/register\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"username\">Name</label>\n",
+            "<input id=\"username\" name=\"username\" type=\"text\" required autocomplete=\"username\"></p>\n",
+            "<p><label for=\"email\">Address</label>\n",
+            "<input id=\"email\" name=\"email\" type=\"email\" required autocomplete=\"email\"></p>\n",
+            "<p><label for=\"password\">Password</label>\n",
+            "<input id=\"password\" name=\"password\" type=\"password\" required autocomplete=\"new-password\"></p>\n",
+            "<p><label for=\"invitation\">Invitation</label>\n",
+            "<input id=\"invitation\" name=\"invitation\" type=\"text\" autocomplete=\"off\"></p>\n",
+            "<p><button type=\"submit\">Register</button></p>\n",
+            "</form>\n",
+            "<p><a href=\"/sign-in\">I already have an account</a></p>\n"
+        ),
+        problem = problem_paragraph(problem),
+        token = escape(&chrome.token),
+    )
+}
+
+pub fn sign_in_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Sign in</h2>\n",
+            "{problem}",
+            "<form class=\"account-form\" method=\"post\" action=\"/sign-in\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<input type=\"hidden\" name=\"return_to\" value=\"{return_to}\">\n",
+            "<p><label for=\"username\">Name</label>\n",
+            "<input id=\"username\" name=\"username\" type=\"text\" required autocomplete=\"username\"></p>\n",
+            "<p><label for=\"password\">Password</label>\n",
+            "<input id=\"password\" name=\"password\" type=\"password\" required autocomplete=\"current-password\"></p>\n",
+            "<p><button type=\"submit\">Sign in</button></p>\n",
+            "</form>\n",
+            "<p><a href=\"/register\">I have no account yet</a></p>\n"
+        ),
+        problem = problem_paragraph(problem),
+        token = escape(&chrome.token),
+        return_to = escape(&chrome.return_to),
+    )
+}
+
+fn problem_paragraph(problem: Option<&str>) -> String {
+    match problem {
+        Some(words) => format!("<p class=\"problem\">{words}</p>\n", words = escape(words)),
+        None => String::new(),
+    }
+}
+
+pub fn message(chrome: &Chrome, heading: &str, detail: &str) -> String {
     page(
-        theme,
+        chrome,
         heading,
         &format!(
             "<h2>{heading}</h2>\n<p>{detail}</p>\n<p><a href=\"/\">Back to the sections</a></p>",
@@ -463,6 +571,10 @@ fn tag(bytes: &[char], span: std::ops::Range<usize>) -> String {
 mod tests {
     use super::*;
 
+    fn chrome(theme: Theme) -> Chrome {
+        Chrome::new(theme, "token-value")
+    }
+
     fn section(slug: &str, title: &str, may_post: bool) -> Section {
         Section {
             slug: slug.to_owned(),
@@ -479,7 +591,7 @@ mod tests {
 
     #[test]
     fn a_page_is_a_whole_document_with_a_title_and_a_stylesheet() {
-        let html = page(Theme::Light, "Sections", "<p>body</p>");
+        let html = page(&chrome(Theme::Light), "Sections", "<p>body</p>");
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains("<html lang=\"en\" class=\"theme-light\">"));
         assert!(html.contains("<title>Sections &#183; Forum</title>"));
@@ -490,7 +602,7 @@ mod tests {
 
     #[test]
     fn a_page_shows_the_theme_it_was_rendered_with() {
-        assert!(page(Theme::Dark, "x", "").contains("class=\"theme-dark\""));
+        assert!(page(&chrome(Theme::Dark), "x", "").contains("class=\"theme-dark\""));
     }
 
     #[test]
@@ -643,7 +755,7 @@ mod tests {
     #[test]
     fn a_topic_list_page_carries_no_scripting() {
         let html = page(
-            Theme::Light,
+            &chrome(Theme::Light),
             "General Talk",
             &topic_list(
                 &section("general", "General Talk", true),
@@ -655,7 +767,8 @@ mod tests {
 
     #[test]
     fn the_theme_picker_offers_every_theme_and_remembers_the_current_one() {
-        let html = theme_picker(Theme::Contrast, "/sections/general");
+        let html = theme_picker(Theme::Contrast, "/sections/general", "token-value");
+        assert!(html.contains("name=\"token\""));
         for theme in Theme::ALL {
             assert!(html.contains(&format!("value=\"{}\"", theme.name())));
         }
@@ -666,7 +779,11 @@ mod tests {
 
     #[test]
     fn a_message_page_names_its_heading_and_its_detail() {
-        let html = message(Theme::Light, "Unavailable", "The board is not answering");
+        let html = message(
+            &chrome(Theme::Light),
+            "Unavailable",
+            "The board is not answering",
+        );
         assert!(html.contains("<h2>Unavailable</h2>"));
         assert!(html.contains("The board is not answering"));
     }
@@ -675,11 +792,11 @@ mod tests {
     fn rendered_pages_carry_no_scripting() {
         let pages = [
             page(
-                Theme::Light,
+                &chrome(Theme::Light),
                 "Sections",
                 &section_list(&[section("general", "General", true)]),
             ),
-            message(Theme::Dark, "Unavailable", "try again"),
+            message(&chrome(Theme::Dark), "Unavailable", "try again"),
         ];
         for html in pages {
             assert!(scripting_free(&html), "not scripting free: {html}");
@@ -867,7 +984,7 @@ mod tests {
         ];
         for source in sources {
             let html = page(
-                Theme::Light,
+                &chrome(Theme::Light),
                 "First subject",
                 &subject_page(
                     &subject("First", source),
@@ -996,7 +1113,7 @@ mod tests {
     #[test]
     fn a_subject_page_carries_no_scripting() {
         let html = page(
-            Theme::Light,
+            &chrome(Theme::Light),
             "First subject",
             &subject_page(
                 &subject("First", "body"),

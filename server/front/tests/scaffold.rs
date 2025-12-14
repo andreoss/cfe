@@ -42,6 +42,22 @@ async fn closed_address() -> String {
     format!("http://{address}")
 }
 
+async fn form_token(base: &str) -> (String, String) {
+    let response = http().get(base).send().await.unwrap();
+    let cookie = response
+        .headers()
+        .get("set-cookie")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.split(';').next())
+        .and_then(|pair| pair.strip_prefix("token="))
+        .expect("a page answers with a token")
+        .to_owned();
+    let page = response.text().await.unwrap();
+    let token = cookie.clone();
+    assert!(page.contains(&format!("value=\"{token}\"")));
+    (format!("token={token}"), token)
+}
+
 async fn front(server_url: &str) -> String {
     let mut vars = std::collections::BTreeMap::new();
     vars.insert(front::config::SERVER_URL.to_owned(), server_url.to_owned());
@@ -124,9 +140,15 @@ async fn the_stylesheet_is_served_as_css() {
 #[tokio::test]
 async fn a_theme_choice_sets_a_cookie_and_returns_to_the_page() {
     let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    let (cookies, token) = form_token(&base).await;
     let response = http()
         .post(format!("{base}/theme"))
-        .form(&[("theme", "dark"), ("return_to", "/sections/general")])
+        .header("cookie", cookies)
+        .form(&[
+            ("theme", "dark"),
+            ("return_to", "/sections/general"),
+            ("token", &token),
+        ])
         .send()
         .await
         .unwrap();
@@ -168,9 +190,11 @@ async fn the_chosen_theme_is_applied_to_the_next_page() {
 #[tokio::test]
 async fn an_unknown_theme_is_refused_without_changing_anything() {
     let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    let (cookies, token) = form_token(&base).await;
     let response = http()
         .post(format!("{base}/theme"))
-        .form(&[("theme", "neon")])
+        .header("cookie", cookies)
+        .form(&[("theme", "neon"), ("token", &token)])
         .send()
         .await
         .unwrap();
@@ -182,9 +206,15 @@ async fn an_unknown_theme_is_refused_without_changing_anything() {
 #[tokio::test]
 async fn a_return_address_that_leaves_the_site_is_ignored() {
     let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    let (cookies, token) = form_token(&base).await;
     let response = http()
         .post(format!("{base}/theme"))
-        .form(&[("theme", "classic"), ("return_to", "//elsewhere.example/")])
+        .header("cookie", cookies)
+        .form(&[
+            ("theme", "classic"),
+            ("return_to", "//elsewhere.example/"),
+            ("token", &token),
+        ])
         .send()
         .await
         .unwrap();

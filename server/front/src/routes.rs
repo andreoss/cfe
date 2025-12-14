@@ -2,15 +2,21 @@ use axum::{
     Form, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
 
-use crate::{App, html, theme::Theme};
+use crate::{
+    App,
+    html::{self, Chrome},
+    theme::Theme,
+    token::{Guard, cookie_of},
+};
 
 const STYLESHEET: &str = include_str!("../static/style.css");
 const LAST_PAGE: u32 = 10_000;
+const SESSION_COOKIE: &str = "session";
 
 pub fn router(app: App) -> Router {
     Router::new()
@@ -18,6 +24,9 @@ pub fn router(app: App) -> Router {
         .route("/", get(index))
         .route("/sections/{slug}", get(section))
         .route("/topics/{id}", get(topic))
+        .route("/register", get(register_form).post(register))
+        .route("/sign-in", get(sign_in_form).post(sign_in))
+        .route("/sign-out", post(sign_out))
         .route("/static/style.css", get(stylesheet))
         .route("/theme", post(set_theme))
         .fallback(not_found)
@@ -35,27 +44,21 @@ async fn stylesheet() -> impl IntoResponse {
     )
 }
 
-async fn index(State(app): State<App>, headers: HeaderMap) -> impl IntoResponse {
+async fn index(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
     let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
     match app.sections().await {
-        Ok(sections) => (
+        Ok(sections) => render(
+            &guard,
             StatusCode::OK,
-            Html(html::page(
-                theme,
-                "Sections",
-                &html::section_list(&sections),
-            )),
-        )
-            .into_response(),
-        Err(error) => (
+            html::page(&chrome, "Sections", &html::section_list(&sections)),
+        ),
+        Err(error) => render(
+            &guard,
             StatusCode::SERVICE_UNAVAILABLE,
-            Html(html::message(
-                theme,
-                "The board is not answering",
-                &error.to_string(),
-            )),
-        )
-            .into_response(),
+            unavailable(&chrome, &error),
+        ),
     }
 }
 
@@ -69,35 +72,43 @@ async fn section(
     Path(slug): Path<String>,
     Query(query): Query<PageQuery>,
     headers: HeaderMap,
-) -> impl IntoResponse {
+) -> Response {
+    let guard = Guard::new(&headers);
     let theme = theme_of(&headers, &app);
     let number = page_of(query.page.as_deref());
+    let address = section_address(&slug, number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
     let Some(board) = (match app.section(&slug).await {
         Ok(board) => board,
-        Err(error) => return unavailable(theme, &error).into_response(),
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
     }) else {
-        return (
+        return render(
+            &guard,
             StatusCode::NOT_FOUND,
-            Html(html::message(
-                theme,
+            html::message(
+                &chrome,
                 "No such section",
                 "This board has no section at that address.",
-            )),
-        )
-            .into_response();
+            ),
+        );
     };
     match app.topics(&slug, number).await {
-        Ok(topics) => (
+        Ok(topics) => render(
+            &guard,
             StatusCode::OK,
-            Html(html::page_at(
-                theme,
-                &board.title,
-                &html::topic_list(&board, &topics),
-                &section_address(&slug, number),
-            )),
-        )
-            .into_response(),
-        Err(error) => unavailable(theme, &error).into_response(),
+            html::page(&chrome, &board.title, &html::topic_list(&board, &topics)),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
     }
 }
 
@@ -106,36 +117,234 @@ async fn topic(
     Path(id): Path<String>,
     Query(query): Query<PageQuery>,
     headers: HeaderMap,
-) -> impl IntoResponse {
+) -> Response {
+    let guard = Guard::new(&headers);
     let theme = theme_of(&headers, &app);
     let number = page_of(query.page.as_deref());
+    let address = topic_address(&id, number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
     let Some(subject) = (match app.subject(&id).await {
         Ok(subject) => subject,
-        Err(error) => return unavailable(theme, &error).into_response(),
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
     }) else {
-        return (
+        return render(
+            &guard,
             StatusCode::NOT_FOUND,
-            Html(html::message(
-                theme,
+            html::message(
+                &chrome,
                 "No such subject",
                 "This board has no subject at that address.",
-            )),
-        )
-            .into_response();
+            ),
+        );
     };
     match app.comments(&id, number).await {
-        Ok(comments) => (
+        Ok(comments) => render(
+            &guard,
             StatusCode::OK,
-            Html(html::page_at(
-                theme,
+            html::page(
+                &chrome,
                 &subject.title,
                 &html::subject_page(&subject, &comments),
-                &topic_address(&id, number),
-            )),
-        )
-            .into_response(),
-        Err(error) => unavailable(theme, &error).into_response(),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
     }
+}
+
+async fn register_form(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/register").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(&chrome, "Register", &html::register_page(&chrome, None)),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct RegisterForm {
+    token: Option<String>,
+    username: String,
+    email: String,
+    password: String,
+    invitation: Option<String>,
+}
+
+async fn register(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<RegisterForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/register").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let mut body = client::RegisterBody::new(&form.username, &form.email, &form.password);
+    if let Some(code) = form
+        .invitation
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        body = body.invitation(code);
+    }
+    match app.register(&body).await {
+        Ok(session) => signed_in(&session, "/"),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Register",
+                &html::register_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn sign_in_form(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<ReturnQuery>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = return_to(query.return_to.as_deref());
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(&chrome, "Sign in", &html::sign_in_page(&chrome, None)),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct ReturnQuery {
+    return_to: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SignInForm {
+    token: Option<String>,
+    username: String,
+    password: String,
+    return_to: Option<String>,
+}
+
+async fn sign_in(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<SignInForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = return_to(form.return_to.as_deref());
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    match app.sign_in(&form.username, &form.password).await {
+        Ok(session) => signed_in(&session, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Sign in",
+                &html::sign_in_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SignOutForm {
+    token: Option<String>,
+}
+
+async fn sign_out(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<SignOutForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let gone = match session_of(&headers) {
+        Some(session) => app.sign_out(&session).await,
+        None => None,
+    };
+    let cookie = gone
+        .unwrap_or_else(|| format!("{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"));
+    (
+        StatusCode::SEE_OTHER,
+        [
+            (header::SET_COOKIE, cookie),
+            (header::LOCATION, "/".to_owned()),
+        ],
+    )
+        .into_response()
+}
+
+fn signed_in(session: &client::Session, address: &str) -> Response {
+    (
+        StatusCode::SEE_OTHER,
+        [
+            (header::SET_COOKIE, session.cookie().to_owned()),
+            (header::LOCATION, address.to_owned()),
+        ],
+    )
+        .into_response()
+}
+
+fn expired(chrome: &Chrome) -> String {
+    html::message(
+        chrome,
+        "The form has expired",
+        "Send the form again from the page it came from.",
+    )
+}
+
+fn unavailable(chrome: &Chrome, error: &client::ClientError) -> String {
+    html::message(chrome, "The board is not answering", &error.to_string())
+}
+
+async fn chrome_of(
+    guard: &Guard,
+    app: &App,
+    headers: &HeaderMap,
+    theme: Theme,
+    return_to: &str,
+) -> Chrome {
+    let account = match session_of(headers) {
+        Some(session) => app.account(&session).await,
+        None => None,
+    };
+    let chrome = Chrome::new(theme, guard.token()).return_to(return_to);
+    match account {
+        Some(account) => chrome.account(&account.username),
+        None => chrome,
+    }
+}
+
+fn session_of(headers: &HeaderMap) -> Option<String> {
+    cookie_of(headers, SESSION_COOKIE)
 }
 
 fn topic_address(id: &str, page: u32) -> String {
@@ -144,17 +353,6 @@ fn topic_address(id: &str, page: u32) -> String {
     } else {
         format!("/topics/{}?page={}", client::encode_path(id), page)
     }
-}
-
-fn unavailable(theme: Theme, error: &client::ClientError) -> impl IntoResponse {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Html(html::message(
-            theme,
-            "The board is not answering",
-            &error.to_string(),
-        )),
-    )
 }
 
 fn section_address(slug: &str, page: u32) -> String {
@@ -171,24 +369,43 @@ fn page_of(raw: Option<&str>) -> u32 {
         .unwrap_or(1)
 }
 
+fn render(guard: &Guard, status: StatusCode, body: String) -> Response {
+    match guard.set_cookie() {
+        Some(cookie) => (status, [(header::SET_COOKIE, cookie)], Html(body)).into_response(),
+        None => (status, Html(body)).into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ThemeForm {
     theme: String,
     return_to: Option<String>,
+    token: Option<String>,
 }
 
-async fn set_theme(State(app): State<App>, Form(form): Form<ThemeForm>) -> impl IntoResponse {
+async fn set_theme(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<ThemeForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let chrome = chrome_of(&guard, &app, &headers, app.default_theme(), "/")
+        .await
+        .return_to(&return_to(form.return_to.as_deref()));
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
     let Some(theme) = Theme::parse(&form.theme) else {
         let known: Vec<&str> = Theme::ALL.iter().map(|theme| theme.name()).collect();
-        return (
+        return render(
+            &guard,
             StatusCode::BAD_REQUEST,
-            Html(html::message(
-                app.default_theme(),
+            html::message(
+                &chrome,
                 "No such theme",
                 &format!("Choose one of: {}.", known.join(", ")),
-            )),
-        )
-            .into_response();
+            ),
+        );
     };
     let cookie = format!(
         "theme={}; Path=/; Max-Age=31536000; SameSite=Lax",
@@ -204,17 +421,15 @@ async fn set_theme(State(app): State<App>, Form(form): Form<ThemeForm>) -> impl 
         .into_response()
 }
 
-async fn not_found(State(app): State<App>, headers: HeaderMap) -> impl IntoResponse {
+async fn not_found(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
     let theme = theme_of(&headers, &app);
-    (
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
+    render(
+        &guard,
         StatusCode::NOT_FOUND,
-        Html(html::message(
-            theme,
-            "Nothing here",
-            "This page does not exist.",
-        )),
+        html::message(&chrome, "Nothing here", "This page does not exist."),
     )
-        .into_response()
 }
 
 fn return_to(raw: Option<&str>) -> String {
@@ -233,15 +448,8 @@ fn return_to(raw: Option<&str>) -> String {
 }
 
 fn theme_of(headers: &HeaderMap, app: &App) -> Theme {
-    let cookies = headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    let chosen = cookies
-        .split(';')
-        .map(|pair| pair.trim())
-        .find_map(|pair| pair.strip_prefix("theme="));
-    app.theme_for(chosen)
+    let chosen = cookie_of(headers, "theme");
+    app.theme_for(chosen.as_deref())
 }
 
 #[cfg(test)]

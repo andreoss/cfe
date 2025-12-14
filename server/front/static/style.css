@@ -202,3 +202,38 @@ li.remark {
   border-top: 1px solid var(--line);
   color: var(--muted);
 }
+
+.account {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: 12px;
+  font-size: 13px;
+}
+
+.account .who {
+  margin: 0;
+}
+
+.account-form {
+  max-width: 32em;
+}
+
+.account-form p {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 8px;
+}
+
+.account-form label {
+  width: 8em;
+  color: var(--muted);
+}
+
+.problem {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent, #a11);
+  color: var(--accent, #a11);
+}

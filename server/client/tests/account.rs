@@ -147,10 +147,25 @@ async fn an_answer_without_a_session_is_an_error() {
 async fn a_sign_out_carries_the_session_cookie() {
     let (base, log) = board(answer("204 No Content", &[], "")).await;
     let client = ApiClient::new(&base).unwrap();
-    client.sign_out("tok9").await.unwrap();
+    assert_eq!(client.sign_out("tok9").await.unwrap(), None);
     let request = log.last();
     assert!(request.starts_with("POST /api/sign-out "), "{request}");
     assert!(request.contains("cookie: session=tok9"), "{request}");
+}
+
+#[tokio::test]
+async fn a_sign_out_brings_back_the_cookie_the_board_drops() {
+    let (base, _) = board(answer(
+        "200 OK",
+        &["set-cookie: session=; Path=/; Max-Age=0"],
+        "",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    assert_eq!(
+        client.sign_out("tok9").await.unwrap(),
+        Some("session=; Path=/; Max-Age=0".to_owned())
+    );
 }
 
 #[tokio::test]
