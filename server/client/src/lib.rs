@@ -71,6 +71,31 @@ pub struct User {
     pub role: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Profile {
+    pub id: String,
+    pub username: String,
+    pub bio: Option<String>,
+    pub score: i32,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Avatar {
+    content_type: String,
+    bytes: Vec<u8>,
+}
+
+impl Avatar {
+    pub fn content_type(&self) -> &str {
+        &self.content_type
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
@@ -289,6 +314,51 @@ impl ApiClient {
         self.get("/api/me", session).await
     }
 
+    pub async fn profile(&self, username: &str) -> Result<Profile, ClientError> {
+        self.get(&format!("/api/users/{}", encode_path(username)), None)
+            .await
+    }
+
+    pub async fn update_bio(
+        &self,
+        session: &str,
+        bio: Option<&str>,
+    ) -> Result<Profile, ClientError> {
+        let body = BioBody { bio };
+        let response = self.patch("/api/me/bio", &body, Some(session)).await?;
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
+    pub async fn avatar(&self, username: &str) -> Result<Option<Avatar>, ClientError> {
+        let path = format!("/api/users/{}/avatar", encode_path(username));
+        let response = self.send(self.http.get(self.address(&path)), None).await?;
+        let status = response.status().as_u16();
+        if status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_owned())
+            .unwrap_or_else(|| "application/octet-stream".to_owned());
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))?
+            .to_vec();
+        Ok(Some(Avatar {
+            content_type,
+            bytes,
+        }))
+    }
+
     pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {
         session_of(self.post("/api/register", body, None).await?).await
     }
@@ -348,6 +418,22 @@ impl ApiClient {
         Ok(response)
     }
 
+    async fn patch<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        session: Option<&str>,
+    ) -> Result<reqwest::Response, ClientError> {
+        let response = self
+            .send(self.http.patch(self.address(path)).json(body), session)
+            .await?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        Ok(response)
+    }
+
     fn address(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
@@ -366,6 +452,11 @@ impl ApiClient {
             .await
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+}
+
+#[derive(Serialize)]
+struct BioBody<'a> {
+    bio: Option<&'a str>,
 }
 
 #[derive(Serialize)]
