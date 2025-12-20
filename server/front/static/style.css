@@ -245,6 +245,29 @@ li.remark {
   color: var(--accent, #a11);
 }
 
+.narrowing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.narrowing p {
+  margin: 0;
+}
+
+.narrowing .current {
+  font-weight: bold;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.kind {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .search-form {
   max-width: 32em;
 }

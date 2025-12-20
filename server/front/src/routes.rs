@@ -194,7 +194,7 @@ async fn search(
     let theme = theme_of(&headers, &app);
     let words = query.q.unwrap_or_default();
     let criteria = client::Criteria::parse(&words, query.scope.as_deref(), query.order.as_deref());
-    let address = search_address(&criteria);
+    let address = crate::search_address(&criteria);
     let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
     let hits = if words.trim().is_empty() {
         None
@@ -933,15 +933,6 @@ fn topic_address(id: &str, page: u32) -> String {
     } else {
         format!("/topics/{}?page={}", client::encode_path(id), page)
     }
-}
-
-fn search_address(criteria: &client::Criteria) -> String {
-    format!(
-        "/search?q={}&scope={}&order={}",
-        client::encode_path(criteria.query()),
-        criteria.scope().label(),
-        criteria.order().label()
-    )
 }
 
 fn profile_address(username: &str) -> String {

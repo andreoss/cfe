@@ -246,6 +246,7 @@ pub fn search_page(criteria: &Criteria, hits: Option<&[Hit]>) -> String {
     let Some(hits) = hits else {
         return out;
     };
+    out.push_str(&narrowing(criteria));
     out.push_str(&format!(
         "<h3>{count}</h3>\n",
         count = escape(&hit_count(hits.len())),
@@ -260,6 +261,41 @@ pub fn search_page(criteria: &Criteria, hits: Option<&[Hit]>) -> String {
     }
     out.push_str("</ol>\n");
     out
+}
+
+fn narrowing(criteria: &Criteria) -> String {
+    let mut kinds = String::from("<p class=\"kinds\">Narrow to:");
+    for scope in Scope::ALL {
+        kinds.push_str(&choice(
+            &crate::search_address(&Criteria::new(criteria.query(), scope, criteria.order())),
+            scope.words(),
+            scope == criteria.scope(),
+        ));
+    }
+    kinds.push_str("</p>\n");
+    let mut orders = String::from("<p class=\"orders\">Order:");
+    for order in Order::ALL {
+        orders.push_str(&choice(
+            &crate::search_address(&Criteria::new(criteria.query(), criteria.scope(), order)),
+            order.words(),
+            order == criteria.order(),
+        ));
+    }
+    orders.push_str("</p>\n");
+    format!("<nav class=\"narrowing\" aria-label=\"Narrowing\">\n{kinds}{orders}</nav>\n")
+}
+
+fn choice(address: &str, words: &str, current: bool) -> String {
+    format!(
+        " <a href=\"{address}\"{mark}>{words}</a>",
+        address = escape(address),
+        mark = if current {
+            " class=\"current\" aria-current=\"true\""
+        } else {
+            ""
+        },
+        words = escape(words),
+    )
 }
 
 fn hit_count(total: usize) -> String {
@@ -299,7 +335,8 @@ fn hit_item(hit: &Hit) -> String {
     match hit {
         Hit::Topic(topic) => format!(
             concat!(
-                "<li class=\"hit hit-topic\"><a href=\"/topics/{id}\">{title}</a> ",
+                "<li class=\"hit hit-topic\"><span class=\"kind\">Subject</span> ",
+                "<a href=\"/topics/{id}\">{title}</a> ",
                 "<span class=\"byline\">by <span class=\"writer\">{author}</span> at ",
                 "<time datetime=\"{stamp}\">{shown}</time> in ",
                 "<a href=\"/sections/{section}\">{section}</a></span></li>\n",
@@ -313,7 +350,8 @@ fn hit_item(hit: &Hit) -> String {
         ),
         Hit::Comment(remark) => format!(
             concat!(
-                "<li class=\"hit hit-comment\"><a href=\"/topics/{topic}#remark-{id}\">{said}</a> ",
+                "<li class=\"hit hit-comment\"><span class=\"kind\">Remark</span> ",
+                "<a href=\"/topics/{topic}#remark-{id}\">{said}</a> ",
                 "<span class=\"byline\">by <span class=\"writer\">{author}</span> at ",
                 "<time datetime=\"{stamp}\">{shown}</time></span></li>\n",
             ),
@@ -1636,6 +1674,13 @@ mod tests {
         assert!(html.contains("<h3>1 hit</h3>"), "{html}");
         assert!(html.contains("..."), "{html}");
         assert!(!html.contains(&long), "a long remark is cut short");
+    }
+
+    #[test]
+    fn a_search_without_words_offers_no_narrowing() {
+        let criteria = Criteria::new("", Scope::Everything, Order::Relevance);
+        assert!(!search_page(&criteria, None).contains("Narrow to:"));
+        assert!(search_page(&criteria, Some(&[])).contains("Narrow to:"));
     }
 
     #[test]

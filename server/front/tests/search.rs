@@ -132,10 +132,16 @@ async fn a_subject_hit_points_at_the_subject_it_is() {
         .await
         .unwrap();
     assert!(page.contains("<h3>2 hits</h3>"));
+    assert!(page.contains("<li class=\"hit hit-topic\">"), "{page}");
+    assert!(
+        page.contains("<span class=\"kind\">Subject</span>"),
+        "{page}"
+    );
     assert!(
         page.contains(
-            "<li class=\"hit hit-topic\"><a href=\"/topics/11111111-1111-1111-1111-111111111111\">Ports and adapters</a>"
-        )
+            "<a href=\"/topics/11111111-1111-1111-1111-111111111111\">Ports and adapters</a>"
+        ),
+        "{page}"
     );
     assert!(page.contains(">alice<"));
     assert!(page.contains("<time datetime=\"2024-06-07T10:11:12Z\">2024-06-07 10:11</time>"));
@@ -153,6 +159,10 @@ async fn a_remark_hit_points_at_the_remark_inside_its_subject() {
         .text()
         .await
         .unwrap();
+    assert!(
+        page.contains("<span class=\"kind\">Remark</span>"),
+        "{page}"
+    );
     assert!(
         page.contains(
             "<a href=\"/topics/11111111-1111-1111-1111-111111111111#remark-33333333-3333-3333-3333-333333333333\">Adapters keep the domain clean</a>"
@@ -251,6 +261,86 @@ async fn the_words_are_kept_as_words_and_the_page_carries_no_scripting() {
         "not scripting free: {page}"
     );
     assert!(page.contains("&lt;script&gt;"));
+}
+
+#[tokio::test]
+async fn a_search_can_be_narrowed_without_the_form() {
+    let (board_url, _) = board("200 OK", HITS).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!("{base}/search?q=adapters"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("Narrow to:"), "{page}");
+    assert!(
+        page.contains(
+            "<a href=\"/search?q=adapters&amp;scope=topics&amp;order=relevance\">Subjects</a>"
+        ),
+        "{page}"
+    );
+    assert!(
+        page.contains(
+            "<a href=\"/search?q=adapters&amp;scope=comments&amp;order=relevance\">Remarks</a>"
+        ),
+        "{page}"
+    );
+    assert!(
+        page.contains(
+            "<a href=\"/search?q=adapters&amp;scope=everything&amp;order=relevance\" class=\"current\" aria-current=\"true\">Everything</a>"
+        ),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn the_hits_can_be_reordered_without_the_form() {
+    let (board_url, _) = board("200 OK", HITS).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!(
+            "{base}/search?q=adapters&scope=comments&order=oldest"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("Order:"), "{page}");
+    assert!(
+        page.contains(
+            "<a href=\"/search?q=adapters&amp;scope=comments&amp;order=newest\">Newest first</a>"
+        ),
+        "{page}"
+    );
+    assert!(
+        page.contains(
+            "<a href=\"/search?q=adapters&amp;scope=comments&amp;order=oldest\" class=\"current\" aria-current=\"true\">Oldest first</a>"
+        ),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn the_words_stay_inside_the_address_of_every_narrowing() {
+    let (board_url, _) = board("200 OK", HITS).await;
+    let base = front(&board_url).await;
+    let page = http()
+        .get(format!("{base}/search?q=a%2Fb%3Fc%20d"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        page.contains("<a href=\"/search?q=a%2Fb%3Fc%20d&amp;scope=topics&amp;order=relevance\">"),
+        "{page}"
+    );
 }
 
 #[tokio::test]

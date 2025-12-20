@@ -7,10 +7,19 @@ pub mod token;
 
 use client::{
     ApiClient, Avatar, ClientError, Comment, Criteria, Hit, Paged, Profile, RegisterBody, Section,
-    Session, Subject, Topic, User, find_section,
+    Session, Subject, Topic, User, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
+
+pub fn search_address(criteria: &Criteria) -> String {
+    format!(
+        "/search?q={}&scope={}&order={}",
+        encode_path(criteria.query()),
+        criteria.scope().label(),
+        criteria.order().label()
+    )
+}
 
 #[derive(Clone)]
 pub struct App {
