@@ -6,8 +6,8 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, Avatar, ClientError, Comment, Paged, Profile, RegisterBody, Section, Session,
-    Subject, Topic, User, find_section,
+    ApiClient, Avatar, ClientError, Comment, Criteria, Hit, Paged, Profile, RegisterBody, Section,
+    Session, Subject, Topic, User, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -52,6 +52,10 @@ impl App {
 
     pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
         self.client.comments(id, page).await
+    }
+
+    pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
+        self.client.search(criteria).await
     }
 
     pub async fn account(&self, session: &str) -> Option<User> {

@@ -24,6 +24,7 @@ pub fn router(app: App) -> Router {
         .route("/", get(index))
         .route("/sections/{slug}", get(section))
         .route("/topics/{id}", get(topic))
+        .route("/search", get(search))
         .route("/register", get(register_form).post(register))
         .route("/sign-in", get(sign_in_form).post(sign_in))
         .route("/sign-out", post(sign_out))
@@ -175,6 +176,49 @@ async fn topic(
             unavailable(&chrome, &error),
         ),
     }
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    q: Option<String>,
+    scope: Option<String>,
+    order: Option<String>,
+}
+
+async fn search(
+    State(app): State<App>,
+    Query(query): Query<SearchQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let words = query.q.unwrap_or_default();
+    let criteria = client::Criteria::parse(&words, query.scope.as_deref(), query.order.as_deref());
+    let address = search_address(&criteria);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let hits = if words.trim().is_empty() {
+        None
+    } else {
+        match app.search(&criteria).await {
+            Ok(hits) => Some(hits),
+            Err(error) => {
+                return render(
+                    &guard,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    unavailable(&chrome, &error),
+                );
+            }
+        }
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Search",
+            &html::search_page(&criteria, hits.as_deref()),
+        ),
+    )
 }
 
 async fn profile(
@@ -889,6 +933,15 @@ fn topic_address(id: &str, page: u32) -> String {
     } else {
         format!("/topics/{}?page={}", client::encode_path(id), page)
     }
+}
+
+fn search_address(criteria: &client::Criteria) -> String {
+    format!(
+        "/search?q={}&scope={}&order={}",
+        client::encode_path(criteria.query()),
+        criteria.scope().label(),
+        criteria.order().label()
+    )
 }
 
 fn profile_address(username: &str) -> String {

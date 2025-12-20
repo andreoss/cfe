@@ -203,6 +203,13 @@ li.remark {
   color: var(--muted);
 }
 
+.ways {
+  display: flex;
+  gap: 10px;
+  margin-left: 10px;
+  font-size: 13px;
+}
+
 .account {
   display: flex;
   align-items: baseline;
@@ -236,4 +243,28 @@ li.remark {
   padding: 6px 8px;
   border-left: 3px solid var(--accent, #a11);
   color: var(--accent, #a11);
+}
+
+.search-form {
+  max-width: 32em;
+}
+
+.search-form p {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 8px;
+}
+
+.search-form label {
+  width: 8em;
+  color: var(--muted);
+}
+
+.hits {
+  padding-left: 18px;
+}
+
+.hits li {
+  margin: 0 0 6px;
 }

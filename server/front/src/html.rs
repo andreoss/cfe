@@ -1,6 +1,8 @@
 use crate::markup;
 use crate::theme::Theme;
-use client::{Comment, PageInfo, Paged, Profile, Section, Subject, Topic};
+use client::{
+    Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject, Topic,
+};
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -71,6 +73,7 @@ pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
             "<p class=\"skip\"><a href=\"#main\">Skip to the content</a></p>\n",
             "<header class=\"masthead\">\n",
             "<h1><a href=\"/\">Forum</a></h1>\n",
+            "{ways}",
             "{account}",
             "{picker}",
             "</header>\n",
@@ -83,10 +86,20 @@ pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
         ),
         theme = chrome.theme.name(),
         title = escape(title),
+        ways = wayfinding(),
         account = account_box(chrome),
         picker = theme_picker(chrome.theme, &chrome.return_to, &chrome.token),
         body = body,
     )
+}
+
+fn wayfinding() -> String {
+    concat!(
+        "<nav class=\"ways\" aria-label=\"Wayfinding\">\n",
+        "<a href=\"/search\">Search</a>\n",
+        "</nav>\n",
+    )
+    .to_owned()
 }
 
 pub fn account_box(chrome: &Chrome) -> String {
@@ -210,6 +223,108 @@ fn tag_links(tags: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+pub fn search_page(criteria: &Criteria, hits: Option<&[Hit]>) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>Search</h2>\n",
+            "<form class=\"search-form\" method=\"get\" action=\"/search\">\n",
+            "<p><label for=\"q\">Words</label>\n",
+            "<input id=\"q\" name=\"q\" type=\"search\" value=\"{words}\" required></p>\n",
+            "<p><label for=\"scope\">Narrow to</label>\n",
+            "<select id=\"scope\" name=\"scope\">{scopes}</select></p>\n",
+            "<p><label for=\"order\">Order</label>\n",
+            "<select id=\"order\" name=\"order\">{orders}</select></p>\n",
+            "<p><button type=\"submit\">Search</button></p>\n",
+            "</form>\n",
+        ),
+        words = escape(criteria.query()),
+        scopes = scope_options(criteria.scope()),
+        orders = order_options(criteria.order()),
+    );
+    let Some(hits) = hits else {
+        return out;
+    };
+    out.push_str(&format!(
+        "<h3>{count}</h3>\n",
+        count = escape(&hit_count(hits.len())),
+    ));
+    if hits.is_empty() {
+        out.push_str("<p class=\"none\">Nothing was written for those words.</p>\n");
+        return out;
+    }
+    out.push_str("<ol class=\"hits\">\n");
+    for hit in hits {
+        out.push_str(&hit_item(hit));
+    }
+    out.push_str("</ol>\n");
+    out
+}
+
+fn hit_count(total: usize) -> String {
+    match total {
+        1 => "1 hit".to_owned(),
+        other => format!("{other} hits"),
+    }
+}
+
+fn scope_options(current: Scope) -> String {
+    let mut out = String::new();
+    for scope in Scope::ALL {
+        out.push_str(&format!(
+            "<option value=\"{name}\"{selected}>{words}</option>",
+            name = scope.label(),
+            words = escape(scope.words()),
+            selected = if scope == current { " selected" } else { "" },
+        ));
+    }
+    out
+}
+
+fn order_options(current: Order) -> String {
+    let mut out = String::new();
+    for order in Order::ALL {
+        out.push_str(&format!(
+            "<option value=\"{name}\"{selected}>{words}</option>",
+            name = order.label(),
+            words = escape(order.words()),
+            selected = if order == current { " selected" } else { "" },
+        ));
+    }
+    out
+}
+
+fn hit_item(hit: &Hit) -> String {
+    match hit {
+        Hit::Topic(topic) => format!(
+            concat!(
+                "<li class=\"hit hit-topic\"><a href=\"/topics/{id}\">{title}</a> ",
+                "<span class=\"byline\">by <span class=\"writer\">{author}</span> at ",
+                "<time datetime=\"{stamp}\">{shown}</time> in ",
+                "<a href=\"/sections/{section}\">{section}</a></span></li>\n",
+            ),
+            id = escape(&topic.id),
+            title = escape(&topic.title),
+            author = escape(&topic.author_username),
+            stamp = escape(&topic.created_at),
+            shown = escape(&shown_date(&topic.created_at)),
+            section = escape(&topic.section_slug),
+        ),
+        Hit::Comment(remark) => format!(
+            concat!(
+                "<li class=\"hit hit-comment\"><a href=\"/topics/{topic}#remark-{id}\">{said}</a> ",
+                "<span class=\"byline\">by <span class=\"writer\">{author}</span> at ",
+                "<time datetime=\"{stamp}\">{shown}</time></span></li>\n",
+            ),
+            topic = escape(&remark.topic_id),
+            id = escape(&remark.id),
+            said = escape(&excerpt(&remark.body)),
+            author = escape(&remark.author_username),
+            stamp = escape(&remark.created_at),
+            shown = escape(&shown_date(&remark.created_at)),
+        ),
+    }
 }
 
 pub fn pager(address: &str, page: &PageInfo) -> String {
@@ -807,6 +922,38 @@ mod tests {
 
     fn chrome(theme: Theme) -> Chrome {
         Chrome::new(theme, "token-value")
+    }
+
+    fn hit_topic(id: &str, title: &str, author: &str) -> Topic {
+        Topic {
+            id: id.to_owned(),
+            section_slug: "general".to_owned(),
+            title: title.to_owned(),
+            author_username: author.to_owned(),
+            created_at: "2024-06-07T10:11:12Z".to_owned(),
+            tags: vec!["rust".to_owned()],
+            sticky: false,
+            resolved: false,
+            deleted: false,
+            pending: false,
+            draft: false,
+            postscore: 0,
+        }
+    }
+
+    fn hit_comment(id: &str, topic_id: &str, body: &str) -> Comment {
+        Comment {
+            id: id.to_owned(),
+            topic_id: topic_id.to_owned(),
+            parent_id: None,
+            body: body.to_owned(),
+            author_username: "bob".to_owned(),
+            created_at: "2024-06-08T09:08:07Z".to_owned(),
+            deleted: false,
+            deleted_reason: None,
+            edited: false,
+            ignored: false,
+        }
     }
 
     fn section(slug: &str, title: &str, may_post: bool) -> Section {
@@ -1441,6 +1588,65 @@ mod tests {
         let html = comment_list(&[orphan]);
         assert!(html.contains("id=\"remark-2\""));
         assert!(html.contains("An answer"));
+    }
+
+    #[test]
+    fn a_search_page_offers_the_words_it_was_given_and_every_narrowing() {
+        let criteria = Criteria::new("adapters", Scope::Comments, Order::Oldest);
+        let html = search_page(&criteria, None);
+        assert!(html.contains("value=\"adapters\""), "{html}");
+        assert!(html.contains("<option value=\"comments\" selected>Remarks</option>"));
+        assert!(html.contains("<option value=\"oldest\" selected>Oldest first</option>"));
+        assert!(html.contains("<option value=\"newest\">Newest first</option>"));
+        assert!(html.contains("<option value=\"everything\">Everything</option>"));
+        assert!(!html.contains("hits"));
+    }
+
+    #[test]
+    fn a_search_page_keeps_the_words_of_a_hit_as_words() {
+        let criteria = Criteria::new("<script>x</script>", Scope::Everything, Order::Relevance);
+        let html = search_page(
+            &criteria,
+            Some(&[
+                Hit::Topic(hit_topic("11", "<b>Ports</b>", "alice")),
+                Hit::Comment(hit_comment(
+                    "33",
+                    "11",
+                    "Adapters keep the <i>domain</i> clean",
+                )),
+            ]),
+        );
+        assert!(scripting_free(&html), "not scripting free: {html}");
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(html.contains("&lt;b&gt;Ports&lt;/b&gt;"), "{html}");
+        assert!(html.contains("<h3>2 hits</h3>"), "{html}");
+        assert!(html.contains("<li class=\"hit hit-topic\">"), "{html}");
+        assert!(html.contains("<li class=\"hit hit-comment\">"), "{html}");
+        assert!(html.contains("href=\"/topics/11#remark-33\""), "{html}");
+    }
+
+    #[test]
+    fn a_remark_hit_shows_the_first_words_of_the_remark() {
+        let criteria = Criteria::new("adapters", Scope::Comments, Order::Relevance);
+        let long: String = "word ".repeat(200);
+        let html = search_page(
+            &criteria,
+            Some(&[Hit::Comment(hit_comment("33", "11", &long))]),
+        );
+        assert!(html.contains("<h3>1 hit</h3>"), "{html}");
+        assert!(html.contains("..."), "{html}");
+        assert!(!html.contains(&long), "a long remark is cut short");
+    }
+
+    #[test]
+    fn a_search_that_found_nothing_says_so() {
+        let criteria = Criteria::new("nothing", Scope::Everything, Order::Relevance);
+        let html = search_page(&criteria, Some(&[]));
+        assert!(html.contains("<h3>0 hits</h3>"), "{html}");
+        assert!(
+            html.contains("Nothing was written for those words."),
+            "{html}"
+        );
     }
 
     #[test]
