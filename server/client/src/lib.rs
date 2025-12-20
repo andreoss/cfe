@@ -220,6 +220,14 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Tag {
+    pub slug: String,
+    pub description: Option<String>,
+    pub means: Option<String>,
+    pub following: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Profile {
     pub id: String,
     pub username: String,
@@ -460,6 +468,19 @@ impl ApiClient {
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.get(&search_address(criteria), None).await
+    }
+
+    pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
+        self.get(&format!("/api/tags/{}", encode_path(name)), session)
+            .await
+    }
+
+    pub async fn tag_topics(&self, name: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.get(
+            &format!("/api/tags/{}/topics?page={}", encode_path(name), page),
+            None,
+        )
+        .await
     }
 
     pub async fn me(&self, session: Option<&str>) -> Result<Option<User>, ClientError> {
