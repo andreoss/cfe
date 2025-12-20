@@ -27,6 +27,9 @@ pub fn router(app: App) -> Router {
         .route("/register", get(register_form).post(register))
         .route("/sign-in", get(sign_in_form).post(sign_in))
         .route("/sign-out", post(sign_out))
+        .route("/u/{username}", get(profile))
+        .route("/u/{username}/bio", post(change_bio))
+        .route("/u/{username}/avatar", get(avatar))
         .route("/static/style.css", get(stylesheet))
         .route("/theme", post(set_theme))
         .fallback(not_found)
@@ -159,6 +162,132 @@ async fn topic(
             unavailable(&chrome, &error),
         ),
     }
+}
+
+async fn profile(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = profile_address(&username);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(profile) = (match app.profile(&username).await {
+        Ok(profile) => profile,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    }) else {
+        return render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such account",
+                "This board has no account at that name.",
+            ),
+        );
+    };
+    let view = html::ProfileView {
+        own: chrome.account_name() == Some(profile.username.as_str()),
+        has_avatar: app.avatar(&username).await.is_some(),
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            &profile.username,
+            &html::profile_page(&chrome, &profile, &view, None),
+        ),
+    )
+}
+
+async fn avatar(State(app): State<App>, Path(username): Path<String>) -> Response {
+    match app.avatar(&username).await {
+        Some(picture) => (
+            [
+                (header::CONTENT_TYPE, picture.content_type().to_owned()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            ],
+            picture.bytes().to_vec(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BioForm {
+    token: Option<String>,
+    bio: Option<String>,
+}
+
+async fn change_bio(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BioForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = profile_address(&username);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return render(&guard, StatusCode::FORBIDDEN, not_yours(&chrome));
+    };
+    if chrome.account_name() != Some(username.as_str()) {
+        return render(&guard, StatusCode::FORBIDDEN, not_yours(&chrome));
+    }
+    let words = form
+        .bio
+        .as_deref()
+        .map(str::trim)
+        .filter(|words| !words.is_empty())
+        .map(|words| words.to_owned());
+    match app.update_bio(&session, words.as_deref()).await {
+        Ok(_) => (StatusCode::SEE_OTHER, [(header::LOCATION, address)]).into_response(),
+        Err(error) => match app.profile(&username).await {
+            Ok(Some(profile)) => render(
+                &guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::page(
+                    &chrome,
+                    &profile.username,
+                    &html::profile_page(
+                        &chrome,
+                        &profile,
+                        &html::ProfileView {
+                            own: true,
+                            has_avatar: app.avatar(&username).await.is_some(),
+                        },
+                        Some(&error.to_string()),
+                    ),
+                ),
+            ),
+            _ => render(
+                &guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::message(&chrome, "The words were not kept", &error.to_string()),
+            ),
+        },
+    }
+}
+
+fn not_yours(chrome: &Chrome) -> String {
+    html::message(
+        chrome,
+        "Not your page",
+        "Only the account itself can change those words.",
+    )
 }
 
 async fn register_form(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -353,6 +482,10 @@ fn topic_address(id: &str, page: u32) -> String {
     } else {
         format!("/topics/{}?page={}", client::encode_path(id), page)
     }
+}
+
+fn profile_address(username: &str) -> String {
+    format!("/u/{}", client::encode_path(username))
 }
 
 fn section_address(slug: &str, page: u32) -> String {

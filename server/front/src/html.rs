@@ -1,6 +1,6 @@
 use crate::markup;
 use crate::theme::Theme;
-use client::{Comment, PageInfo, Paged, Section, Subject, Topic};
+use client::{Comment, PageInfo, Paged, Profile, Section, Subject, Topic};
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -44,6 +44,16 @@ impl Chrome {
         self.return_to = address.to_owned();
         self
     }
+
+    pub fn account_name(&self) -> Option<&str> {
+        self.account.as_deref()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ProfileView {
+    pub own: bool,
+    pub has_avatar: bool,
 }
 
 pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
@@ -498,6 +508,77 @@ pub fn sign_in_page(chrome: &Chrome, problem: Option<&str>) -> String {
     )
 }
 
+pub fn profile_page(
+    chrome: &Chrome,
+    profile: &Profile,
+    view: &ProfileView,
+    problem: Option<&str>,
+) -> String {
+    format!(
+        concat!(
+            "<h2>{name}</h2>\n",
+            "{picture}",
+            "<p class=\"standing\">Score {score} &#183; {role}</p>\n",
+            "{bio}",
+            "{form}",
+        ),
+        name = escape(&profile.username),
+        picture = profile_picture(profile, view.has_avatar),
+        score = profile.score,
+        role = escape(&profile.role),
+        bio = profile_bio(profile.bio.as_deref()),
+        form = bio_form(chrome, profile, view.own, problem),
+    )
+}
+
+fn profile_picture(profile: &Profile, has_avatar: bool) -> String {
+    if !has_avatar {
+        return String::new();
+    }
+    format!(
+        concat!(
+            "<p class=\"picture\">\n",
+            "<img class=\"avatar\" src=\"/u/{name}/avatar\" alt=\"The picture of {shown}\">\n",
+            "</p>\n"
+        ),
+        name = escape(&profile.username),
+        shown = escape(&profile.username),
+    )
+}
+
+fn profile_bio(bio: Option<&str>) -> String {
+    match bio.map(str::trim).filter(|words| !words.is_empty()) {
+        Some(words) => format!(
+            "<div class=\"bio\"><p>{words}</p></div>\n",
+            words = escape(words).replace('\n', "<br>\n")
+        ),
+        None => "<div class=\"bio\"><p>No words about themselves yet.</p></div>\n".to_owned(),
+    }
+}
+
+fn bio_form(chrome: &Chrome, profile: &Profile, own: bool, problem: Option<&str>) -> String {
+    if !own {
+        return String::new();
+    }
+    let current = profile.bio.as_deref().unwrap_or_default();
+    format!(
+        concat!(
+            "<h3>About you</h3>\n",
+            "{problem}",
+            "<form class=\"bio-form\" method=\"post\" action=\"/u/{name}/bio\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"bio\">About you</label>\n",
+            "<textarea id=\"bio\" name=\"bio\" rows=\"5\" cols=\"60\" maxlength=\"500\">{current}</textarea></p>\n",
+            "<p><button type=\"submit\">Save</button></p>\n",
+            "</form>\n"
+        ),
+        problem = problem_paragraph(problem),
+        name = escape(&profile.username),
+        token = escape(&chrome.token),
+        current = escape(current),
+    )
+}
+
 fn problem_paragraph(problem: Option<&str>) -> String {
     match problem {
         Some(words) => format!("<p class=\"problem\">{words}</p>\n", words = escape(words)),
@@ -582,6 +663,105 @@ mod tests {
             topics_score: "anyone".to_owned(),
             may_post,
         }
+    }
+
+    fn profile(username: &str, bio: Option<&str>) -> Profile {
+        Profile {
+            id: "7f2c".to_owned(),
+            username: username.to_owned(),
+            bio: bio.map(|words| words.to_owned()),
+            score: 12,
+            role: "user".to_owned(),
+        }
+    }
+
+    fn own(has_avatar: bool) -> ProfileView {
+        ProfileView {
+            own: true,
+            has_avatar,
+        }
+    }
+
+    #[test]
+    fn a_profile_page_shows_the_name_the_standing_and_the_words() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", Some("Rust and forums.")),
+            &own(false),
+            None,
+        );
+        assert!(page.contains("<h2>alice</h2>"), "{page}");
+        assert!(page.contains("Score 12 &#183; user"), "{page}");
+        assert!(page.contains("<p>Rust and forums.</p>"), "{page}");
+    }
+
+    #[test]
+    fn words_the_account_wrote_about_itself_stay_words() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", Some("<script>alert(1)</script>")),
+            &own(false),
+            None,
+        );
+        assert!(!page.contains("<script"), "{page}");
+        assert!(page.contains("&lt;script&gt;"), "{page}");
+    }
+
+    #[test]
+    fn an_account_without_words_says_so() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", None),
+            &own(false),
+            None,
+        );
+        assert!(page.contains("No words about themselves yet."), "{page}");
+    }
+
+    #[test]
+    fn the_form_to_change_the_words_is_offered_to_the_account_itself_only() {
+        let alice = profile("alice", Some("hello"));
+        let shown = profile_page(&chrome(Theme::Light), &alice, &own(false), None);
+        assert!(shown.contains("action=\"/u/alice/bio\""), "{shown}");
+        assert!(shown.contains("id=\"bio\" name=\"bio\""), "{shown}");
+        assert!(shown.contains("value=\"token-value\""), "{shown}");
+        assert!(shown.contains(">hello</textarea>"), "{shown}");
+        let other = profile_page(
+            &chrome(Theme::Light),
+            &alice,
+            &ProfileView {
+                own: false,
+                has_avatar: false,
+            },
+            None,
+        );
+        assert!(!other.contains("action=\"/u/alice/bio\""), "{other}");
+    }
+
+    #[test]
+    fn a_refused_bio_comes_back_on_the_form() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", None),
+            &own(false),
+            Some("bio too long"),
+        );
+        assert!(
+            page.contains("<p class=\"problem\">bio too long</p>"),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn an_account_with_a_picture_shows_it_and_one_without_does_not() {
+        let alice = profile("alice", None);
+        let with = profile_page(&chrome(Theme::Light), &alice, &own(true), None);
+        assert!(
+            with.contains("<img class=\"avatar\" src=\"/u/alice/avatar\""),
+            "{with}"
+        );
+        let without = profile_page(&chrome(Theme::Light), &alice, &own(false), None);
+        assert!(!without.contains("class=\"avatar\""), "{without}");
     }
 
     #[test]

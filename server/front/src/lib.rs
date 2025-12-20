@@ -6,8 +6,8 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ClientError, Comment, Paged, RegisterBody, Section, Session, Subject, Topic, User,
-    find_section,
+    ApiClient, Avatar, ClientError, Comment, Paged, Profile, RegisterBody, Section, Session,
+    Subject, Topic, User, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -56,6 +56,26 @@ impl App {
 
     pub async fn account(&self, session: &str) -> Option<User> {
         self.client.me(Some(session)).await.ok().flatten()
+    }
+
+    pub async fn profile(&self, username: &str) -> Result<Option<Profile>, ClientError> {
+        match self.client.profile(username).await {
+            Ok(profile) => Ok(Some(profile)),
+            Err(error) if error.status() == Some(404) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn avatar(&self, username: &str) -> Option<Avatar> {
+        self.client.avatar(username).await.ok().flatten()
+    }
+
+    pub async fn update_bio(
+        &self,
+        session: &str,
+        bio: Option<&str>,
+    ) -> Result<Profile, ClientError> {
+        self.client.update_bio(session, bio).await
     }
 
     pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {
