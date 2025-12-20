@@ -90,6 +90,43 @@ impl App {
         self.client.sign_out(session).await.ok().flatten()
     }
 
+    pub async fn change_password(
+        &self,
+        session: &str,
+        current: &str,
+        new: &str,
+    ) -> Result<Option<String>, ClientError> {
+        self.client.change_password(session, current, new).await
+    }
+
+    pub async fn request_reset(&self, email: &str) -> Result<(), ClientError> {
+        self.client.request_reset(email).await
+    }
+
+    pub async fn reset_password(&self, code: &str, new: &str) -> Result<(), ClientError> {
+        self.client.reset_password(code, new).await
+    }
+
+    pub async fn request_email_change(
+        &self,
+        session: &str,
+        email: &str,
+    ) -> Result<(), ClientError> {
+        self.client.request_email_change(session, email).await
+    }
+
+    pub async fn confirm_email(&self, code: &str) -> Result<User, ClientError> {
+        self.client.confirm_email(code).await
+    }
+
+    pub async fn activate(&self, code: &str) -> Result<User, ClientError> {
+        self.client.activate(code).await
+    }
+
+    pub async fn deregister(&self, session: &str) -> Result<Option<String>, ClientError> {
+        self.client.deregister(session).await
+    }
+
     pub fn theme_for(&self, cookie: Option<&str>) -> Theme {
         cookie.and_then(Theme::parse).unwrap_or(self.default_theme)
     }

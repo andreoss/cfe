@@ -332,6 +332,68 @@ impl ApiClient {
             .map_err(|e| ClientError::Detail(e.to_string()))
     }
 
+    pub async fn change_password(
+        &self,
+        session: &str,
+        current: &str,
+        new: &str,
+    ) -> Result<Option<String>, ClientError> {
+        let body = ChangePasswordBody {
+            current_password: current,
+            new_password: new,
+        };
+        let response = self.post("/api/me/password", &body, Some(session)).await?;
+        Ok(session_cookie_of(&response))
+    }
+
+    pub async fn request_reset(&self, email: &str) -> Result<(), ClientError> {
+        let body = EmailBody { email };
+        self.post("/api/password-reset", &body, None).await?;
+        Ok(())
+    }
+
+    pub async fn reset_password(&self, code: &str, new_password: &str) -> Result<(), ClientError> {
+        let body = ResetConfirmBody { code, new_password };
+        self.post("/api/password-reset/confirm", &body, None)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn request_email_change(
+        &self,
+        session: &str,
+        email: &str,
+    ) -> Result<(), ClientError> {
+        let body = EmailBody { email };
+        self.post("/api/me/email", &body, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn confirm_email(&self, code: &str) -> Result<User, ClientError> {
+        let body = CodeBody { code };
+        let response = self.post("/api/me/email/confirm", &body, None).await?;
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
+    pub async fn activate(&self, code: &str) -> Result<User, ClientError> {
+        let body = CodeBody { code };
+        let response = self.post("/api/activate", &body, None).await?;
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
+    pub async fn deregister(&self, session: &str) -> Result<Option<String>, ClientError> {
+        let response = self
+            .post("/api/me/deregister", &Nothing {}, Some(session))
+            .await?;
+        Ok(session_cookie_of(&response))
+    }
+
     pub async fn avatar(&self, username: &str) -> Result<Option<Avatar>, ClientError> {
         let path = format!("/api/users/{}/avatar", encode_path(username));
         let response = self.send(self.http.get(self.address(&path)), None).await?;
@@ -460,6 +522,28 @@ struct BioBody<'a> {
 }
 
 #[derive(Serialize)]
+struct ChangePasswordBody<'a> {
+    current_password: &'a str,
+    new_password: &'a str,
+}
+
+#[derive(Serialize)]
+struct EmailBody<'a> {
+    email: &'a str,
+}
+
+#[derive(Serialize)]
+struct ResetConfirmBody<'a> {
+    code: &'a str,
+    new_password: &'a str,
+}
+
+#[derive(Serialize)]
+struct CodeBody<'a> {
+    code: &'a str,
+}
+
+#[derive(Serialize)]
 struct SignInBody {
     username: String,
     password: String,
@@ -482,14 +566,18 @@ async fn refusal(status: u16, response: reqwest::Response) -> ClientError {
     }
 }
 
-async fn session_of(response: reqwest::Response) -> Result<Session, ClientError> {
-    let cookie = response
+fn session_cookie_of(response: &reqwest::Response) -> Option<String> {
+    response
         .headers()
         .get_all("set-cookie")
         .iter()
         .filter_map(|value| value.to_str().ok())
         .find(|raw| raw.starts_with(&format!("{SESSION_COOKIE}=")))
         .map(|raw| raw.to_owned())
+}
+
+async fn session_of(response: reqwest::Response) -> Result<Session, ClientError> {
+    let cookie = session_cookie_of(&response)
         .ok_or_else(|| ClientError::Detail("the board answered without a session".to_owned()))?;
     let token = cookie
         .split(';')

@@ -30,6 +30,19 @@ pub fn router(app: App) -> Router {
         .route("/u/{username}", get(profile))
         .route("/u/{username}/bio", post(change_bio))
         .route("/u/{username}/avatar", get(avatar))
+        .route(
+            "/settings/password",
+            get(password_form).post(change_password),
+        )
+        .route("/settings/email", get(email_form).post(request_email))
+        .route("/settings/email/confirm", post(confirm_email))
+        .route(
+            "/settings/deregister",
+            get(deregister_form).post(deregister),
+        )
+        .route("/forgot", get(forgot_form).post(request_reset))
+        .route("/forgot/confirm", get(reset_form).post(confirm_reset))
+        .route("/activate", get(activate_form).post(activate))
         .route("/static/style.css", get(stylesheet))
         .route("/theme", post(set_theme))
         .fallback(not_found)
@@ -279,6 +292,400 @@ async fn change_bio(
                 html::message(&chrome, "The words were not kept", &error.to_string()),
             ),
         },
+    }
+}
+
+async fn password_form(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/password").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Change password",
+            &html::password_page(&chrome, None),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct PasswordForm {
+    token: Option<String>,
+    current_password: String,
+    new_password: String,
+}
+
+async fn change_password(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<PasswordForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/password").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/settings/password");
+    };
+    match app
+        .change_password(&session, &form.current_password, &form.new_password)
+        .await
+    {
+        Ok(cookie) => went(&guard, &cookie, &home_of(chrome.account_name())),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Change password",
+                &html::password_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn email_form(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/email").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Change the address",
+            &html::email_page(&chrome, None),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct EmailForm {
+    token: Option<String>,
+    email: String,
+}
+
+async fn request_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<EmailForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/email").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/settings/email");
+    };
+    match app.request_email_change(&session, &form.email).await {
+        Ok(()) => render(&guard, StatusCode::OK, mailed(&chrome)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Change the address",
+                &html::email_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CodeForm {
+    token: Option<String>,
+    code: String,
+}
+
+async fn confirm_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<CodeForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/email").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    match app.confirm_email(&form.code).await {
+        Ok(user) => went(&guard, &None, &home_of(Some(&user.username))),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Change the address",
+                &html::email_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn deregister_form(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/deregister").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Leave the board",
+            &html::deregister_page(&chrome, None),
+        ),
+    )
+}
+
+async fn deregister(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/settings/deregister").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/settings/deregister");
+    };
+    match app.deregister(&session).await {
+        Ok(cookie) => went(&guard, &cookie, "/"),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Leave the board",
+                &html::deregister_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TokenForm {
+    token: Option<String>,
+}
+
+async fn forgot_form(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/forgot").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Recover a password",
+            &html::forgot_page(&chrome, None),
+        ),
+    )
+}
+
+async fn request_reset(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<EmailForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/forgot").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    match app.request_reset(&form.email).await {
+        Ok(()) => render(&guard, StatusCode::OK, mailed(&chrome)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Recover a password",
+                &html::forgot_page(&chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn reset_form(
+    State(app): State<App>,
+    Query(query): Query<CodeQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let code = query.code.unwrap_or_default();
+    let address = format!("/forgot/confirm?code={}", client::encode_path(&code));
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Choose a new password",
+            &html::forgot_confirm_page(&chrome, &code, None),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct CodeQuery {
+    code: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NewPasswordForm {
+    token: Option<String>,
+    code: String,
+    new_password: String,
+}
+
+async fn confirm_reset(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<NewPasswordForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/forgot/confirm").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    match app.reset_password(&form.code, &form.new_password).await {
+        Ok(()) => went(&guard, &None, "/sign-in"),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Choose a new password",
+                &html::forgot_confirm_page(&chrome, &form.code, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn activate_form(
+    State(app): State<App>,
+    Query(query): Query<CodeQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let code = query.code.unwrap_or_default();
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/activate").await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Activate an account",
+            &html::activate_page(&chrome, &code, None),
+        ),
+    )
+}
+
+async fn activate(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<CodeForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/activate").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    match app.activate(&form.code).await {
+        Ok(_) => render(
+            &guard,
+            StatusCode::OK,
+            html::message(
+                &chrome,
+                "The account is active",
+                "The account is active now. Sign in to use it.",
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Activate an account",
+                &html::activate_page(&chrome, &form.code, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+fn home_of(account: Option<&str>) -> String {
+    match account {
+        Some(name) => profile_address(name),
+        None => "/".to_owned(),
+    }
+}
+
+fn went(guard: &Guard, cookie: &Option<String>, address: &str) -> Response {
+    match (guard.set_cookie(), cookie) {
+        (Some(token), Some(session)) => (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, token),
+                (header::SET_COOKIE, session.clone()),
+                (header::LOCATION, address.to_owned()),
+            ],
+        )
+            .into_response(),
+        (Some(token), None) => (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, token),
+                (header::LOCATION, address.to_owned()),
+            ],
+        )
+            .into_response(),
+        (None, Some(session)) => (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, session.clone()),
+                (header::LOCATION, address.to_owned()),
+            ],
+        )
+            .into_response(),
+        (None, None) => (
+            StatusCode::SEE_OTHER,
+            [(header::LOCATION, address.to_owned())],
+        )
+            .into_response(),
+    }
+}
+
+fn mailed(chrome: &Chrome) -> String {
+    html::message(
+        chrome,
+        "Check your mail",
+        "The board sent a secret to that address. Put it in the form on the page.",
+    )
+}
+
+fn sign_in_first(guard: &Guard, address: &str) -> Response {
+    let location = format!("/sign-in?return_to={address}");
+    match guard.set_cookie() {
+        Some(cookie) => (
+            StatusCode::SEE_OTHER,
+            [(header::SET_COOKIE, cookie), (header::LOCATION, location)],
+        )
+            .into_response(),
+        None => (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response(),
     }
 }
 

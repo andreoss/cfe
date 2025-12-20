@@ -586,6 +586,159 @@ fn problem_paragraph(problem: Option<&str>) -> String {
     }
 }
 
+pub fn password_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    form_page(
+        "Change password",
+        "/settings/password",
+        &chrome.token,
+        &format!(
+            "{}{}",
+            field(
+                "current_password",
+                "Current password",
+                "password",
+                "current-password",
+                ""
+            ),
+            field(
+                "new_password",
+                "New password",
+                "password",
+                "new-password",
+                ""
+            )
+        ),
+        "Change password",
+        problem,
+    )
+}
+
+pub fn email_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Change the address on file</h2>\n",
+            "{problem}",
+            "<form class=\"account-form\" method=\"post\" action=\"/settings/email\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "{address}",
+            "<p><button type=\"submit\">Send the secret</button></p>\n",
+            "</form>\n",
+            "<h3>Confirm with the secret</h3>\n",
+            "<form class=\"account-form\" method=\"post\" action=\"/settings/email/confirm\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "{secret}",
+            "<p><button type=\"submit\">Confirm</button></p>\n",
+            "</form>\n"
+        ),
+        problem = problem_paragraph(problem),
+        token = escape(&chrome.token),
+        address = field("email", "New address", "email", "email", ""),
+        secret = field("code", "Secret", "text", "one-time-code", ""),
+    )
+}
+
+pub fn forgot_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    form_page(
+        "Recover a password",
+        "/forgot",
+        &chrome.token,
+        &field("email", "Address on file", "email", "email", ""),
+        "Send the secret",
+        problem,
+    )
+}
+
+pub fn forgot_confirm_page(chrome: &Chrome, code: &str, problem: Option<&str>) -> String {
+    form_page(
+        "Choose a new password",
+        "/forgot/confirm",
+        &chrome.token,
+        &format!(
+            "{}{}",
+            field("code", "Secret", "text", "one-time-code", code),
+            field(
+                "new_password",
+                "New password",
+                "password",
+                "new-password",
+                ""
+            )
+        ),
+        "Set the password",
+        problem,
+    )
+}
+
+pub fn activate_page(chrome: &Chrome, code: &str, problem: Option<&str>) -> String {
+    form_page(
+        "Activate an account",
+        "/activate",
+        &chrome.token,
+        &field("code", "Secret", "text", "one-time-code", code),
+        "Activate",
+        problem,
+    )
+}
+
+pub fn deregister_page(chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Leave the board</h2>\n",
+            "{problem}",
+            "<p>Your name stays on what you wrote. Your account, its session and its ",
+            "picture go away.</p>\n",
+            "<form class=\"account-form\" method=\"post\" action=\"/settings/deregister\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><button type=\"submit\">Delete my account</button></p>\n",
+            "</form>\n"
+        ),
+        problem = problem_paragraph(problem),
+        token = escape(&chrome.token),
+    )
+}
+
+fn field(id: &str, label: &str, kind: &str, autocomplete: &str, value: &str) -> String {
+    format!(
+        concat!(
+            "<p><label for=\"{id}\">{label}</label>\n",
+            "<input id=\"{id}\" name=\"{id}\" type=\"{kind}\" autocomplete=\"{auto}\"",
+            " value=\"{value}\" required></p>\n"
+        ),
+        id = escape(id),
+        label = escape(label),
+        kind = kind,
+        auto = autocomplete,
+        value = escape(value),
+    )
+}
+
+fn form_page(
+    heading: &str,
+    action: &str,
+    token: &str,
+    fields: &str,
+    button: &str,
+    problem: Option<&str>,
+) -> String {
+    format!(
+        concat!(
+            "<h2>{heading}</h2>\n",
+            "{problem}",
+            "<form class=\"account-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "{fields}",
+            "<p><button type=\"submit\">{button}</button></p>\n",
+            "</form>\n"
+        ),
+        heading = escape(heading),
+        problem = problem_paragraph(problem),
+        action = escape(action),
+        token = escape(token),
+        fields = fields,
+        button = escape(button),
+    )
+}
+
 pub fn message(chrome: &Chrome, heading: &str, detail: &str) -> String {
     page(
         chrome,
