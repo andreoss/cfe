@@ -65,6 +65,154 @@ pub struct Comment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Hit {
+    Topic(Topic),
+    Comment(Comment),
+}
+
+impl Hit {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Topic(_) => "topic",
+            Self::Comment(_) => "comment",
+        }
+    }
+
+    pub fn subject(&self) -> Option<&Topic> {
+        match self {
+            Self::Topic(topic) => Some(topic),
+            Self::Comment(_) => None,
+        }
+    }
+
+    pub fn remark(&self) -> Option<&Comment> {
+        match self {
+            Self::Topic(_) => None,
+            Self::Comment(remark) => Some(remark),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Everything,
+    Topics,
+    Comments,
+}
+
+impl Scope {
+    pub const ALL: [Scope; 3] = [Self::Everything, Self::Topics, Self::Comments];
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "everything" => Some(Self::Everything),
+            "topics" => Some(Self::Topics),
+            "comments" => Some(Self::Comments),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Everything => "everything",
+            Self::Topics => "topics",
+            Self::Comments => "comments",
+        }
+    }
+
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::Everything => "Everything",
+            Self::Topics => "Subjects",
+            Self::Comments => "Remarks",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    Relevance,
+    Newest,
+    Oldest,
+}
+
+impl Order {
+    pub const ALL: [Order; 3] = [Self::Relevance, Self::Newest, Self::Oldest];
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "relevance" => Some(Self::Relevance),
+            "newest" => Some(Self::Newest),
+            "oldest" => Some(Self::Oldest),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Relevance => "relevance",
+            Self::Newest => "newest",
+            Self::Oldest => "oldest",
+        }
+    }
+
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::Relevance => "Best fit",
+            Self::Newest => "Newest first",
+            Self::Oldest => "Oldest first",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Criteria {
+    query: String,
+    scope: Scope,
+    order: Order,
+}
+
+impl Criteria {
+    pub fn new(query: &str, scope: Scope, order: Order) -> Self {
+        Self {
+            query: query.to_owned(),
+            scope,
+            order,
+        }
+    }
+
+    pub fn parse(query: &str, scope: Option<&str>, order: Option<&str>) -> Self {
+        Self::new(
+            query,
+            scope.and_then(Scope::parse).unwrap_or(Scope::Everything),
+            order.and_then(Order::parse).unwrap_or(Order::Relevance),
+        )
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+
+    pub fn order(&self) -> Order {
+        self.order
+    }
+}
+
+pub fn search_address(criteria: &Criteria) -> String {
+    format!(
+        "/api/search?q={}&scope={}&order={}",
+        encode_path(criteria.query()),
+        criteria.scope().label(),
+        criteria.order().label()
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct User {
     pub id: String,
     pub username: String,
@@ -308,6 +456,10 @@ impl ApiClient {
             None,
         )
         .await
+    }
+
+    pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
+        self.get(&search_address(criteria), None).await
     }
 
     pub async fn me(&self, session: Option<&str>) -> Result<Option<User>, ClientError> {
@@ -645,6 +797,58 @@ mod tests {
         );
         assert!(find_section(&sections, "general-2").is_none());
         assert!(find_section(&[], "general").is_none());
+    }
+
+    #[test]
+    fn every_narrowing_and_order_is_read_back_by_its_word_and_shown_in_words() {
+        for scope in Scope::ALL {
+            assert_eq!(Scope::parse(scope.label()), Some(scope));
+            assert!(!scope.words().is_empty());
+        }
+        for order in Order::ALL {
+            assert_eq!(Order::parse(order.label()), Some(order));
+            assert!(!order.words().is_empty());
+        }
+        assert_eq!(Scope::parse("everywhere"), None);
+        assert_eq!(Order::parse("loudest"), None);
+    }
+
+    #[test]
+    fn asking_for_nothing_in_particular_searches_everything_by_relevance() {
+        let criteria = Criteria::parse("adapters", None, None);
+        assert_eq!(
+            criteria,
+            Criteria::new("adapters", Scope::Everything, Order::Relevance)
+        );
+        assert_eq!(criteria.query(), "adapters");
+    }
+
+    #[test]
+    fn a_narrowing_it_does_not_know_falls_back_rather_than_breaking() {
+        assert_eq!(
+            Criteria::parse("adapters", Some("everywhere"), Some("loudest")),
+            Criteria::new("adapters", Scope::Everything, Order::Relevance)
+        );
+        assert_eq!(
+            Criteria::parse("adapters", Some("comments"), Some("oldest")),
+            Criteria::new("adapters", Scope::Comments, Order::Oldest)
+        );
+    }
+
+    #[test]
+    fn the_address_of_a_search_carries_all_three_and_keeps_the_words_inside_it() {
+        assert_eq!(
+            search_address(&Criteria::new("adapters", Scope::Topics, Order::Newest)),
+            "/api/search?q=adapters&scope=topics&order=newest"
+        );
+        assert_eq!(
+            search_address(&Criteria::new(
+                "a/b?c d",
+                Scope::Everything,
+                Order::Relevance
+            )),
+            "/api/search?q=a%2Fb%3Fc%20d&scope=everything&order=relevance"
+        );
     }
 
     #[test]
