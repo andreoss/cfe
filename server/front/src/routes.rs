@@ -26,6 +26,8 @@ pub fn router(app: App) -> Router {
         .route("/sections/{slug}/feed", get(section_feed))
         .route("/topics/{id}", get(topic))
         .route("/search", get(search))
+        .route("/archive", get(archive))
+        .route("/archive/{year}/{month}", get(archive_month))
         .route("/tags/{tag}", get(tag))
         .route("/tags/{tag}/feed", get(tag_feed))
         .route("/tags/{tag}/follow", post(follow_tag))
@@ -301,6 +303,67 @@ async fn search(
             &html::search_page(&criteria, hits.as_deref()),
         ),
     )
+}
+
+async fn archive(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/archive").await;
+    let session = session_of(&headers);
+    match app.archive(session.as_deref()).await {
+        Ok(months) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(&chrome, "Archive", &html::archive_page(&months)),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn archive_month(
+    State(app): State<App>,
+    Path((year, month)): Path<(i32, u8)>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = archive_address(year, month, number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let session = session_of(&headers);
+    match app
+        .archive_month(year, month, number, session.as_deref())
+        .await
+    {
+        Ok(Some(topics)) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                &html::month_title(year, month),
+                &html::archive_month_page(year, month, &topics),
+            ),
+        ),
+        Ok(None) => render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such month",
+                "This board holds no month at that address.",
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
 }
 
 async fn tag(
@@ -1162,6 +1225,15 @@ fn tag_address(name: &str, page: u32) -> String {
         format!("/tags/{}", client::encode_path(name))
     } else {
         format!("/tags/{}?page={}", client::encode_path(name), page)
+    }
+}
+
+fn archive_address(year: i32, month: u8, page: u32) -> String {
+    let address = html::archive_month_address(year, month);
+    if page <= 1 {
+        address
+    } else {
+        format!("{address}?page={page}")
     }
 }
 

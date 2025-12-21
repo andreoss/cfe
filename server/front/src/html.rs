@@ -1,7 +1,8 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject, Tag, Topic,
+    ArchiveMonth, Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject,
+    Tag, Topic,
 };
 
 pub fn escape(raw: &str) -> String {
@@ -97,6 +98,7 @@ fn wayfinding() -> String {
     concat!(
         "<nav class=\"ways\" aria-label=\"Wayfinding\">\n",
         "<a href=\"/search\">Search</a>\n",
+        "<a href=\"/archive\">Archive</a>\n",
         "</nav>\n",
     )
     .to_owned()
@@ -329,6 +331,87 @@ fn tag_links(tags: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+pub fn archive_page(months: &[ArchiveMonth]) -> String {
+    if months.is_empty() {
+        return concat!(
+            "<h2>Archive</h2>\n",
+            "<p class=\"empty\">Nothing has been written yet.</p>\n"
+        )
+        .to_owned();
+    }
+    let mut out = concat!(
+        "<h2>Archive</h2>\n",
+        "<table class=\"archive\">\n<caption>Months and the subjects written in them</caption>\n",
+        "<thead>\n<tr><th scope=\"col\">Month</th>",
+        "<th scope=\"col\">Subjects</th></tr>\n</thead>\n<tbody>\n"
+    )
+    .to_owned();
+    for month in months {
+        out.push_str(&format!(
+            "<tr><th scope=\"row\"><a href=\"{address}\">{name} {year}</a></th><td>{count}</td></tr>\n",
+            address = escape(&archive_month_address(month.year, month.month)),
+            name = month_name(month.month),
+            year = month.year,
+            count = escape(&subject_count(month.topics)),
+        ));
+    }
+    out.push_str("</tbody>\n</table>\n");
+    out
+}
+
+pub fn month_title(year: i32, month: u8) -> String {
+    format!("{} {}", month_name(month), year)
+}
+
+pub fn archive_month_page(year: i32, month: u8, topics: &Paged<Topic>) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>{name} {year}</h2>\n",
+            "<h3>{count}</h3>\n",
+            "<table class=\"topics\">\n<thead>\n<tr><th scope=\"col\">Subject</th>",
+            "<th scope=\"col\">Written by</th><th scope=\"col\">Written at</th>",
+            "<th scope=\"col\">Tags</th></tr>\n</thead>\n<tbody>\n"
+        ),
+        name = month_name(month),
+        year = year,
+        count = escape(&subject_count(topics.page.total)),
+    );
+    if topics.items.is_empty() {
+        out.push_str("<tr><td colspan=\"4\">No subject was written in this month.</td></tr>\n");
+    }
+    out.push_str(&topic_rows(&topics.items));
+    out.push_str("</tbody>\n</table>\n");
+    out.push_str(&archive_link());
+    out.push_str(&pager(&archive_month_address(year, month), &topics.page));
+    out
+}
+
+pub fn archive_month_address(year: i32, month: u8) -> String {
+    format!("/archive/{year}/{month}")
+}
+
+fn archive_link() -> String {
+    "<p class=\"back\"><a href=\"/archive\">The archive</a></p>\n".to_owned()
+}
+
+fn month_name(month: u8) -> &'static str {
+    match month {
+        1 => "January",
+        2 => "February",
+        3 => "March",
+        4 => "April",
+        5 => "May",
+        6 => "June",
+        7 => "July",
+        8 => "August",
+        9 => "September",
+        10 => "October",
+        11 => "November",
+        12 => "December",
+        _ => "",
+    }
 }
 
 pub fn search_page(criteria: &Criteria, hits: Option<&[Hit]>) -> String {

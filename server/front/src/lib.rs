@@ -6,8 +6,8 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, Avatar, ClientError, Comment, Criteria, Feed, Hit, Paged, Profile, RegisterBody,
-    Section, Session, Subject, Tag, Topic, User, encode_path, find_section,
+    ApiClient, ArchiveMonth, Avatar, ClientError, Comment, Criteria, Feed, Hit, Paged, Profile,
+    RegisterBody, Section, Session, Subject, Tag, Topic, User, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -65,6 +65,24 @@ impl App {
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.client.search(criteria).await
+    }
+
+    pub async fn archive(&self, session: Option<&str>) -> Result<Vec<ArchiveMonth>, ClientError> {
+        self.client.archive(session).await
+    }
+
+    pub async fn archive_month(
+        &self,
+        year: i32,
+        month: u8,
+        page: u32,
+        session: Option<&str>,
+    ) -> Result<Option<Paged<Topic>>, ClientError> {
+        match self.client.archive_month(year, month, page, session).await {
+            Ok(topics) => Ok(Some(topics)),
+            Err(error) if matches!(error.status(), Some(404 | 422)) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
