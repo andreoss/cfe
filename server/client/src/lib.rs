@@ -65,6 +65,140 @@ pub struct Comment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Version {
+    pub id: String,
+    pub title: Option<String>,
+    pub body: String,
+    pub editor: String,
+    pub written_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Change {
+    pub kind: String,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NewSubject {
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub group: Option<String>,
+    pub challenge: Option<String>,
+    pub draft: bool,
+}
+
+impl NewSubject {
+    pub fn new(title: &str, body: &str) -> Self {
+        Self {
+            title: title.to_owned(),
+            body: body.to_owned(),
+            tags: Vec::new(),
+            group: None,
+            challenge: None,
+            draft: false,
+        }
+    }
+
+    pub fn tags(mut self, tags: &[&str]) -> Self {
+        self.tags = tags.iter().map(|tag| (*tag).to_owned()).collect();
+        self
+    }
+
+    pub fn group(mut self, slug: &str) -> Self {
+        self.group = Some(slug.to_owned());
+        self
+    }
+
+    pub fn challenge(mut self, answer: &str) -> Self {
+        self.challenge = Some(answer.to_owned());
+        self
+    }
+
+    pub fn draft(mut self) -> Self {
+        self.draft = true;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NewRemark {
+    pub body: String,
+    pub parent_id: Option<String>,
+    pub challenge: Option<String>,
+}
+
+impl NewRemark {
+    pub fn new(body: &str) -> Self {
+        Self {
+            body: body.to_owned(),
+            parent_id: None,
+            challenge: None,
+        }
+    }
+
+    pub fn reply_to(mut self, parent_id: &str) -> Self {
+        self.parent_id = Some(parent_id.to_owned());
+        self
+    }
+
+    pub fn challenge(mut self, answer: &str) -> Self {
+        self.challenge = Some(answer.to_owned());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubjectEdit {
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub minor: bool,
+}
+
+impl SubjectEdit {
+    pub fn new(title: &str, body: &str) -> Self {
+        Self {
+            title: title.to_owned(),
+            body: body.to_owned(),
+            tags: Vec::new(),
+            minor: false,
+        }
+    }
+
+    pub fn tags(mut self, tags: &[&str]) -> Self {
+        self.tags = tags.iter().map(|tag| (*tag).to_owned()).collect();
+        self
+    }
+
+    pub fn minor(mut self) -> Self {
+        self.minor = true;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Removal {
+    pub reason: String,
+    pub penalty: Option<i32>,
+}
+
+impl Removal {
+    pub fn new(reason: &str) -> Self {
+        Self {
+            reason: reason.to_owned(),
+            penalty: None,
+        }
+    }
+
+    pub fn penalty(mut self, penalty: i32) -> Self {
+        self.penalty = Some(penalty);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Hit {
     Topic(Topic),
@@ -506,6 +640,130 @@ impl ApiClient {
         .await
     }
 
+    pub async fn create_topic(
+        &self,
+        session: &str,
+        slug: &str,
+        body: &NewSubject,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/sections/{}/topics", encode_path(slug));
+        json_of(self.post(&path, body, Some(session)).await?).await
+    }
+
+    pub async fn create_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        body: &NewRemark,
+    ) -> Result<Comment, ClientError> {
+        let path = format!("/api/topics/{}/comments", encode_path(topic_id));
+        json_of(self.post(&path, body, Some(session)).await?).await
+    }
+
+    pub async fn edit_topic(
+        &self,
+        session: &str,
+        id: &str,
+        body: &SubjectEdit,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}", encode_path(id));
+        json_of(self.patch(&path, body, Some(session)).await?).await
+    }
+
+    pub async fn edit_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        body: &str,
+    ) -> Result<Comment, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        json_of(
+            self.patch(&path, &RemarkEdit { body }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn delete_topic(
+        &self,
+        session: &str,
+        id: &str,
+        body: &Removal,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/delete", encode_path(id));
+        json_of(self.post(&path, body, Some(session)).await?).await
+    }
+
+    pub async fn restore_topic(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/restore", encode_path(id));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn delete_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        body: &Removal,
+    ) -> Result<Comment, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/delete",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        json_of(self.post(&path, body, Some(session)).await?).await
+    }
+
+    pub async fn restore_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Comment, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/restore",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
+        self.get(&format!("/api/topics/{}/history", encode_path(id)), None)
+            .await
+    }
+
+    pub async fn comment_history(
+        &self,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Vec<Version>, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/history",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        self.get(&path, None).await
+    }
+
+    pub async fn topic_difference(
+        &self,
+        id: &str,
+        version_id: &str,
+    ) -> Result<Vec<Change>, ClientError> {
+        let path = format!(
+            "/api/topics/{}/history/{}",
+            encode_path(id),
+            encode_path(version_id)
+        );
+        self.get(&path, None).await
+    }
+
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.get(&search_address(criteria), None).await
     }
@@ -931,6 +1189,20 @@ struct SignInBody {
 
 #[derive(Serialize)]
 struct Nothing {}
+
+#[derive(Serialize)]
+struct RemarkEdit<'a> {
+    body: &'a str,
+}
+
+async fn json_of<T: for<'de> Deserialize<'de>>(
+    response: reqwest::Response,
+) -> Result<T, ClientError> {
+    response
+        .json()
+        .await
+        .map_err(|e| ClientError::Detail(e.to_string()))
+}
 
 #[derive(Deserialize)]
 struct Refusal {
