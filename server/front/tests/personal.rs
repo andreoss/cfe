@@ -45,6 +45,18 @@ const NOTICES_READ: &str = concat!(
     "\"has_next\":false,\"has_previous\":false}}"
 );
 
+const NOTICES_WATCHED: &str = concat!(
+    "{\"items\":[",
+    "{\"id\":\"22222222-2222-2222-2222-222222222222\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"topic_title\":\"Ports and adapters\",",
+    "\"comment_id\":\"33333333-3333-3333-3333-333333333333\",",
+    "\"actor_username\":\"bob\",\"created_at\":\"2024-06-08T09:08:07Z\",",
+    "\"read\":false,\"kind\":\"watch\"}],",
+    "\"page\":{\"number\":1,\"size\":20,\"total\":1,\"total_pages\":1,",
+    "\"has_next\":false,\"has_previous\":false}}"
+);
+
 const NO_NOTICES: &str = concat!(
     "{\"items\":[],",
     "\"page\":{\"number\":1,\"size\":20,\"total\":0,\"total_pages\":1,",
@@ -505,6 +517,14 @@ async fn the_tags_an_account_follows_are_carried_with_the_way_to_them() {
         page.contains("<a href=\"/tags/adapters\">adapters</a>"),
         "{page}"
     );
+}
+
+#[tokio::test]
+async fn a_notice_about_a_remark_says_what_was_done() {
+    let (board_url, _) = board_full(KEPT, "200 OK", NOTICES_WATCHED, NO_TAGS).await;
+    let base = front(&board_url).await;
+    let page = signed_page(&base, "/notifications").await;
+    assert!(page.contains("remarked in"), "{page}");
 }
 
 #[tokio::test]

@@ -517,6 +517,7 @@ fn notice_words(kind: &str) -> String {
     match kind {
         "reply" => "answered".to_owned(),
         "comment" => "remarked".to_owned(),
+        "watch" => "remarked".to_owned(),
         "mention" => "named this account".to_owned(),
         other => other.to_owned(),
     }
