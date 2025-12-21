@@ -1,8 +1,8 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    ArchiveMonth, Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject,
-    Tag, Topic,
+    ArchiveMonth, Comment, Criteria, Hit, Notification, Order, PageInfo, Paged, Profile, Scope,
+    Section, Subject, Tag, Topic,
 };
 
 pub fn escape(raw: &str) -> String {
@@ -106,6 +106,7 @@ fn wayfinding(chrome: &Chrome) -> String {
         out.push_str(concat!(
             "<a href=\"/bookmarks\">Bookmarks</a>\n",
             "<a href=\"/watched\">Watched</a>\n",
+            "<a href=\"/notifications\">Notifications</a>\n",
         ));
     }
     out.push_str("</nav>\n");
@@ -431,6 +432,94 @@ pub fn bookmarks_page(topics: &Paged<Topic>) -> String {
 
 pub fn watched_page(topics: &Paged<Topic>) -> String {
     kept_page("Watched", "/watched", "Nothing is watched yet.", topics)
+}
+
+pub fn notifications_page(
+    notices: &Paged<Notification>,
+    tags: &[String],
+    chrome: &Chrome,
+) -> String {
+    let mut out = format!(
+        "<h2>Notifications</h2>\n<h3>{count}</h3>\n",
+        count = escape(&notice_count(notices.page.total)),
+    );
+    if notices.items.is_empty() {
+        out.push_str("<p class=\"empty\">Nothing has happened yet.</p>\n");
+    } else {
+        out.push_str("<ol class=\"notices\">\n");
+        for notice in &notices.items {
+            out.push_str(&notice_item(notice, chrome));
+        }
+        out.push_str("</ol>\n");
+        out.push_str(&pager("/notifications", &notices.page));
+    }
+    out.push_str("<h3>Followed tags</h3>\n");
+    if tags.is_empty() {
+        out.push_str("<p class=\"empty\">No tag is followed yet.</p>\n");
+    } else {
+        out.push_str(&format!(
+            "<ul class=\"followed\">\n<li>{}</li>\n</ul>\n",
+            tags.iter()
+                .map(|tag| format!(
+                    "<a href=\"/tags/{tag}\">{shown}</a>",
+                    tag = escape(tag),
+                    shown = escape(tag),
+                ))
+                .collect::<Vec<_>>()
+                .join("</li>\n<li>")
+        ));
+    }
+    out
+}
+
+fn notice_count(total: u64) -> String {
+    match total {
+        0 => "No notifications".to_owned(),
+        1 => "1 notification".to_owned(),
+        other => format!("{other} notifications"),
+    }
+}
+
+fn notice_item(notice: &Notification, chrome: &Chrome) -> String {
+    let mut out = format!(
+        concat!(
+            "<li class=\"notice {state}\">\n",
+            "<p class=\"what\"><span class=\"actor\">{actor}</span> {did} in ",
+            "<a href=\"/topics/{topic}\">{title}</a></p>\n",
+            "<time datetime=\"{stamp}\">{shown}</time>\n",
+        ),
+        state = if notice.read { "read" } else { "unread" },
+        actor = escape(&notice.actor_username),
+        did = escape(&notice_words(&notice.kind)),
+        topic = escape(&notice.topic_id),
+        title = escape(&notice.topic_title),
+        stamp = escape(&notice.created_at),
+        shown = escape(&shown_date(&notice.created_at)),
+    );
+    if !notice.read {
+        out.push_str(&format!(
+            concat!(
+                "<form class=\"mark-read\" method=\"post\" ",
+                "action=\"/notifications/{id}/read\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<button type=\"submit\">Mark read</button>\n",
+                "</form>\n",
+            ),
+            id = escape(&notice.id),
+            token = escape(&chrome.token),
+        ));
+    }
+    out.push_str("</li>\n");
+    out
+}
+
+fn notice_words(kind: &str) -> String {
+    match kind {
+        "reply" => "answered".to_owned(),
+        "comment" => "remarked".to_owned(),
+        "mention" => "named this account".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 fn kept_page(heading: &str, address: &str, empty: &str, topics: &Paged<Topic>) -> String {

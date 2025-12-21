@@ -6,8 +6,9 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ArchiveMonth, Avatar, ClientError, Comment, Criteria, Feed, Hit, Paged, Profile,
-    RegisterBody, Section, Session, Subject, Tag, Topic, User, encode_path, find_section,
+    ApiClient, ArchiveMonth, Avatar, ClientError, Comment, Criteria, Feed, Hit, Notification,
+    Paged, Profile, RegisterBody, Section, Session, Subject, Tag, Topic, User, encode_path,
+    find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -91,6 +92,22 @@ impl App {
 
     pub async fn watched(&self, session: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
         self.client.watched(session, page).await
+    }
+
+    pub async fn followed_tags(&self, session: &str) -> Result<Vec<String>, ClientError> {
+        self.client.followed_tags(session).await
+    }
+
+    pub async fn notifications(
+        &self,
+        session: &str,
+        page: u32,
+    ) -> Result<Paged<Notification>, ClientError> {
+        self.client.notifications(session, page).await
+    }
+
+    pub async fn mark_read(&self, session: &str, id: &str) -> Result<(), ClientError> {
+        self.client.mark_read(session, id).await
     }
 
     pub async fn activity(&self, session: Option<&str>) -> Result<Vec<Hit>, ClientError> {

@@ -31,6 +31,8 @@ pub fn router(app: App) -> Router {
         .route("/activity", get(activity))
         .route("/bookmarks", get(bookmarks))
         .route("/watched", get(watched))
+        .route("/notifications", get(notifications))
+        .route("/notifications/{id}/read", post(read_notification))
         .route("/tags/{tag}", get(tag))
         .route("/tags/{tag}/feed", get(tag_feed))
         .route("/tags/{tag}/follow", post(follow_tag))
@@ -396,6 +398,76 @@ async fn watched(
             &guard,
             StatusCode::SERVICE_UNAVAILABLE,
             unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn notifications(
+    State(app): State<App>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = kept_address("/notifications", number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/notifications");
+    };
+    let notices = match app.notifications(&session, number).await {
+        Ok(notices) => notices,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    match app.followed_tags(&session).await {
+        Ok(tags) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                "Notifications",
+                &html::notifications_page(&notices, &tags, &chrome),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn read_notification(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/notifications").await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/notifications");
+    };
+    match app.mark_read(&session, &id).await {
+        Ok(()) => went(&guard, &None, "/notifications"),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(
+                &chrome,
+                "The notice was not marked read",
+                &error.to_string(),
+            ),
         ),
     }
 }
