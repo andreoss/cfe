@@ -220,6 +220,13 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ArchiveMonth {
+    pub year: i32,
+    pub month: u8,
+    pub topics: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Tag {
     pub slug: String,
     pub description: Option<String>,
@@ -484,6 +491,25 @@ impl ApiClient {
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.get(&search_address(criteria), None).await
+    }
+
+    pub async fn archive(&self, session: Option<&str>) -> Result<Vec<ArchiveMonth>, ClientError> {
+        self.get("/api/archive", session).await
+    }
+
+    pub async fn archive_month(
+        &self,
+        year: i32,
+        month: u8,
+        page: u32,
+        session: Option<&str>,
+    ) -> Result<Paged<Topic>, ClientError> {
+        self.get(&format!("/api/archive/{year}/{month}?page={page}"), session)
+            .await
+    }
+
+    pub async fn activity(&self, session: Option<&str>) -> Result<Vec<Hit>, ClientError> {
+        self.get("/api/activity", session).await
     }
 
     pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
