@@ -7,7 +7,7 @@ pub mod token;
 
 use client::{
     ApiClient, Avatar, ClientError, Comment, Criteria, Hit, Paged, Profile, RegisterBody, Section,
-    Session, Subject, Topic, User, encode_path, find_section,
+    Session, Subject, Tag, Topic, User, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -65,6 +65,38 @@ impl App {
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.client.search(criteria).await
+    }
+
+    pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
+        self.client.tag(name, session).await
+    }
+
+    pub async fn tag_topics(&self, name: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.client.tag_topics(name, page).await
+    }
+
+    pub async fn follow_tag(&self, session: &str, name: &str) -> Result<(), ClientError> {
+        self.client.follow_tag(session, name).await
+    }
+
+    pub async fn unfollow_tag(&self, session: &str, name: &str) -> Result<(), ClientError> {
+        self.client.unfollow_tag(session, name).await
+    }
+
+    pub async fn describe_tag(
+        &self,
+        session: &str,
+        name: &str,
+        words: Option<&str>,
+        means: Option<&str>,
+    ) -> Result<(), ClientError> {
+        if let Some(words) = words {
+            self.client.describe_tag(session, name, words).await?;
+        }
+        if let Some(means) = means {
+            self.client.say_means(session, name, means).await?;
+        }
+        Ok(())
     }
 
     pub async fn account(&self, session: &str) -> Option<User> {

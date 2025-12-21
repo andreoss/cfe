@@ -1,7 +1,7 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject, Topic,
+    Comment, Criteria, Hit, Order, PageInfo, Paged, Profile, Scope, Section, Subject, Tag, Topic,
 };
 
 pub fn escape(raw: &str) -> String {
@@ -156,7 +156,18 @@ pub fn topic_list(section: &Section, topics: &Paged<Topic>) -> String {
     if topics.items.is_empty() {
         out.push_str("<tr><td colspan=\"4\">No subjects here yet.</td></tr>\n");
     }
-    for topic in &topics.items {
+    out.push_str(&topic_rows(&topics.items));
+    out.push_str("</tbody>\n</table>\n");
+    out.push_str(&pager(
+        &format!("/sections/{}", client::encode_path(&section.slug)),
+        &topics.page,
+    ));
+    out
+}
+
+fn topic_rows(topics: &[Topic]) -> String {
+    let mut out = String::new();
+    for topic in topics {
         out.push_str(&format!(
             "<tr><th scope=\"row\"><a href=\"/topics/{id}\">{title}</a>{marks}</th><td>{author}</td><td><time datetime=\"{stamp}\">{shown}</time></td><td>{tags}</td></tr>\n",
             id = escape(&topic.id),
@@ -168,12 +179,83 @@ pub fn topic_list(section: &Section, topics: &Paged<Topic>) -> String {
             tags = tag_links(&topic.tags),
         ));
     }
+    out
+}
+
+pub fn tag_page(tag: &Tag, topics: &Paged<Topic>, chrome: &Chrome) -> String {
+    let mut out = format!("<h2>{slug}</h2>\n", slug = escape(&tag.slug),);
+    if let Some(words) = tag.description.as_deref() {
+        out.push_str(&format!(
+            "<p class=\"tag-words\">{words}</p>\n",
+            words = escape(words),
+        ));
+    }
+    if let Some(means) = tag.means.as_deref() {
+        out.push_str(&format!(
+            concat!("<p class=\"tag-means\">Means <a href=\"/tags/{means}\">{shown}</a>.</p>\n",),
+            means = escape(means),
+            shown = escape(means),
+        ));
+    }
+    if chrome.account_name().is_some() {
+        out.push_str(&follow_form(chrome, tag));
+        out.push_str(&describe_form(chrome, tag));
+    }
+    out.push_str(&format!(
+        "<h3>{count}</h3>\n",
+        count = escape(&subject_count(topics.page.total))
+    ));
+    out.push_str("<table class=\"topics\">\n<thead>\n<tr><th scope=\"col\">Subject</th><th scope=\"col\">Written by</th><th scope=\"col\">Written at</th><th scope=\"col\">Tags</th></tr>\n</thead>\n<tbody>\n");
+    if topics.items.is_empty() {
+        out.push_str("<tr><td colspan=\"4\">No subject carries this tag yet.</td></tr>\n");
+    }
+    out.push_str(&topic_rows(&topics.items));
     out.push_str("</tbody>\n</table>\n");
     out.push_str(&pager(
-        &format!("/sections/{}", client::encode_path(&section.slug)),
+        &format!("/tags/{}", client::encode_path(&tag.slug)),
         &topics.page,
     ));
     out
+}
+
+fn follow_form(chrome: &Chrome, tag: &Tag) -> String {
+    format!(
+        concat!(
+            "<form class=\"follow\" method=\"post\" action=\"/tags/{slug}/{doing}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<button type=\"submit\">{words}</button>\n",
+            "</form>\n",
+        ),
+        slug = escape(&tag.slug),
+        doing = if tag.following { "unfollow" } else { "follow" },
+        token = escape(&chrome.token),
+        words = if tag.following {
+            "Leave this tag"
+        } else {
+            "Follow this tag"
+        },
+    )
+}
+
+fn describe_form(chrome: &Chrome, tag: &Tag) -> String {
+    format!(
+        concat!(
+            "<form class=\"describe\" method=\"post\" action=\"/tags/{slug}/describe\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"description\">What it is for</label>\n",
+            "<input id=\"description\" name=\"description\" type=\"text\" ",
+            "value=\"{words}\" maxlength=\"200\"></p>\n",
+            "<p><label for=\"means\">The tag it means</label>\n",
+            "<input id=\"means\" name=\"means\" type=\"text\" value=\"{means}\" ",
+            "maxlength=\"64\"></p>\n",
+            "<p><button type=\"submit\">Say it</button></p>\n",
+            "</form>\n",
+        ),
+        slug = escape(&tag.slug),
+        token = escape(&chrome.token),
+        words = escape(tag.description.as_deref().unwrap_or("")),
+        means = escape(tag.means.as_deref().unwrap_or("")),
+    )
 }
 
 fn subject_count(total: u64) -> String {

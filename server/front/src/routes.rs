@@ -25,6 +25,10 @@ pub fn router(app: App) -> Router {
         .route("/sections/{slug}", get(section))
         .route("/topics/{id}", get(topic))
         .route("/search", get(search))
+        .route("/tags/{tag}", get(tag))
+        .route("/tags/{tag}/follow", post(follow_tag))
+        .route("/tags/{tag}/unfollow", post(unfollow_tag))
+        .route("/tags/{tag}/describe", post(describe_tag))
         .route("/register", get(register_form).post(register))
         .route("/sign-in", get(sign_in_form).post(sign_in))
         .route("/sign-out", post(sign_out))
@@ -219,6 +223,142 @@ async fn search(
             &html::search_page(&criteria, hits.as_deref()),
         ),
     )
+}
+
+async fn tag(
+    State(app): State<App>,
+    Path(name): Path<String>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = tag_address(&name, number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let session = session_of(&headers);
+    let record = match app.tag(&name, session.as_deref()).await {
+        Ok(record) => record,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    match app.tag_topics(&name, number).await {
+        Ok(topics) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                &record.slug,
+                &html::tag_page(&record, &topics, &chrome),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn follow_tag(
+    State(app): State<App>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = tag_address(&name, 1);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    match app.follow_tag(&session, &name).await {
+        Ok(()) => went(&guard, &None, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&chrome, "The tag was not taken up", &error.to_string()),
+        ),
+    }
+}
+
+async fn unfollow_tag(
+    State(app): State<App>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = tag_address(&name, 1);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    match app.unfollow_tag(&session, &name).await {
+        Ok(()) => went(&guard, &None, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&chrome, "The tag was not left", &error.to_string()),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DescribeForm {
+    token: Option<String>,
+    description: Option<String>,
+    means: Option<String>,
+}
+
+async fn describe_tag(
+    State(app): State<App>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<DescribeForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = tag_address(&name, 1);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let words = nonempty(form.description.as_deref());
+    let means = nonempty(form.means.as_deref());
+    match app
+        .describe_tag(&session, &name, words.as_deref(), means.as_deref())
+        .await
+    {
+        Ok(()) => went(&guard, &None, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&chrome, "The words were not kept", &error.to_string()),
+        ),
+    }
+}
+
+fn nonempty(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|words| !words.is_empty())
+        .map(|words| words.to_owned())
 }
 
 async fn profile(
@@ -937,6 +1077,14 @@ fn topic_address(id: &str, page: u32) -> String {
 
 fn profile_address(username: &str) -> String {
     format!("/u/{}", client::encode_path(username))
+}
+
+fn tag_address(name: &str, page: u32) -> String {
+    if page <= 1 {
+        format!("/tags/{}", client::encode_path(name))
+    } else {
+        format!("/tags/{}?page={}", client::encode_path(name), page)
+    }
 }
 
 fn section_address(slug: &str, page: u32) -> String {

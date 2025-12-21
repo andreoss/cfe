@@ -483,6 +483,58 @@ impl ApiClient {
         .await
     }
 
+    pub async fn follow_tag(&self, session: &str, name: &str) -> Result<(), ClientError> {
+        let path = format!("/api/tags/{}/follow", encode_path(name));
+        self.post(&path, &Nothing {}, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn unfollow_tag(&self, session: &str, name: &str) -> Result<(), ClientError> {
+        let path = format!("/api/tags/{}/follow", encode_path(name));
+        self.delete(&path, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn describe_tag(
+        &self,
+        session: &str,
+        name: &str,
+        words: &str,
+    ) -> Result<Tag, ClientError> {
+        let body = DescribeBody { description: words };
+        let response = self
+            .patch(
+                &format!("/api/tags/{}", encode_path(name)),
+                &body,
+                Some(session),
+            )
+            .await?;
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
+    pub async fn say_means(
+        &self,
+        session: &str,
+        name: &str,
+        means: &str,
+    ) -> Result<Tag, ClientError> {
+        let body = MeansBody { means };
+        let response = self
+            .post(
+                &format!("/api/tags/{}/means", encode_path(name)),
+                &body,
+                Some(session),
+            )
+            .await?;
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
     pub async fn me(&self, session: Option<&str>) -> Result<Option<User>, ClientError> {
         self.get("/api/me", session).await
     }
@@ -669,6 +721,21 @@ impl ApiClient {
         Ok(response)
     }
 
+    async fn delete(
+        &self,
+        path: &str,
+        session: Option<&str>,
+    ) -> Result<reqwest::Response, ClientError> {
+        let response = self
+            .send(self.http.delete(self.address(path)), session)
+            .await?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        Ok(response)
+    }
+
     fn address(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
@@ -703,6 +770,16 @@ struct ChangePasswordBody<'a> {
 #[derive(Serialize)]
 struct EmailBody<'a> {
     email: &'a str,
+}
+
+#[derive(Serialize)]
+struct DescribeBody<'a> {
+    description: &'a str,
+}
+
+#[derive(Serialize)]
+struct MeansBody<'a> {
+    means: &'a str,
 }
 
 #[derive(Serialize)]

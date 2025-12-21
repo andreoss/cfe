@@ -219,6 +219,77 @@ async fn a_tag_nobody_used_answers_with_an_empty_page() {
     assert_eq!(page.page.total, 0);
 }
 
+#[tokio::test]
+async fn following_a_tag_is_a_post_with_the_session() {
+    let (base, log) = board(answer("200 OK", &["content-type: application/json"], TAG)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.follow_tag("token", "rust").await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/tags/rust/follow "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn leaving_a_tag_drops_the_following_of_it() {
+    let (base, log) = board(answer("200 OK", &["content-type: application/json"], TAG)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.unfollow_tag("token", "rust").await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("DELETE /api/tags/rust/follow "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn saying_what_a_tag_is_for_carries_the_words_and_the_session() {
+    let (base, log) = board(answer("200 OK", &["content-type: application/json"], TAG)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client
+        .describe_tag("token", "rust", "The rust language")
+        .await
+        .unwrap();
+    let request = log.last();
+    assert!(request.starts_with("PATCH /api/tags/rust "), "{request}");
+    assert!(request.contains("cookie: session=token"), "{request}");
+    assert!(request.contains("The rust language"), "{request}");
+}
+
+#[tokio::test]
+async fn saying_what_a_tag_means_carries_the_tag_it_means() {
+    let (base, log) = board(answer("200 OK", &["content-type: application/json"], TAG)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.say_means("token", "rust", "systems").await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/tags/rust/means "),
+        "{request}"
+    );
+    assert!(request.contains("\"means\":\"systems\""), "{request}");
+}
+
+#[tokio::test]
+async fn a_following_the_board_refuses_keeps_its_reason() {
+    let (base, _) = board(answer(
+        "403 Forbidden",
+        &["content-type: application/json"],
+        "{\"error\":\"not authorized\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    match client.follow_tag("token", "rust").await {
+        Err(ClientError::Rejected { status, reason }) => {
+            assert_eq!(status, 403);
+            assert_eq!(reason, "not authorized");
+        }
+        other => panic!("a refused following must keep its reason: {other:?}"),
+    }
+}
+
 #[test]
 fn a_tag_keeps_the_address_it_was_asked_for_and_the_words_it_was_given() {
     let tag = Tag {
