@@ -220,6 +220,23 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Notification {
+    pub id: String,
+    pub topic_id: String,
+    pub topic_title: String,
+    pub comment_id: String,
+    pub actor_username: String,
+    pub created_at: String,
+    pub read: bool,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UnreadCount {
+    pub unread: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ArchiveMonth {
     pub year: i32,
     pub month: u8,
@@ -510,6 +527,40 @@ impl ApiClient {
 
     pub async fn activity(&self, session: Option<&str>) -> Result<Vec<Hit>, ClientError> {
         self.get("/api/activity", session).await
+    }
+
+    pub async fn bookmarks(&self, session: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.get(&format!("/api/bookmarks?page={page}"), Some(session))
+            .await
+    }
+
+    pub async fn watched(&self, session: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.get(&format!("/api/watched?page={page}"), Some(session))
+            .await
+    }
+
+    pub async fn followed_tags(&self, session: &str) -> Result<Vec<String>, ClientError> {
+        self.get("/api/followed-tags", Some(session)).await
+    }
+
+    pub async fn notifications(
+        &self,
+        session: &str,
+        page: u32,
+    ) -> Result<Paged<Notification>, ClientError> {
+        self.get(&format!("/api/notifications?page={page}"), Some(session))
+            .await
+    }
+
+    pub async fn unread_count(&self, session: &str) -> Result<UnreadCount, ClientError> {
+        self.get("/api/notifications/unread-count", Some(session))
+            .await
+    }
+
+    pub async fn mark_read(&self, session: &str, id: &str) -> Result<(), ClientError> {
+        let path = format!("/api/notifications/{}/read", encode_path(id));
+        self.post(&path, &Nothing {}, Some(session)).await?;
+        Ok(())
     }
 
     pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
