@@ -28,6 +28,7 @@ pub fn router(app: App) -> Router {
         .route("/search", get(search))
         .route("/archive", get(archive))
         .route("/archive/{year}/{month}", get(archive_month))
+        .route("/activity", get(activity))
         .route("/tags/{tag}", get(tag))
         .route("/tags/{tag}/feed", get(tag_feed))
         .route("/tags/{tag}/follow", post(follow_tag))
@@ -315,6 +316,25 @@ async fn archive(State(app): State<App>, headers: HeaderMap) -> Response {
             &guard,
             StatusCode::OK,
             html::page(&chrome, "Archive", &html::archive_page(&months)),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn activity(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/activity").await;
+    let session = session_of(&headers);
+    match app.activity(session.as_deref()).await {
+        Ok(hits) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(&chrome, "Activity", &html::activity_page(&hits)),
         ),
         Err(error) => render(
             &guard,

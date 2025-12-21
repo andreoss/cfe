@@ -29,6 +29,21 @@ const NO_SUBJECTS: &str = concat!(
     "\"has_next\":false,\"has_previous\":false}}"
 );
 
+const ACTIVITY: &str = concat!(
+    "[",
+    "{\"kind\":\"topic\",\"id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"section_slug\":\"general\",\"title\":\"Ports and adapters\",",
+    "\"author_username\":\"alice\",\"created_at\":\"2024-06-07T10:11:12Z\",",
+    "\"tags\":[\"rust\"],\"sticky\":false,\"resolved\":false,\"deleted\":false,",
+    "\"pending\":false,\"draft\":false,\"postscore\":2},",
+    "{\"kind\":\"comment\",\"id\":\"33333333-3333-3333-3333-333333333333\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",\"parent_id\":null,",
+    "\"body\":\"Adapters keep the domain clean\",\"author_username\":\"bob\",",
+    "\"created_at\":\"2024-06-08T09:08:07Z\",\"deleted\":false,",
+    "\"deleted_reason\":null,\"edited\":false,\"ignored\":false}",
+    "]"
+);
+
 const USER: &str = "{\"id\":\"9\",\"username\":\"alice\",\"role\":\"user\"}";
 
 #[derive(Clone)]
@@ -41,13 +56,22 @@ impl Log {
 }
 
 async fn board(months: &'static str, subjects: &'static str) -> (String, Log) {
-    board_with(months, subjects, "200 OK").await
+    board_with_activity(months, subjects, "200 OK", ACTIVITY).await
 }
 
 async fn board_with(
     months: &'static str,
     subjects: &'static str,
     month_answer: &'static str,
+) -> (String, Log) {
+    board_with_activity(months, subjects, month_answer, ACTIVITY).await
+}
+
+async fn board_with_activity(
+    months: &'static str,
+    subjects: &'static str,
+    month_answer: &'static str,
+    activity: &'static str,
 ) -> (String, Log) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -77,6 +101,7 @@ async fn board_with(
                 let (answer, body) = match path.as_str() {
                     "/api/me" => ("200 OK", USER),
                     "/api/sections" => ("200 OK", "[]"),
+                    "/api/activity" => ("200 OK", activity),
                     "/api/archive" => ("200 OK", months),
                     other if other.starts_with("/api/archive/") => (month_answer, subjects),
                     _ => ("404 Not Found", "{\"error\":\"not found\"}"),
@@ -320,6 +345,106 @@ async fn the_way_to_the_archive_is_offered_from_every_page() {
     let base = front(&board_url).await;
     let page = page(&base, "/").await;
     assert!(page.contains("<a href=\"/archive\">Archive</a>"), "{page}");
+}
+
+#[tokio::test]
+async fn an_activity_page_asks_the_board_for_what_was_written_last() {
+    let (board_url, log) = board(MONTHS, SUBJECTS).await;
+    let base = front(&board_url).await;
+    page(&base, "/activity").await;
+    assert_eq!(log.calls(), vec!["GET /api/activity".to_owned()]);
+}
+
+#[tokio::test]
+async fn the_activity_is_read_with_the_session_when_one_is_held() {
+    let (board_url, log) = board(MONTHS, SUBJECTS).await;
+    let base = front(&board_url).await;
+    signed_page(&base, "/activity").await;
+    assert!(
+        log.calls().contains(&"GET /api/activity".to_owned()),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn an_activity_page_carries_subjects_and_remarks_in_one_list() {
+    let (board_url, _) = board(MONTHS, SUBJECTS).await;
+    let base = front(&board_url).await;
+    let page = page(&base, "/activity").await;
+    assert!(page.contains("<h2>Activity</h2>"), "{page}");
+    assert!(page.contains("<h3>2 entries</h3>"), "{page}");
+    assert!(
+        page.contains(
+            "<a href=\"/topics/11111111-1111-1111-1111-111111111111\">Ports and adapters</a>"
+        ),
+        "{page}"
+    );
+    assert!(page.contains("Adapters keep the domain clean"), "{page}");
+    assert!(page.contains(">bob<"), "{page}");
+    assert!(
+        page.contains("<time datetime=\"2024-06-08T09:08:07Z\">2024-06-08 09:08</time>"),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn an_activity_page_with_nothing_says_so() {
+    let (board_url, _) = board_with_activity(MONTHS, NO_SUBJECTS, "200 OK", "[]").await;
+    let base = front(&board_url).await;
+    let page = page(&base, "/activity").await;
+    assert!(page.contains("<h3>0 entries</h3>"), "{page}");
+    assert!(page.contains("Nothing has been written yet."), "{page}");
+}
+
+#[tokio::test]
+async fn a_board_that_refuses_the_activity_gives_a_page_not_a_crash() {
+    let (board_url, _) =
+        board_with_activity(MONTHS, NO_SUBJECTS, "200 OK", "{\"error\":\"broken\"}").await;
+    let base = front(&board_url).await;
+    let response = http().get(format!("{base}/activity")).send().await.unwrap();
+    assert_eq!(response.status(), 503);
+    assert!(
+        response
+            .text()
+            .await
+            .unwrap()
+            .contains("The board is not answering")
+    );
+}
+
+#[tokio::test]
+async fn the_way_to_the_activity_is_offered_from_the_archive() {
+    let (board_url, _) = board(MONTHS, SUBJECTS).await;
+    let base = front(&board_url).await;
+    let page = page(&base, "/archive").await;
+    assert!(
+        page.contains("<a href=\"/activity\">Activity</a>"),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn the_words_of_the_activity_stay_words() {
+    let (board_url, _) = board_with_activity(
+        MONTHS,
+        NO_SUBJECTS,
+        "200 OK",
+        concat!(
+            "[{\"kind\":\"comment\",\"id\":\"3\",\"topic_id\":\"1\",\"parent_id\":null,",
+            "\"body\":\"<script>alert(1)</script>\",\"author_username\":\"bob\",",
+            "\"created_at\":\"2024-06-08T09:08:07Z\",\"deleted\":false,",
+            "\"deleted_reason\":null,\"edited\":false,\"ignored\":false}]"
+        ),
+    )
+    .await;
+    let base = front(&board_url).await;
+    let page = page(&base, "/activity").await;
+    assert!(
+        front::html::scripting_free(&page),
+        "not scripting free: {page}"
+    );
+    assert!(page.contains("&lt;script&gt;"), "{page}");
 }
 
 #[tokio::test]

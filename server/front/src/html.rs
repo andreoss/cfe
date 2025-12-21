@@ -99,6 +99,7 @@ fn wayfinding() -> String {
         "<nav class=\"ways\" aria-label=\"Wayfinding\">\n",
         "<a href=\"/search\">Search</a>\n",
         "<a href=\"/archive\">Archive</a>\n",
+        "<a href=\"/activity\">Activity</a>\n",
         "</nav>\n",
     )
     .to_owned()
@@ -386,6 +387,30 @@ pub fn archive_month_page(year: i32, month: u8, topics: &Paged<Topic>) -> String
     out.push_str(&archive_link());
     out.push_str(&pager(&archive_month_address(year, month), &topics.page));
     out
+}
+
+pub fn activity_page(hits: &[Hit]) -> String {
+    let mut out = format!(
+        "<h2>Activity</h2>\n<h3>{count}</h3>\n",
+        count = escape(&entry_count(hits.len())),
+    );
+    if hits.is_empty() {
+        out.push_str("<p class=\"none\">Nothing has been written yet.</p>\n");
+        return out;
+    }
+    out.push_str("<ol class=\"hits\">\n");
+    for hit in hits {
+        out.push_str(&hit_item(hit));
+    }
+    out.push_str("</ol>\n");
+    out
+}
+
+fn entry_count(total: usize) -> String {
+    match total {
+        1 => "1 entry".to_owned(),
+        other => format!("{other} entries"),
+    }
 }
 
 pub fn archive_month_address(year: i32, month: u8) -> String {

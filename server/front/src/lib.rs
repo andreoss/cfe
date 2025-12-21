@@ -85,6 +85,10 @@ impl App {
         }
     }
 
+    pub async fn activity(&self, session: Option<&str>) -> Result<Vec<Hit>, ClientError> {
+        self.client.activity(session).await
+    }
+
     pub async fn tag(&self, name: &str, session: Option<&str>) -> Result<Tag, ClientError> {
         self.client.tag(name, session).await
     }
