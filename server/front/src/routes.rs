@@ -325,7 +325,7 @@ async fn tag(
             );
         }
     };
-    match app.tag_topics(&name, number).await {
+    match app.tag_topics(&name, number, session.as_deref()).await {
         Ok(topics) => render(
             &guard,
             StatusCode::OK,

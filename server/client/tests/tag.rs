@@ -178,12 +178,31 @@ async fn the_subjects_of_a_tag_are_asked_for_a_page_at_a_time() {
     ))
     .await;
     let client = ApiClient::new(&base).unwrap();
-    client.tag_topics("rust", 2).await.unwrap();
+    client.tag_topics("rust", 2, None).await.unwrap();
     let request = log.last();
     assert!(
         request.starts_with("GET /api/tags/rust/topics?page=2 "),
         "{request}"
     );
+    assert!(!request.contains("cookie:"), "{request}");
+}
+
+#[tokio::test]
+async fn the_subjects_of_a_tag_are_asked_for_with_the_session_when_one_is_held() {
+    let (base, log) = board(answer(
+        "200 OK",
+        &["content-type: application/json"],
+        SUBJECTS,
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    client.tag_topics("rust", 1, Some("token")).await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("GET /api/tags/rust/topics?page=1 "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
 }
 
 #[tokio::test]
@@ -195,7 +214,7 @@ async fn a_page_of_subjects_comes_back_with_the_subjects_and_the_pager() {
     ))
     .await;
     let client = ApiClient::new(&base).unwrap();
-    let page = client.tag_topics("rust", 2).await.unwrap();
+    let page = client.tag_topics("rust", 2, None).await.unwrap();
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].title, "Ports and adapters".to_owned());
     assert_eq!(page.items[0].tags, vec!["rust".to_owned()]);
@@ -214,7 +233,7 @@ async fn a_tag_nobody_used_answers_with_an_empty_page() {
     ))
     .await;
     let client = ApiClient::new(&base).unwrap();
-    let page = client.tag_topics("rust", 1).await.unwrap();
+    let page = client.tag_topics("rust", 1, None).await.unwrap();
     assert!(page.items.is_empty());
     assert_eq!(page.page.total, 0);
 }

@@ -491,10 +491,15 @@ impl ApiClient {
             .await
     }
 
-    pub async fn tag_topics(&self, name: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+    pub async fn tag_topics(
+        &self,
+        name: &str,
+        page: u32,
+        session: Option<&str>,
+    ) -> Result<Paged<Topic>, ClientError> {
         self.get(
             &format!("/api/tags/{}/topics?page={}", encode_path(name), page),
-            None,
+            session,
         )
         .await
     }

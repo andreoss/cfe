@@ -71,8 +71,13 @@ impl App {
         self.client.tag(name, session).await
     }
 
-    pub async fn tag_topics(&self, name: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
-        self.client.tag_topics(name, page).await
+    pub async fn tag_topics(
+        &self,
+        name: &str,
+        page: u32,
+        session: Option<&str>,
+    ) -> Result<Paged<Topic>, ClientError> {
+        self.client.tag_topics(name, page, session).await
     }
 
     pub async fn follow_tag(&self, session: &str, name: &str) -> Result<(), ClientError> {
