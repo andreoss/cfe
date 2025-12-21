@@ -7,6 +7,8 @@ use axum::{
 };
 use serde::Deserialize;
 
+use client::Comment;
+
 use crate::{
     App,
     html::{self, Chrome},
@@ -25,6 +27,9 @@ pub fn router(app: App) -> Router {
         .route("/sections/{slug}", get(section))
         .route("/sections/{slug}/feed", get(section_feed))
         .route("/topics/{id}", get(topic))
+        .route("/topics/{id}/reply", get(reply_form))
+        .route("/topics/{id}/comments", post(add_comment))
+        .route("/sections/{slug}/post", get(subject_form).post(add_subject))
         .route("/search", get(search))
         .route("/archive", get(archive))
         .route("/archive/{year}/{month}", get(archive_month))
@@ -188,6 +193,271 @@ async fn topic(
             StatusCode::SERVICE_UNAVAILABLE,
             unavailable(&chrome, &error),
         ),
+    }
+}
+
+async fn subject_form(
+    State(app): State<App>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::subject_form_address(&slug);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let Some(section) = (match app.section(&slug).await {
+        Ok(section) => section,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    }) else {
+        return render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such section",
+                "This board has no section at that address.",
+            ),
+        );
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Write a subject",
+            &html::subject_form_page(&section, &chrome, None),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct SubjectForm {
+    token: Option<String>,
+    title: String,
+    body: String,
+    tags: Option<String>,
+    draft: Option<String>,
+}
+
+async fn add_subject(
+    State(app): State<App>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<SubjectForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::subject_form_address(&slug);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let Some(section) = (match app.section(&slug).await {
+        Ok(section) => section,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    }) else {
+        return render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such section",
+                "This board has no section at that address.",
+            ),
+        );
+    };
+    let tags = tags_of(form.tags.as_deref().unwrap_or(""));
+    let mut body = client::NewSubject::new(form.title.trim(), &form.body);
+    body = body.tags(&tags.iter().map(String::as_str).collect::<Vec<&str>>());
+    if form.draft.is_some() {
+        body = body.draft();
+    }
+    match app.create_topic(&session, &slug, &body).await {
+        Ok(subject) => see_other(&guard, &topic_address(&subject.id, 1)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Write a subject",
+                &html::subject_form_page(&section, &chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn reply_form(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    Query(query): Query<ReplyQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = reply_address(&id, query.parent.as_deref());
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let Some(subject) = (match app.subject(&id).await {
+        Ok(subject) => subject,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    }) else {
+        return render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such subject",
+                "This board has no subject at that address.",
+            ),
+        );
+    };
+    let answered = answered_of(&app, &id, query.parent.as_deref()).await;
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Answer",
+            &html::remark_form_page(&subject, answered.as_ref(), &chrome, None),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct ReplyQuery {
+    parent: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct RemarkForm {
+    token: Option<String>,
+    body: String,
+    parent_id: Option<String>,
+}
+
+async fn add_comment(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<RemarkForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let parent = form
+        .parent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|parent| !parent.is_empty());
+    let address = reply_address(&id, parent);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let mut body = client::NewRemark::new(&form.body);
+    if let Some(parent_id) = parent {
+        body = body.reply_to(parent_id);
+    }
+    match app.create_comment(&session, &id, &body).await {
+        Ok(comment) => see_other(
+            &guard,
+            &format!(
+                "/topics/{}#remark-{}",
+                client::encode_path(&id),
+                client::encode_path(&comment.id)
+            ),
+        ),
+        Err(error) => {
+            let subject: Option<client::Subject> = app.subject(&id).await.unwrap_or_default();
+            let page = match subject {
+                Some(subject) => {
+                    let answered = answered_of(&app, &id, parent).await;
+                    html::remark_form_page(
+                        &subject,
+                        answered.as_ref(),
+                        &chrome,
+                        Some(&error.to_string()),
+                    )
+                }
+                None => html::message(&chrome, "No such subject", &error.to_string()),
+            };
+            render(
+                &guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::page(&chrome, "Answer", &page),
+            )
+        }
+    }
+}
+
+async fn answered_of(app: &App, id: &str, parent: Option<&str>) -> Option<Comment> {
+    let parent = parent?;
+    let remarks = app.comments(id, 1).await.ok()?;
+    remarks.items.into_iter().find(|remark| remark.id == parent)
+}
+
+fn reply_address(id: &str, parent: Option<&str>) -> String {
+    match parent {
+        Some(parent) => format!(
+            "{}?parent={}",
+            html::reply_address(id),
+            client::encode_path(parent)
+        ),
+        None => html::reply_address(id),
+    }
+}
+
+fn tags_of(raw: &str) -> Vec<String> {
+    raw.split(|byte: char| byte == ',' || byte.is_whitespace())
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(|tag| tag.to_owned())
+        .collect()
+}
+
+fn see_other(guard: &Guard, address: &str) -> Response {
+    match guard.set_cookie() {
+        Some(cookie) => (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, cookie),
+                (header::LOCATION, address.to_owned()),
+            ],
+        )
+            .into_response(),
+        None => (
+            StatusCode::SEE_OTHER,
+            [(header::LOCATION, address.to_owned())],
+        )
+            .into_response(),
     }
 }
 

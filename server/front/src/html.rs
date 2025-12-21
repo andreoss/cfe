@@ -746,7 +746,8 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
             "<a href=\"/sections/{section}\">{section}</a>{marks}</p>\n",
             "<div class=\"remark-text\">{body}</div>\n",
             "<p class=\"tags\">Tags: {tags}</p>\n",
-            "<p><a href=\"/sections/{section}\">Back to the section</a></p>\n",
+            "<p><a href=\"{reply}\">Answer</a> | ",
+            "<a href=\"/sections/{section}\">Back to the section</a></p>\n",
             "</article>\n",
             "<h3>{count}</h3>\n",
         ),
@@ -759,6 +760,7 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
         body = markup::render(&subject.body),
         tags = tag_links(&subject.tags),
         count = escape(&remark_count(comments.page.total)),
+        reply = escape(&reply_address(&subject.id)),
     );
     out.push_str(&comment_list(&comments.items));
     out.push_str(&pager(
@@ -766,6 +768,80 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
         &comments.page,
     ));
     out
+}
+
+pub fn subject_form_page(section: &Section, chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Write a subject</h2>\n",
+            "{problem}",
+            "<form class=\"subject-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"title\">Title</label>\n",
+            "<input id=\"title\" name=\"title\" type=\"text\" required maxlength=\"120\"></p>\n",
+            "<p><label for=\"body\">Text</label>\n",
+            "<textarea id=\"body\" name=\"body\" rows=\"12\" cols=\"60\" required></textarea></p>\n",
+            "<p><label for=\"tags\">Tags</label>\n",
+            "<input id=\"tags\" name=\"tags\" type=\"text\" autocomplete=\"off\"></p>\n",
+            "<p><label for=\"draft\">Keep it as a draft</label>\n",
+            "<input id=\"draft\" name=\"draft\" type=\"checkbox\" value=\"yes\"></p>\n",
+            "<p><button type=\"submit\">Write</button></p>\n",
+            "</form>\n"
+        ),
+        problem = problem_paragraph(problem),
+        action = escape(&subject_form_address(&section.slug)),
+        token = escape(&chrome.token),
+    )
+}
+
+pub fn subject_form_address(slug: &str) -> String {
+    format!("/sections/{}/post", client::encode_path(slug))
+}
+
+pub fn remark_form_address(id: &str) -> String {
+    format!("/topics/{}/comments", client::encode_path(id))
+}
+
+pub fn reply_address(id: &str) -> String {
+    format!("/topics/{}/reply", client::encode_path(id))
+}
+
+pub fn remark_form_page(
+    subject: &Subject,
+    answered: Option<&Comment>,
+    chrome: &Chrome,
+    problem: Option<&str>,
+) -> String {
+    format!(
+        concat!(
+            "<h2>Answer</h2>\n",
+            "<p class=\"byline\">Answering <a href=\"/topics/{id}\">{title}</a> ",
+            "by <span class=\"writer\">{author}</span></p>\n",
+            "{quote}",
+            "{problem}",
+            "<form class=\"remark-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "{parent}",
+            "<p><label for=\"body\">Text</label>\n",
+            "<textarea id=\"body\" name=\"body\" rows=\"10\" cols=\"60\" required></textarea></p>\n",
+            "<p><button type=\"submit\">Answer</button></p>\n",
+            "</form>\n"
+        ),
+        id = escape(&subject.id),
+        title = escape(&subject.title),
+        author = escape(&subject.author_username),
+        quote = answered.map(quote_of).unwrap_or_default(),
+        problem = problem_paragraph(problem),
+        action = escape(&remark_form_address(&subject.id)),
+        token = escape(&chrome.token),
+        parent = match answered {
+            Some(remark) => format!(
+                "<input type=\"hidden\" name=\"parent_id\" value=\"{}\">\n",
+                escape(&remark.id)
+            ),
+            None => String::new(),
+        },
+    )
 }
 
 fn remark_count(total: u64) -> String {

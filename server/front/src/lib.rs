@@ -64,6 +64,24 @@ impl App {
         self.client.comments(id, page).await
     }
 
+    pub async fn create_topic(
+        &self,
+        session: &str,
+        slug: &str,
+        body: &client::NewSubject,
+    ) -> Result<Subject, ClientError> {
+        self.client.create_topic(session, slug, body).await
+    }
+
+    pub async fn create_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        body: &client::NewRemark,
+    ) -> Result<Comment, ClientError> {
+        self.client.create_comment(session, topic_id, body).await
+    }
+
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
         self.client.search(criteria).await
     }
