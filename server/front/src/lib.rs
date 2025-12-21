@@ -6,8 +6,8 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, Avatar, ClientError, Comment, Criteria, Hit, Paged, Profile, RegisterBody, Section,
-    Session, Subject, Tag, Topic, User, encode_path, find_section,
+    ApiClient, Avatar, ClientError, Comment, Criteria, Feed, Hit, Paged, Profile, RegisterBody,
+    Section, Session, Subject, Tag, Topic, User, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -97,6 +97,14 @@ impl App {
             self.client.say_means(session, name, means).await?;
         }
         Ok(())
+    }
+
+    pub async fn section_feed(&self, slug: &str) -> Result<Option<Feed>, ClientError> {
+        self.client.section_feed(slug).await
+    }
+
+    pub async fn tag_feed(&self, name: &str) -> Result<Option<Feed>, ClientError> {
+        self.client.tag_feed(name).await
     }
 
     pub async fn account(&self, session: &str) -> Option<User> {

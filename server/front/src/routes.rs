@@ -23,9 +23,11 @@ pub fn router(app: App) -> Router {
         .route("/healthz", get(health))
         .route("/", get(index))
         .route("/sections/{slug}", get(section))
+        .route("/sections/{slug}/feed", get(section_feed))
         .route("/topics/{id}", get(topic))
         .route("/search", get(search))
         .route("/tags/{tag}", get(tag))
+        .route("/tags/{tag}/feed", get(tag_feed))
         .route("/tags/{tag}/follow", post(follow_tag))
         .route("/tags/{tag}/unfollow", post(unfollow_tag))
         .route("/tags/{tag}/describe", post(describe_tag))
@@ -180,6 +182,82 @@ async fn topic(
             unavailable(&chrome, &error),
         ),
     }
+}
+
+async fn section_feed(
+    State(app): State<App>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let feed = match app.section_feed(&slug).await {
+        Ok(feed) => feed,
+        Err(error) => return xml_unavailable(&error),
+    };
+    match feed {
+        Some(feed) => xml_response(&feed),
+        None => {
+            let theme = theme_of(&headers, &app);
+            let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
+            render(
+                &guard,
+                StatusCode::NOT_FOUND,
+                html::message(
+                    &chrome,
+                    "No such feed",
+                    "This board has no feed at that address.",
+                ),
+            )
+        }
+    }
+}
+
+async fn tag_feed(
+    State(app): State<App>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let feed = match app.tag_feed(&name).await {
+        Ok(feed) => feed,
+        Err(error) => return xml_unavailable(&error),
+    };
+    match feed {
+        Some(feed) => xml_response(&feed),
+        None => {
+            let theme = theme_of(&headers, &app);
+            let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
+            render(
+                &guard,
+                StatusCode::NOT_FOUND,
+                html::message(
+                    &chrome,
+                    "No such feed",
+                    "This board has no feed at that address.",
+                ),
+            )
+        }
+    }
+}
+
+fn xml_response(feed: &client::Feed) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, feed.content_type().to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+        ],
+        feed.body().to_owned(),
+    )
+        .into_response()
+}
+
+fn xml_unavailable(error: &client::ClientError) -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8".to_owned())],
+        error.to_string(),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

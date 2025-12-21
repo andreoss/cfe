@@ -237,6 +237,22 @@ pub struct Profile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Feed {
+    content_type: String,
+    body: String,
+}
+
+impl Feed {
+    pub fn content_type(&self) -> &str {
+        &self.content_type
+    }
+
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Avatar {
     content_type: String,
     bytes: Vec<u8>,
@@ -515,6 +531,16 @@ impl ApiClient {
             .map_err(|e| ClientError::Detail(e.to_string()))
     }
 
+    pub async fn section_feed(&self, slug: &str) -> Result<Option<Feed>, ClientError> {
+        self.feed(&format!("/api/sections/{}/feed", encode_path(slug)))
+            .await
+    }
+
+    pub async fn tag_feed(&self, name: &str) -> Result<Option<Feed>, ClientError> {
+        self.feed(&format!("/api/tags/{}/feed", encode_path(name)))
+            .await
+    }
+
     pub async fn say_means(
         &self,
         session: &str,
@@ -669,6 +695,28 @@ impl ApiClient {
             .filter_map(|value| value.to_str().ok())
             .find(|raw| raw.starts_with(&format!("{SESSION_COOKIE}=")))
             .map(|raw| raw.to_owned()))
+    }
+
+    async fn feed(&self, path: &str) -> Result<Option<Feed>, ClientError> {
+        let response = self.send(self.http.get(self.address(path)), None).await?;
+        let status = response.status().as_u16();
+        if status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_owned())
+            .unwrap_or_else(|| "application/atom+xml".to_owned());
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ClientError::Detail(e.to_string()))?;
+        Ok(Some(Feed { content_type, body }))
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(

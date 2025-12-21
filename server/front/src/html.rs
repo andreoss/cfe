@@ -158,11 +158,31 @@ pub fn topic_list(section: &Section, topics: &Paged<Topic>) -> String {
     }
     out.push_str(&topic_rows(&topics.items));
     out.push_str("</tbody>\n</table>\n");
+    out.push_str(&feed_link(
+        &section_feed_address(&section.slug),
+        "The feed of this section",
+    ));
     out.push_str(&pager(
         &format!("/sections/{}", client::encode_path(&section.slug)),
         &topics.page,
     ));
     out
+}
+
+pub fn section_feed_address(slug: &str) -> String {
+    format!("/sections/{}/feed", client::encode_path(slug))
+}
+
+pub fn tag_feed_address(name: &str) -> String {
+    format!("/tags/{}/feed", client::encode_path(name))
+}
+
+pub fn feed_link(address: &str, words: &str) -> String {
+    format!(
+        "<p class=\"feed\"><a href=\"{address}\" type=\"application/atom+xml\">{words}</a></p>\n",
+        address = escape(address),
+        words = escape(words),
+    )
 }
 
 fn topic_rows(topics: &[Topic]) -> String {
@@ -211,6 +231,10 @@ pub fn tag_page(tag: &Tag, topics: &Paged<Topic>, chrome: &Chrome) -> String {
     }
     out.push_str(&topic_rows(&topics.items));
     out.push_str("</tbody>\n</table>\n");
+    out.push_str(&feed_link(
+        &tag_feed_address(&tag.slug),
+        "The feed of this tag",
+    ));
     out.push_str(&pager(
         &format!("/tags/{}", client::encode_path(&tag.slug)),
         &topics.page,
