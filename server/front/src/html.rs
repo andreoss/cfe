@@ -87,22 +87,29 @@ pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
         ),
         theme = chrome.theme.name(),
         title = escape(title),
-        ways = wayfinding(),
+        ways = wayfinding(chrome),
         account = account_box(chrome),
         picker = theme_picker(chrome.theme, &chrome.return_to, &chrome.token),
         body = body,
     )
 }
 
-fn wayfinding() -> String {
-    concat!(
+fn wayfinding(chrome: &Chrome) -> String {
+    let mut out = concat!(
         "<nav class=\"ways\" aria-label=\"Wayfinding\">\n",
         "<a href=\"/search\">Search</a>\n",
         "<a href=\"/archive\">Archive</a>\n",
         "<a href=\"/activity\">Activity</a>\n",
-        "</nav>\n",
     )
-    .to_owned()
+    .to_owned();
+    if chrome.account_name().is_some() {
+        out.push_str(concat!(
+            "<a href=\"/bookmarks\">Bookmarks</a>\n",
+            "<a href=\"/watched\">Watched</a>\n",
+        ));
+    }
+    out.push_str("</nav>\n");
+    out
 }
 
 pub fn account_box(chrome: &Chrome) -> String {
@@ -411,6 +418,43 @@ fn entry_count(total: usize) -> String {
         1 => "1 entry".to_owned(),
         other => format!("{other} entries"),
     }
+}
+
+pub fn bookmarks_page(topics: &Paged<Topic>) -> String {
+    kept_page(
+        "Bookmarks",
+        "/bookmarks",
+        "Nothing has been kept yet.",
+        topics,
+    )
+}
+
+pub fn watched_page(topics: &Paged<Topic>) -> String {
+    kept_page("Watched", "/watched", "Nothing is watched yet.", topics)
+}
+
+fn kept_page(heading: &str, address: &str, empty: &str, topics: &Paged<Topic>) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>{heading}</h2>\n",
+            "<h3>{count}</h3>\n",
+            "<table class=\"topics\">\n<thead>\n<tr><th scope=\"col\">Subject</th>",
+            "<th scope=\"col\">Written by</th><th scope=\"col\">Written at</th>",
+            "<th scope=\"col\">Tags</th></tr>\n</thead>\n<tbody>\n"
+        ),
+        heading = escape(heading),
+        count = escape(&subject_count(topics.page.total)),
+    );
+    if topics.items.is_empty() {
+        out.push_str(&format!(
+            "<tr><td colspan=\"4\">{empty}</td></tr>\n",
+            empty = escape(empty),
+        ));
+    }
+    out.push_str(&topic_rows(&topics.items));
+    out.push_str("</tbody>\n</table>\n");
+    out.push_str(&pager(address, &topics.page));
+    out
 }
 
 pub fn archive_month_address(year: i32, month: u8) -> String {

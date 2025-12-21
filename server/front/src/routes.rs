@@ -29,6 +29,8 @@ pub fn router(app: App) -> Router {
         .route("/archive", get(archive))
         .route("/archive/{year}/{month}", get(archive_month))
         .route("/activity", get(activity))
+        .route("/bookmarks", get(bookmarks))
+        .route("/watched", get(watched))
         .route("/tags/{tag}", get(tag))
         .route("/tags/{tag}/feed", get(tag_feed))
         .route("/tags/{tag}/follow", post(follow_tag))
@@ -335,6 +337,60 @@ async fn activity(State(app): State<App>, headers: HeaderMap) -> Response {
             &guard,
             StatusCode::OK,
             html::page(&chrome, "Activity", &html::activity_page(&hits)),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn bookmarks(
+    State(app): State<App>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = kept_address("/bookmarks", number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/bookmarks");
+    };
+    match app.bookmarks(&session, number).await {
+        Ok(topics) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(&chrome, "Bookmarks", &html::bookmarks_page(&topics)),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn watched(
+    State(app): State<App>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = kept_address("/watched", number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, "/watched");
+    };
+    match app.watched(&session, number).await {
+        Ok(topics) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(&chrome, "Watched", &html::watched_page(&topics)),
         ),
         Err(error) => render(
             &guard,
@@ -1252,6 +1308,14 @@ fn archive_address(year: i32, month: u8, page: u32) -> String {
     let address = html::archive_month_address(year, month);
     if page <= 1 {
         address
+    } else {
+        format!("{address}?page={page}")
+    }
+}
+
+fn kept_address(address: &str, page: u32) -> String {
+    if page <= 1 {
+        address.to_owned()
     } else {
         format!("{address}?page={page}")
     }

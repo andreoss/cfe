@@ -85,6 +85,14 @@ impl App {
         }
     }
 
+    pub async fn bookmarks(&self, session: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.client.bookmarks(session, page).await
+    }
+
+    pub async fn watched(&self, session: &str, page: u32) -> Result<Paged<Topic>, ClientError> {
+        self.client.watched(session, page).await
+    }
+
     pub async fn activity(&self, session: Option<&str>) -> Result<Vec<Hit>, ClientError> {
         self.client.activity(session).await
     }
