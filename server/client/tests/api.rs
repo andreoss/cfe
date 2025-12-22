@@ -204,7 +204,7 @@ async fn a_subject_is_read_from_the_api() {
     let (base, log) = spawn_stub("200 OK", "application/json", SUBJECT).await;
     let client = ApiClient::new(&base).unwrap();
     let subject = client
-        .subject("11111111-1111-1111-1111-111111111111")
+        .subject("11111111-1111-1111-1111-111111111111", None)
         .await
         .unwrap();
     assert_eq!(
@@ -226,7 +226,7 @@ async fn a_subject_that_is_not_there_is_reported_with_the_reason() {
     let base = stub("404 Not Found", "application/json", "{\"error\":\"no\"}").await;
     let client = ApiClient::new(&base).unwrap();
     assert_eq!(
-        client.subject("nope").await.unwrap_err(),
+        client.subject("nope", None).await.unwrap_err(),
         ClientError::Rejected {
             status: 404,
             reason: "no".to_owned()
@@ -239,7 +239,7 @@ async fn the_remarks_under_a_subject_are_read_from_the_api() {
     let (base, log) = spawn_stub("200 OK", "application/json", COMMENTS).await;
     let client = ApiClient::new(&base).unwrap();
     let page = client
-        .comments("11111111-1111-1111-1111-111111111111", 2)
+        .comments("11111111-1111-1111-1111-111111111111", 2, None)
         .await
         .unwrap();
     assert_eq!(
@@ -266,7 +266,7 @@ async fn a_subject_with_no_remarks_is_an_empty_page() {
     .await;
     let client = ApiClient::new(&base).unwrap();
     let page = client
-        .comments("11111111-1111-1111-1111-111111111111", 1)
+        .comments("11111111-1111-1111-1111-111111111111", 1, None)
         .await
         .unwrap();
     assert!(page.items.is_empty());
@@ -278,11 +278,11 @@ async fn a_subject_that_is_not_the_promised_shape_is_an_error() {
     let base = stub("200 OK", "application/json", "{\"id\":\"1\"}").await;
     let client = ApiClient::new(&base).unwrap();
     assert!(matches!(
-        client.subject("1").await.unwrap_err(),
+        client.subject("1", None).await.unwrap_err(),
         ClientError::Detail(_)
     ));
     assert!(matches!(
-        client.comments("1", 1).await.unwrap_err(),
+        client.comments("1", 1, None).await.unwrap_err(),
         ClientError::Detail(_)
     ));
 }

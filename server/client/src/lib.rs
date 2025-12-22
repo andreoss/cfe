@@ -427,6 +427,37 @@ impl Avatar {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
+    content_type: String,
+    bytes: Vec<u8>,
+}
+
+impl Picture {
+    pub fn content_type(&self) -> &str {
+        &self.content_type
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Image {
+    pub id: String,
+    pub content_type: String,
+    pub uploaded_by: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Group {
+    pub id: String,
+    pub section_slug: String,
+    pub name: String,
+    pub slug: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
     cookie: String,
@@ -627,15 +658,20 @@ impl ApiClient {
         .await
     }
 
-    pub async fn subject(&self, id: &str) -> Result<Subject, ClientError> {
-        self.get(&format!("/api/topics/{}", encode_path(id)), None)
+    pub async fn subject(&self, id: &str, session: Option<&str>) -> Result<Subject, ClientError> {
+        self.get(&format!("/api/topics/{}", encode_path(id)), session)
             .await
     }
 
-    pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
+    pub async fn comments(
+        &self,
+        id: &str,
+        page: u32,
+        session: Option<&str>,
+    ) -> Result<Paged<Comment>, ClientError> {
         self.get(
             &format!("/api/topics/{}/comments?page={}", encode_path(id), page),
-            None,
+            session,
         )
         .await
     }
@@ -731,6 +767,135 @@ impl ApiClient {
             encode_path(id)
         );
         json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn publish(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/publish", encode_path(id));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn commit(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/commit", encode_path(id));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn uncommit(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/uncommit", encode_path(id));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn sticky(
+        &self,
+        session: &str,
+        id: &str,
+        pinned: bool,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/sticky", encode_path(id));
+        json_of(
+            self.post(&path, &StickyBody { sticky: pinned }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn off_front(
+        &self,
+        session: &str,
+        id: &str,
+        hidden: bool,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/off-front", encode_path(id));
+        json_of(
+            self.post(&path, &OffFrontBody { off_front: hidden }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn resolved(
+        &self,
+        session: &str,
+        id: &str,
+        done: bool,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/resolved", encode_path(id));
+        json_of(
+            self.post(&path, &ResolvedBody { resolved: done }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn postscore(
+        &self,
+        session: &str,
+        id: &str,
+        score: i32,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/postscore", encode_path(id));
+        json_of(
+            self.post(&path, &ScoreBody { postscore: score }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn move_to(
+        &self,
+        session: &str,
+        id: &str,
+        group: &str,
+    ) -> Result<Subject, ClientError> {
+        let path = format!("/api/topics/{}/move", encode_path(id));
+        json_of(self.post(&path, &MoveBody { group }, Some(session)).await?).await
+    }
+
+    pub async fn groups(&self, slug: &str) -> Result<Vec<Group>, ClientError> {
+        self.get(&format!("/api/sections/{}/groups", encode_path(slug)), None)
+            .await
+    }
+
+    pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {
+        self.get(&format!("/api/topics/{}/images", encode_path(id)), None)
+            .await
+    }
+
+    pub async fn image(
+        &self,
+        topic_id: &str,
+        image_id: &str,
+    ) -> Result<Option<Picture>, ClientError> {
+        let path = format!(
+            "/api/topics/{}/images/{}",
+            encode_path(topic_id),
+            encode_path(image_id)
+        );
+        self.bytes(&path).await
+    }
+
+    pub async fn attach_image(
+        &self,
+        session: &str,
+        id: &str,
+        data: &str,
+    ) -> Result<Image, ClientError> {
+        let path = format!("/api/topics/{}/images", encode_path(id));
+        json_of(self.post(&path, &ImageBody { data }, Some(session)).await?).await
+    }
+
+    pub async fn remove_image(
+        &self,
+        session: &str,
+        topic_id: &str,
+        image_id: &str,
+    ) -> Result<(), ClientError> {
+        let path = format!(
+            "/api/topics/{}/images/{}",
+            encode_path(topic_id),
+            encode_path(image_id)
+        );
+        self.delete(&path, Some(session)).await?;
+        Ok(())
     }
 
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
@@ -987,7 +1152,15 @@ impl ApiClient {
 
     pub async fn avatar(&self, username: &str) -> Result<Option<Avatar>, ClientError> {
         let path = format!("/api/users/{}/avatar", encode_path(username));
-        let response = self.send(self.http.get(self.address(&path)), None).await?;
+        let found = self.bytes(&path).await?;
+        Ok(found.map(|picture| Avatar {
+            content_type: picture.content_type,
+            bytes: picture.bytes,
+        }))
+    }
+
+    async fn bytes(&self, path: &str) -> Result<Option<Picture>, ClientError> {
+        let response = self.send(self.http.get(self.address(path)), None).await?;
         let status = response.status().as_u16();
         if status == 404 {
             return Ok(None);
@@ -1006,7 +1179,7 @@ impl ApiClient {
             .await
             .map_err(|e| ClientError::Detail(e.to_string()))?
             .to_vec();
-        Ok(Some(Avatar {
+        Ok(Some(Picture {
             content_type,
             bytes,
         }))
@@ -1193,6 +1366,36 @@ struct Nothing {}
 #[derive(Serialize)]
 struct RemarkEdit<'a> {
     body: &'a str,
+}
+
+#[derive(Serialize)]
+struct StickyBody {
+    sticky: bool,
+}
+
+#[derive(Serialize)]
+struct OffFrontBody {
+    off_front: bool,
+}
+
+#[derive(Serialize)]
+struct ResolvedBody {
+    resolved: bool,
+}
+
+#[derive(Serialize)]
+struct ScoreBody {
+    postscore: i32,
+}
+
+#[derive(Serialize)]
+struct MoveBody<'a> {
+    group: &'a str,
+}
+
+#[derive(Serialize)]
+struct ImageBody<'a> {
+    data: &'a str,
 }
 
 async fn json_of<T: for<'de> Deserialize<'de>>(

@@ -1,10 +1,12 @@
 use axum::{
     Form, Router,
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
+use base64::Engine as _;
+use base64::prelude::BASE64_STANDARD as BASE64;
 use serde::Deserialize;
 
 use client::Comment;
@@ -39,6 +41,19 @@ pub fn router(app: App) -> Router {
             "/topics/{id}/restore",
             get(subject_restore_form).post(restore_subject),
         )
+        .route("/topics/{id}/publish", post(publish_subject))
+        .route("/topics/{id}/sticky", post(pin_subject))
+        .route("/topics/{id}/front", post(front_subject))
+        .route("/topics/{id}/commit", post(commit_subject))
+        .route("/topics/{id}/score", post(score_subject))
+        .route("/topics/{id}/group", post(move_subject))
+        .route("/topics/{id}/resolved", post(resolve_subject))
+        .route(
+            "/topics/{id}/images",
+            get(subject_pictures).post(attach_picture),
+        )
+        .route("/topics/{id}/images/{picture}", get(picture))
+        .route("/topics/{id}/images/{picture}/remove", post(remove_picture))
         .route("/topics/{id}/history", get(history))
         .route("/topics/{id}/history/{version}", get(difference))
         .route(
@@ -183,7 +198,8 @@ async fn topic(
     let number = page_of(query.page.as_deref());
     let address = topic_address(&id, number);
     let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
-    let Some(subject) = (match app.subject(&id).await {
+    let session = session_of(&headers);
+    let Some(subject) = (match app.subject(session.as_deref(), &id).await {
         Ok(subject) => subject,
         Err(error) => {
             return render(
@@ -203,21 +219,346 @@ async fn topic(
             ),
         );
     };
-    let holding = session_of(&headers).is_some();
-    match app.comments(&id, number).await {
+    let holding = session.is_some();
+    let pictures = app.images(&id).await.unwrap_or_default();
+    let groups = app.groups(&subject.section_slug).await.unwrap_or_default();
+    match app.comments(session.as_deref(), &id, number).await {
         Ok(comments) => render(
             &guard,
             StatusCode::OK,
             html::page(
                 &chrome,
                 &subject.title,
-                &html::subject_page(&subject, &comments, holding),
+                &html::subject_page(
+                    &subject,
+                    &comments,
+                    &html::SubjectView {
+                        holding,
+                        standing: chrome.standing().map(str::to_owned),
+                        writer: chrome.account_name() == Some(subject.author_username.as_str()),
+                        token: guard.token().to_owned(),
+                        groups,
+                        pictures,
+                    },
+                ),
             ),
         ),
         Err(error) => render(
             &guard,
             StatusCode::SERVICE_UNAVAILABLE,
             unavailable(&chrome, &error),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FlagForm {
+    token: Option<String>,
+    on: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ScoreForm {
+    token: Option<String>,
+    score: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct MoveForm {
+    token: Option<String>,
+    group: Option<String>,
+}
+
+fn flag_of(raw: &Option<String>) -> bool {
+    matches!(raw.as_deref().map(str::trim), Some("yes"))
+}
+
+struct Holding {
+    guard: Guard,
+    chrome: Chrome,
+    address: String,
+    session: String,
+}
+
+async fn holding(
+    app: &App,
+    id: &str,
+    headers: &HeaderMap,
+    token: Option<&str>,
+) -> Result<Holding, Response> {
+    let guard = Guard::new(headers);
+    let theme = theme_of(headers, app);
+    let address = topic_address(id, 1);
+    let chrome = chrome_of(&guard, app, headers, theme, &address).await;
+    if !guard.allows(token) {
+        return Err(render(&guard, StatusCode::FORBIDDEN, expired(&chrome)));
+    }
+    let Some(session) = session_of(headers) else {
+        return Err(sign_in_first(&guard, &address));
+    };
+    Ok(Holding {
+        guard,
+        chrome,
+        address,
+        session,
+    })
+}
+
+fn settled(holding: &Holding, title: &str, outcome: Result<(), client::ClientError>) -> Response {
+    match outcome {
+        Ok(()) => went(&holding.guard, &None, &holding.address),
+        Err(error) => render(
+            &holding.guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&holding.chrome, title, &error.to_string()),
+        ),
+    }
+}
+
+async fn publish_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.publish(&held.session, &id).await.map(|_| ());
+    settled(&held, "The subject was not published", outcome)
+}
+
+async fn pin_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FlagForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.sticky(&held.session, &id, flag_of(&form.on)).await;
+    settled(&held, "The subject was not pinned", outcome.map(|_| ()))
+}
+
+async fn front_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FlagForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.off_front(&held.session, &id, !flag_of(&form.on)).await;
+    settled(&held, "The front page was not changed", outcome.map(|_| ()))
+}
+
+async fn commit_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FlagForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = match flag_of(&form.on) {
+        true => app.commit(&held.session, &id).await,
+        false => app.uncommit(&held.session, &id).await,
+    };
+    settled(&held, "The subject was not committed", outcome.map(|_| ()))
+}
+
+async fn resolve_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FlagForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.resolved(&held.session, &id, flag_of(&form.on)).await;
+    settled(&held, "The subject was not marked", outcome.map(|_| ()))
+}
+
+async fn score_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ScoreForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let score = form
+        .score
+        .as_deref()
+        .map(str::trim)
+        .and_then(|raw| raw.parse::<i32>().ok())
+        .unwrap_or(0);
+    let outcome = app.postscore(&held.session, &id, score).await;
+    settled(&held, "The score was not set", outcome.map(|_| ()))
+}
+
+async fn move_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MoveForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let group = form.group.clone().unwrap_or_default();
+    let outcome = app.move_to(&held.session, &id, &group).await;
+    settled(&held, "The subject was not moved", outcome.map(|_| ()))
+}
+
+async fn subject_pictures(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = format!("/topics/{}/images", client::encode_path(&id));
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let pictures = match app.images(&id).await {
+        Ok(pictures) => pictures,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            &format!("Pictures of {}", subject.title),
+            &html::picture_page(&subject, &pictures, &chrome),
+        ),
+    )
+}
+
+async fn picture(
+    State(app): State<App>,
+    Path((id, picture_id)): Path<(String, String)>,
+) -> Response {
+    match app.image(&id, &picture_id).await {
+        Ok(Some(picture)) => (
+            [
+                (header::CONTENT_TYPE, picture.content_type().to_owned()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            ],
+            picture.bytes().to_vec(),
+        )
+            .into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+async fn attach_picture(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = format!("/topics/{}/images", client::encode_path(&id));
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let (token, bytes) = match uploaded(multipart).await {
+        Some(found) => found,
+        None => {
+            return render(
+                &guard,
+                StatusCode::BAD_REQUEST,
+                html::message(
+                    &chrome,
+                    "No picture was sent",
+                    "Choose a picture and send again.",
+                ),
+            );
+        }
+    };
+    if !guard.allows(token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let encoded = BASE64.encode(bytes.as_slice());
+    match app.attach_image(&session, &id, &encoded).await {
+        Ok(_) => went(&guard, &None, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&chrome, "The picture was not put up", &error.to_string()),
+        ),
+    }
+}
+
+async fn uploaded(mut multipart: Multipart) -> Option<(Option<String>, Vec<u8>)> {
+    let mut token = None;
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or_default().to_owned();
+        match name.as_str() {
+            "token" => token = field.text().await.ok(),
+            _ => {
+                if bytes.is_none() {
+                    bytes = field.bytes().await.ok().map(|found| found.to_vec());
+                }
+            }
+        }
+    }
+    bytes.map(|bytes| (token, bytes))
+}
+
+async fn remove_picture(
+    State(app): State<App>,
+    Path((id, picture_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = format!("/topics/{}/images", client::encode_path(&id));
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    match app.remove_image(&session, &id, &picture_id).await {
+        Ok(()) => went(&guard, &None, &address),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(
+                &chrome,
+                "The picture was not taken down",
+                &error.to_string(),
+            ),
         ),
     }
 }
@@ -343,7 +684,7 @@ async fn reply_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let Some(subject) = (match app.subject(&id).await {
+    let Some(subject) = (match app.subject(session_of(&headers).as_deref(), &id).await {
         Ok(subject) => subject,
         Err(error) => {
             return render(
@@ -363,7 +704,7 @@ async fn reply_form(
             ),
         );
     };
-    let answered = answered_of(&app, &id, query.parent.as_deref()).await;
+    let answered = answered_of(&app, &id, query.parent.as_deref(), &headers).await;
     render(
         &guard,
         StatusCode::OK,
@@ -422,10 +763,13 @@ async fn add_comment(
             ),
         ),
         Err(error) => {
-            let subject: Option<client::Subject> = app.subject(&id).await.unwrap_or_default();
+            let subject: Option<client::Subject> = app
+                .subject(session_of(&headers).as_deref(), &id)
+                .await
+                .unwrap_or_default();
             let page = match subject {
                 Some(subject) => {
-                    let answered = answered_of(&app, &id, parent).await;
+                    let answered = answered_of(&app, &id, parent, &headers).await;
                     html::remark_form_page(
                         &subject,
                         answered.as_ref(),
@@ -465,7 +809,7 @@ async fn subject_edit_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -496,7 +840,7 @@ async fn edit_subject(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -538,11 +882,11 @@ async fn remark_edit_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
@@ -573,11 +917,11 @@ async fn edit_remark(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
@@ -613,7 +957,7 @@ async fn subject_removal_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -644,7 +988,7 @@ async fn remove_subject(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -680,7 +1024,7 @@ async fn subject_restore_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -711,7 +1055,7 @@ async fn restore_subject(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -741,11 +1085,11 @@ async fn remark_removal_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
@@ -776,7 +1120,7 @@ async fn remove_remark(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
@@ -784,7 +1128,7 @@ async fn remove_remark(
     match app.delete_comment(&session, &id, &remark, &body).await {
         Ok(_) => see_other(&guard, &remark_anchor(&id, &remark)),
         Err(error) => {
-            let subject = match held_subject(&app, &id, &guard, &chrome).await {
+            let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
                 Ok(subject) => subject,
                 Err(answer) => return answer,
             };
@@ -813,11 +1157,11 @@ async fn remark_restore_form(
     let Some(_session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
@@ -848,14 +1192,14 @@ async fn restore_remark(
     let Some(session) = session_of(&headers) else {
         return sign_in_first(&guard, &address);
     };
-    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome, &headers).await {
         Ok(said) => said,
         Err(answer) => return answer,
     };
     match app.restore_comment(&session, &id, &remark).await {
         Ok(_) => see_other(&guard, &remark_anchor(&id, &remark)),
         Err(error) => {
-            let subject = match held_subject(&app, &id, &guard, &chrome).await {
+            let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
                 Ok(subject) => subject,
                 Err(answer) => return answer,
             };
@@ -877,7 +1221,7 @@ async fn history(State(app): State<App>, Path(id): Path<String>, headers: Header
     let theme = theme_of(&headers, &app);
     let address = html::history_address(&id);
     let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -908,7 +1252,7 @@ async fn difference(
     let theme = theme_of(&headers, &app);
     let address = html::version_address(&id, &version);
     let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
-    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
         Ok(subject) => subject,
         Err(answer) => return answer,
     };
@@ -956,8 +1300,9 @@ async fn held_subject(
     id: &str,
     guard: &Guard,
     chrome: &Chrome,
+    headers: &HeaderMap,
 ) -> Result<client::Subject, Response> {
-    match app.subject(id).await {
+    match app.subject(session_of(headers).as_deref(), id).await {
         Ok(Some(subject)) => Ok(subject),
         Ok(None) => Err(render(
             guard,
@@ -982,10 +1327,12 @@ async fn held_remark(
     id: &str,
     guard: &Guard,
     chrome: &Chrome,
+    headers: &HeaderMap,
 ) -> Result<Comment, Response> {
     let mut number = 1u32;
     loop {
-        let remarks = match app.comments(topic, number).await {
+        let session = session_of(headers);
+        let remarks = match app.comments(session.as_deref(), topic, number).await {
             Ok(remarks) => remarks,
             Err(error) => {
                 return Err(render(
@@ -1018,9 +1365,15 @@ fn remark_anchor(topic: &str, remark: &str) -> String {
     )
 }
 
-async fn answered_of(app: &App, id: &str, parent: Option<&str>) -> Option<Comment> {
+async fn answered_of(
+    app: &App,
+    id: &str,
+    parent: Option<&str>,
+    headers: &HeaderMap,
+) -> Option<Comment> {
     let parent = parent?;
-    let remarks = app.comments(id, 1).await.ok()?;
+    let session = session_of(headers);
+    let remarks = app.comments(session.as_deref(), id, 1).await.ok()?;
     remarks.items.into_iter().find(|remark| remark.id == parent)
 }
 
@@ -2217,7 +2570,7 @@ async fn chrome_of(
     };
     let chrome = Chrome::new(theme, guard.token()).return_to(return_to);
     match account {
-        Some(account) => chrome.account(&account.username),
+        Some(account) => chrome.account(&account.username, &account.role),
         None => chrome,
     }
 }

@@ -6,9 +6,9 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ArchiveMonth, Avatar, Change, ClientError, Comment, Criteria, Feed, Hit,
-    Notification, Paged, Profile, RegisterBody, Section, Session, Subject, Tag, Topic, User,
-    Version, encode_path, find_section,
+    ApiClient, ArchiveMonth, Avatar, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
+    Image, Notification, Paged, Picture, Profile, RegisterBody, Section, Session, Subject, Tag,
+    Topic, User, Version, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -52,16 +52,25 @@ impl App {
         self.client.topics(slug, page).await
     }
 
-    pub async fn subject(&self, id: &str) -> Result<Option<Subject>, ClientError> {
-        match self.client.subject(id).await {
+    pub async fn subject(
+        &self,
+        session: Option<&str>,
+        id: &str,
+    ) -> Result<Option<Subject>, ClientError> {
+        match self.client.subject(id, session).await {
             Ok(subject) => Ok(Some(subject)),
             Err(error) if error.status() == Some(404) => Ok(None),
             Err(error) => Err(error),
         }
     }
 
-    pub async fn comments(&self, id: &str, page: u32) -> Result<Paged<Comment>, ClientError> {
-        self.client.comments(id, page).await
+    pub async fn comments(
+        &self,
+        session: Option<&str>,
+        id: &str,
+        page: u32,
+    ) -> Result<Paged<Comment>, ClientError> {
+        self.client.comments(id, page, session).await
     }
 
     pub async fn create_topic(
@@ -145,6 +154,97 @@ impl App {
         version_id: &str,
     ) -> Result<Vec<Change>, ClientError> {
         self.client.topic_difference(id, version_id).await
+    }
+
+    pub async fn publish(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        self.client.publish(session, id).await
+    }
+
+    pub async fn commit(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        self.client.commit(session, id).await
+    }
+
+    pub async fn uncommit(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        self.client.uncommit(session, id).await
+    }
+
+    pub async fn sticky(
+        &self,
+        session: &str,
+        id: &str,
+        pinned: bool,
+    ) -> Result<Subject, ClientError> {
+        self.client.sticky(session, id, pinned).await
+    }
+
+    pub async fn off_front(
+        &self,
+        session: &str,
+        id: &str,
+        hidden: bool,
+    ) -> Result<Subject, ClientError> {
+        self.client.off_front(session, id, hidden).await
+    }
+
+    pub async fn resolved(
+        &self,
+        session: &str,
+        id: &str,
+        done: bool,
+    ) -> Result<Subject, ClientError> {
+        self.client.resolved(session, id, done).await
+    }
+
+    pub async fn postscore(
+        &self,
+        session: &str,
+        id: &str,
+        score: i32,
+    ) -> Result<Subject, ClientError> {
+        self.client.postscore(session, id, score).await
+    }
+
+    pub async fn move_to(
+        &self,
+        session: &str,
+        id: &str,
+        group: &str,
+    ) -> Result<Subject, ClientError> {
+        self.client.move_to(session, id, group).await
+    }
+
+    pub async fn groups(&self, slug: &str) -> Result<Vec<Group>, ClientError> {
+        self.client.groups(slug).await
+    }
+
+    pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {
+        self.client.images(id).await
+    }
+
+    pub async fn image(
+        &self,
+        topic_id: &str,
+        image_id: &str,
+    ) -> Result<Option<Picture>, ClientError> {
+        self.client.image(topic_id, image_id).await
+    }
+
+    pub async fn attach_image(
+        &self,
+        session: &str,
+        id: &str,
+        data: &str,
+    ) -> Result<Image, ClientError> {
+        self.client.attach_image(session, id, data).await
+    }
+
+    pub async fn remove_image(
+        &self,
+        session: &str,
+        topic_id: &str,
+        image_id: &str,
+    ) -> Result<(), ClientError> {
+        self.client.remove_image(session, topic_id, image_id).await
     }
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {

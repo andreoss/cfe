@@ -1,8 +1,8 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    ArchiveMonth, Change, Comment, Criteria, Hit, Notification, Order, PageInfo, Paged, Profile,
-    Scope, Section, Subject, Tag, Topic, Version,
+    ArchiveMonth, Change, Comment, Criteria, Group, Hit, Image, Notification, Order, PageInfo,
+    Paged, Profile, Scope, Section, Subject, Tag, Topic, Version,
 };
 
 pub fn escape(raw: &str) -> String {
@@ -25,6 +25,7 @@ pub struct Chrome {
     theme: Theme,
     token: String,
     account: Option<String>,
+    standing: Option<String>,
     return_to: String,
 }
 
@@ -34,13 +35,19 @@ impl Chrome {
             theme,
             token: token.to_owned(),
             account: None,
+            standing: None,
             return_to: "/".to_owned(),
         }
     }
 
-    pub fn account(mut self, name: &str) -> Self {
+    pub fn account(mut self, name: &str, standing: &str) -> Self {
         self.account = Some(name.to_owned());
+        self.standing = Some(standing.to_owned());
         self
+    }
+
+    pub fn standing(&self) -> Option<&str> {
+        self.standing.as_deref()
     }
 
     pub fn return_to(mut self, address: &str) -> Self {
@@ -57,6 +64,22 @@ impl Chrome {
 pub struct ProfileView {
     pub own: bool,
     pub has_avatar: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct SubjectView {
+    pub holding: bool,
+    pub writer: bool,
+    pub standing: Option<String>,
+    pub token: String,
+    pub groups: Vec<Group>,
+    pub pictures: Vec<Image>,
+}
+
+impl SubjectView {
+    fn moderator(&self) -> bool {
+        self.standing.as_deref() == Some("moderator")
+    }
 }
 
 pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
@@ -736,7 +759,7 @@ pub fn pager(address: &str, page: &PageInfo) -> String {
     out
 }
 
-pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, holding: bool) -> String {
+pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, view: &SubjectView) -> String {
     let mut out = format!(
         concat!(
             "<article class=\"subject\">\n",
@@ -746,8 +769,11 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, holding: bool)
             "<a href=\"/sections/{section}\">{section}</a>{marks}</p>\n",
             "<div class=\"remark-text\">{body}</div>\n",
             "<p class=\"tags\">Tags: {tags}</p>\n",
+            "{pictures}",
             "{actions}",
+            "{life}",
             "<p class=\"links\"><a href=\"{history}\">What changed</a> | ",
+            "<a href=\"{gallery}\">Pictures</a> | ",
             "<a href=\"/sections/{section}\">Back to the section</a></p>\n",
             "</article>\n",
             "<h3>{count}</h3>\n",
@@ -760,11 +786,14 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, holding: bool)
         marks = subject_marks(subject),
         body = markup::render(&subject.body),
         tags = tag_links(&subject.tags),
-        actions = subject_actions(subject, holding),
+        pictures = subject_pictures(subject, view),
+        gallery = escape(&pictures_address(&subject.id)),
+        actions = subject_actions(subject, view),
+        life = subject_life(subject, view),
         history = escape(&history_address(&subject.id)),
         count = escape(&remark_count(comments.page.total)),
     );
-    out.push_str(&comment_list(&comments.items, holding));
+    out.push_str(&comment_list(&comments.items, view.holding));
     out.push_str(&pager(
         &format!("/topics/{}", client::encode_path(&subject.id)),
         &comments.page,
@@ -772,8 +801,270 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, holding: bool)
     out
 }
 
-fn subject_actions(subject: &Subject, holding: bool) -> String {
-    if !holding {
+pub fn picture_page(subject: &Subject, pictures: &[Image], chrome: &Chrome) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>Pictures of {title}</h2>\n",
+            "<p class=\"links\"><a href=\"{subject}\">Back to the subject</a></p>\n",
+        ),
+        title = escape(&subject.title),
+        subject = escape(&subject_address(&subject.id)),
+    );
+    if pictures.is_empty() {
+        out.push_str("<p>No pictures here yet.</p>\n");
+    } else {
+        out.push_str("<ul class=\"pictures\">\n");
+        for picture in pictures {
+            out.push_str(&format!(
+                concat!(
+                    "<li><img src=\"{src}\" alt=\"A picture put up by {by}\"> ",
+                    "<span class=\"byline\">by <span class=\"writer\">{by}</span></span>",
+                    " <form class=\"inline\" method=\"post\" action=\"{action}\">",
+                    "<input type=\"hidden\" name=\"token\" value=\"{token}\">",
+                    "<button type=\"submit\">Take down</button></form></li>\n",
+                ),
+                src = escape(&picture_address(&subject.id, &picture.id)),
+                by = escape(&picture.uploaded_by),
+                action = escape(&picture_removal_address(&subject.id, &picture.id)),
+                token = escape(&chrome.token),
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str(&format!(
+        concat!(
+            "<form class=\"picture-form\" method=\"post\" enctype=\"multipart/form-data\" ",
+            "action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"picture\">A picture</label>\n",
+            "<input id=\"picture\" name=\"picture\" type=\"file\" accept=\"image/*\" required></p>\n",
+            "<p><button type=\"submit\">Put up</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(&pictures_address(&subject.id)),
+        token = escape(&chrome.token),
+    ));
+    out
+}
+
+pub fn subject_address(id: &str) -> String {
+    format!("/topics/{}", client::encode_path(id))
+}
+
+pub fn pictures_address(id: &str) -> String {
+    format!("/topics/{}/images", client::encode_path(id))
+}
+
+fn subject_pictures(subject: &Subject, view: &SubjectView) -> String {
+    if view.pictures.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("<ul class=\"pictures\">\n");
+    for picture in &view.pictures {
+        out.push_str(&format!(
+            concat!(
+                "<li><img src=\"{src}\" alt=\"A picture put up by {by}\"> ",
+                "<span class=\"byline\">by <span class=\"writer\">{by}</span></span>{take}</li>\n",
+            ),
+            src = escape(&picture_address(&subject.id, &picture.id)),
+            by = escape(&picture.uploaded_by),
+            take = match view.holding {
+                true => format!(
+                    concat!(
+                        " <form class=\"inline\" method=\"post\" action=\"{action}\">",
+                        "<input type=\"hidden\" name=\"token\" value=\"{token}\">",
+                        "<button type=\"submit\">Take down</button></form>",
+                    ),
+                    action = escape(&picture_removal_address(&subject.id, &picture.id)),
+                    token = escape(&view.token),
+                ),
+                false => String::new(),
+            },
+        ));
+    }
+    out.push_str("</ul>\n");
+    out
+}
+
+fn subject_life(subject: &Subject, view: &SubjectView) -> String {
+    if !view.holding {
+        return String::new();
+    }
+    let mut out = String::new();
+    if (subject.pending || subject.draft) && (view.writer || view.moderator()) {
+        out.push_str(&flag_form(
+            &publish_address(&subject.id),
+            &view.token,
+            "",
+            "Publish",
+        ));
+    }
+    if view.moderator() {
+        out.push_str(&flag_form(
+            &sticky_address(&subject.id),
+            &view.token,
+            match subject.sticky {
+                true => "no",
+                false => "yes",
+            },
+            match subject.sticky {
+                true => "Unpin",
+                false => "Pin",
+            },
+        ));
+        out.push_str(&flag_form(
+            &front_address(&subject.id),
+            &view.token,
+            match subject.off_front {
+                true => "yes",
+                false => "no",
+            },
+            match subject.off_front {
+                true => "Put on the front page",
+                false => "Keep off the front page",
+            },
+        ));
+        out.push_str(&flag_form(
+            &commit_address(&subject.id),
+            &view.token,
+            match subject.pending {
+                true => "yes",
+                false => "no",
+            },
+            match subject.pending {
+                true => "Commit",
+                false => "Commit no more",
+            },
+        ));
+        out.push_str(&format!(
+            concat!(
+                "<form class=\"inline\" method=\"post\" action=\"{action}\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<label for=\"postscore\">Score</label>\n",
+                "<input id=\"postscore\" name=\"score\" type=\"number\" value=\"{score}\">\n",
+                "<button type=\"submit\">Set</button>\n",
+                "</form>\n",
+            ),
+            action = escape(&postscore_address(&subject.id)),
+            token = escape(&view.token),
+            score = subject.postscore,
+        ));
+        if !view.groups.is_empty() {
+            out.push_str(&format!(
+                concat!(
+                    "<form class=\"inline\" method=\"post\" action=\"{action}\">\n",
+                    "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                    "<label for=\"group\">Move to</label>\n",
+                    "<select id=\"group\" name=\"group\">{options}</select>\n",
+                    "<button type=\"submit\">Move</button>\n",
+                    "</form>\n",
+                ),
+                action = escape(&move_address(&subject.id)),
+                token = escape(&view.token),
+                options = group_options(&view.groups, subject.group_slug.as_deref()),
+            ));
+        }
+    }
+    if view.moderator() || view.writer {
+        out.push_str(&flag_form(
+            &resolved_address(&subject.id),
+            &view.token,
+            match subject.resolved {
+                true => "no",
+                false => "yes",
+            },
+            match subject.resolved {
+                true => "Open again",
+                false => "Mark resolved",
+            },
+        ));
+    }
+    if out.is_empty() {
+        return String::new();
+    }
+    format!("<div class=\"life\">\n{out}</div>\n")
+}
+
+fn flag_form(action: &str, token: &str, on: &str, label: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"inline\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "{flag}<button type=\"submit\">{label}</button>\n",
+            "</form>\n",
+        ),
+        action = escape(action),
+        token = escape(token),
+        flag = match on.is_empty() {
+            true => String::new(),
+            false => format!("<input type=\"hidden\" name=\"on\" value=\"{on}\">\n"),
+        },
+        label = escape(label),
+    )
+}
+
+fn group_options(groups: &[Group], chosen: Option<&str>) -> String {
+    let mut out = String::new();
+    for group in groups {
+        out.push_str(&format!(
+            "<option value=\"{slug}\"{picked}>{name}</option>",
+            slug = escape(&group.slug),
+            picked = match chosen == Some(group.slug.as_str()) {
+                true => " selected",
+                false => "",
+            },
+            name = escape(&group.name),
+        ));
+    }
+    out
+}
+
+pub fn publish_address(id: &str) -> String {
+    format!("/topics/{}/publish", client::encode_path(id))
+}
+
+pub fn sticky_address(id: &str) -> String {
+    format!("/topics/{}/sticky", client::encode_path(id))
+}
+
+pub fn front_address(id: &str) -> String {
+    format!("/topics/{}/front", client::encode_path(id))
+}
+
+pub fn commit_address(id: &str) -> String {
+    format!("/topics/{}/commit", client::encode_path(id))
+}
+
+pub fn postscore_address(id: &str) -> String {
+    format!("/topics/{}/score", client::encode_path(id))
+}
+
+pub fn move_address(id: &str) -> String {
+    format!("/topics/{}/group", client::encode_path(id))
+}
+
+pub fn resolved_address(id: &str) -> String {
+    format!("/topics/{}/resolved", client::encode_path(id))
+}
+
+pub fn picture_address(topic_id: &str, image_id: &str) -> String {
+    format!(
+        "/topics/{}/images/{}",
+        client::encode_path(topic_id),
+        client::encode_path(image_id)
+    )
+}
+
+pub fn picture_removal_address(topic_id: &str, image_id: &str) -> String {
+    format!(
+        "/topics/{}/images/{}/remove",
+        client::encode_path(topic_id),
+        client::encode_path(image_id)
+    )
+}
+
+fn subject_actions(subject: &Subject, view: &SubjectView) -> String {
+    if !view.holding {
         return String::new();
     }
     let mut links = vec![
@@ -2140,6 +2431,13 @@ mod tests {
         }
     }
 
+    fn held() -> SubjectView {
+        SubjectView {
+            holding: true,
+            ..SubjectView::default()
+        }
+    }
+
     fn remarks(items: Vec<Comment>, total: u64) -> Paged<Comment> {
         Paged {
             items,
@@ -2165,7 +2463,7 @@ mod tests {
                 ],
                 2,
             ),
-            true,
+            &held(),
         );
         assert!(html.contains("<h2>First subject</h2>"));
         assert!(html.contains(">alice<"));
@@ -2185,14 +2483,14 @@ mod tests {
         let html = subject_page(
             &subject("First", "body"),
             &remarks(vec![remark("1", "bob", "x")], 1),
-            true,
+            &held(),
         );
         assert!(html.contains("<h3>1 remark</h3>"));
     }
 
     #[test]
     fn a_subject_with_no_remarks_says_so() {
-        let html = subject_page(&subject("First", "body"), &remarks(vec![], 0), true);
+        let html = subject_page(&subject("First", "body"), &remarks(vec![], 0), &held());
         assert!(html.contains("No remarks here yet."));
         assert!(html.contains("<h3>0 remarks</h3>"));
     }
@@ -2202,13 +2500,17 @@ mod tests {
         let mut pinned = subject("First", "body");
         pinned.sticky = true;
         pinned.edited = true;
-        let html = subject_page(&pinned, &remarks(vec![], 0), true);
+        let html = subject_page(&pinned, &remarks(vec![], 0), &held());
         assert!(html.contains("(pinned, edited)"));
         let mut edited = remark("1", "bob", "x");
         edited.edited = true;
         assert!(
-            subject_page(&subject("First", "body"), &remarks(vec![edited], 1), true)
-                .contains("(edited)")
+            subject_page(
+                &subject("First", "body"),
+                &remarks(vec![edited], 1),
+                &held()
+            )
+            .contains("(edited)")
         );
     }
 
@@ -2222,7 +2524,7 @@ mod tests {
         let html = subject_page(
             &subject("First", "body"),
             &remarks(vec![removed, kept], 2),
-            true,
+            &held(),
         );
         assert!(html.contains("Removed: off topic"));
         assert!(!html.contains(">gone<"));
@@ -2235,7 +2537,7 @@ mod tests {
         let html = subject_page(
             &subject("<b>bold</b>", "<img src=1 onerror=alert(1)>"),
             &remarks(vec![remark("1", "<i>bob", "<script>go()</script>")], 1),
-            true,
+            &held(),
         );
         assert!(!html.contains("<b>"));
         assert!(!html.contains("<img"));
@@ -2249,7 +2551,7 @@ mod tests {
         let html = subject_page(
             &subject("First", "One.\n\nTwo *soft* lines"),
             &remarks(vec![], 0),
-            true,
+            &held(),
         );
         assert!(html.contains("<p>One.</p>"), "no paragraph: {html}");
         assert!(
@@ -2264,7 +2566,7 @@ mod tests {
         let html = subject_page(
             &subject("First", "body"),
             &remarks(vec![remark("1", "bob", "> spoken\n\n- one")], 1),
-            true,
+            &held(),
         );
         assert!(html.contains("<blockquote>"), "no quote: {html}");
         assert!(html.contains("<li>one</li>"), "no item: {html}");
@@ -2276,7 +2578,11 @@ mod tests {
         let mut removed = remark("1", "bob", "gone");
         removed.deleted = true;
         removed.deleted_reason = Some("*why*".to_owned());
-        let html = subject_page(&subject("First", "body"), &remarks(vec![removed], 1), true);
+        let html = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![removed], 1),
+            &held(),
+        );
         assert!(html.contains("Removed: *why*"), "the reason: {html}");
         assert!(!html.contains("<em>"));
     }
@@ -2297,7 +2603,7 @@ mod tests {
                 &subject_page(
                     &subject("First", source),
                     &remarks(vec![remark("1", "bob", source)], 1),
-                    true,
+                    &held(),
                 ),
             );
             assert!(
@@ -2493,7 +2799,7 @@ mod tests {
             &subject_page(
                 &subject("First", "body"),
                 &remarks(vec![remark("1", "bob", "A reply")], 1),
-                true,
+                &held(),
             ),
         );
         assert!(scripting_free(&html), "not scripting free: {html}");
