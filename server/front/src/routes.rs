@@ -29,6 +29,31 @@ pub fn router(app: App) -> Router {
         .route("/topics/{id}", get(topic))
         .route("/topics/{id}/reply", get(reply_form))
         .route("/topics/{id}/comments", post(add_comment))
+        .route(
+            "/topics/{id}/edit",
+            get(subject_edit_form).post(edit_subject),
+        )
+        .route("/topics/{id}/remove", get(subject_removal_form))
+        .route("/topics/{id}/delete", post(remove_subject))
+        .route(
+            "/topics/{id}/restore",
+            get(subject_restore_form).post(restore_subject),
+        )
+        .route("/topics/{id}/history", get(history))
+        .route("/topics/{id}/history/{version}", get(difference))
+        .route(
+            "/topics/{id}/comments/{remark}/edit",
+            get(remark_edit_form).post(edit_remark),
+        )
+        .route(
+            "/topics/{id}/comments/{remark}/remove",
+            get(remark_removal_form),
+        )
+        .route("/topics/{id}/comments/{remark}/delete", post(remove_remark))
+        .route(
+            "/topics/{id}/comments/{remark}/restore",
+            get(remark_restore_form).post(restore_remark),
+        )
         .route("/sections/{slug}/post", get(subject_form).post(add_subject))
         .route("/search", get(search))
         .route("/archive", get(archive))
@@ -178,6 +203,7 @@ async fn topic(
             ),
         );
     };
+    let holding = session_of(&headers).is_some();
     match app.comments(&id, number).await {
         Ok(comments) => render(
             &guard,
@@ -185,7 +211,7 @@ async fn topic(
             html::page(
                 &chrome,
                 &subject.title,
-                &html::subject_page(&subject, &comments),
+                &html::subject_page(&subject, &comments, holding),
             ),
         ),
         Err(error) => render(
@@ -416,6 +442,580 @@ async fn add_comment(
             )
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct SubjectEditForm {
+    token: Option<String>,
+    title: String,
+    body: String,
+    tags: Option<String>,
+    minor: Option<String>,
+}
+
+async fn subject_edit_form(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::subject_edit_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Change a subject",
+            &html::subject_edit_page(&subject, &chrome, None),
+        ),
+    )
+}
+
+async fn edit_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<SubjectEditForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::subject_edit_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let tags = tags_of(form.tags.as_deref().unwrap_or(""));
+    let mut body = client::SubjectEdit::new(form.title.trim(), &form.body);
+    body = body.tags(&tags.iter().map(String::as_str).collect::<Vec<&str>>());
+    if form.minor.is_some() {
+        body = body.minor();
+    }
+    match app.edit_topic(&session, &id, &body).await {
+        Ok(_) => see_other(&guard, &topic_address(&id, 1)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Change a subject",
+                &html::subject_edit_page(&subject, &chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RemarkEditForm {
+    token: Option<String>,
+    body: String,
+}
+
+async fn remark_edit_form(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_edit_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Change a remark",
+            &html::remark_edit_page(&subject, &said, &chrome, None),
+        ),
+    )
+}
+
+async fn edit_remark(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<RemarkEditForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_edit_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    match app.edit_comment(&session, &id, &remark, &form.body).await {
+        Ok(_) => see_other(&guard, &remark_anchor(&id, &remark)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Change a remark",
+                &html::remark_edit_page(&subject, &said, &chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RemovalForm {
+    token: Option<String>,
+    reason: String,
+}
+
+async fn subject_removal_form(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::removal_form_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Remove a subject",
+            &html::removal_page(&subject, &chrome, None),
+        ),
+    )
+}
+
+async fn remove_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<RemovalForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::removal_form_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let body = client::Removal::new(form.reason.trim());
+    match app.delete_topic(&session, &id, &body).await {
+        Ok(_) => see_other(&guard, &topic_address(&id, 1)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Remove a subject",
+                &html::removal_page(&subject, &chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RestoreForm {
+    token: Option<String>,
+}
+
+async fn subject_restore_form(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::restore_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Bring a subject back",
+            &html::restore_page(&subject, &chrome, None),
+        ),
+    )
+}
+
+async fn restore_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<RestoreForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::restore_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    match app.restore_topic(&session, &id).await {
+        Ok(_) => see_other(&guard, &topic_address(&id, 1)),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &chrome,
+                "Bring a subject back",
+                &html::restore_page(&subject, &chrome, Some(&error.to_string())),
+            ),
+        ),
+    }
+}
+
+async fn remark_removal_form(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_removal_form_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Remove a remark",
+            &html::remark_removal_page(&subject, &said, &chrome, None),
+        ),
+    )
+}
+
+async fn remove_remark(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<RemovalForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_removal_form_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    let body = client::Removal::new(form.reason.trim());
+    match app.delete_comment(&session, &id, &remark, &body).await {
+        Ok(_) => see_other(&guard, &remark_anchor(&id, &remark)),
+        Err(error) => {
+            let subject = match held_subject(&app, &id, &guard, &chrome).await {
+                Ok(subject) => subject,
+                Err(answer) => return answer,
+            };
+            render(
+                &guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::page(
+                    &chrome,
+                    "Remove a remark",
+                    &html::remark_removal_page(&subject, &said, &chrome, Some(&error.to_string())),
+                ),
+            )
+        }
+    }
+}
+
+async fn remark_restore_form(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_restore_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(_session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Bring a remark back",
+            &html::remark_restore_page(&subject, &said, &chrome, None),
+        ),
+    )
+}
+
+async fn restore_remark(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<RestoreForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::remark_restore_address(&id, &remark);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, &address);
+    };
+    let said = match held_remark(&app, &id, &remark, &guard, &chrome).await {
+        Ok(said) => said,
+        Err(answer) => return answer,
+    };
+    match app.restore_comment(&session, &id, &remark).await {
+        Ok(_) => see_other(&guard, &remark_anchor(&id, &remark)),
+        Err(error) => {
+            let subject = match held_subject(&app, &id, &guard, &chrome).await {
+                Ok(subject) => subject,
+                Err(answer) => return answer,
+            };
+            render(
+                &guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::page(
+                    &chrome,
+                    "Bring a remark back",
+                    &html::remark_restore_page(&subject, &said, &chrome, Some(&error.to_string())),
+                ),
+            )
+        }
+    }
+}
+
+async fn history(State(app): State<App>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::history_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    match app.topic_history(&id).await {
+        Ok(versions) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                "What changed",
+                &html::history_page(&subject, &versions),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn difference(
+    State(app): State<App>,
+    Path((id, version)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::version_address(&id, &version);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let subject = match held_subject(&app, &id, &guard, &chrome).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    let versions = match app.topic_history(&id).await {
+        Ok(versions) => versions,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    let Some(known) = versions.iter().find(|known| known.id == version) else {
+        return render(
+            &guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                &chrome,
+                "No such version",
+                "This subject has no version at that address.",
+            ),
+        );
+    };
+    match app.topic_difference(&id, &version).await {
+        Ok(changes) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                "What changed",
+                &html::difference_page(&subject, known, &changes),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn held_subject(
+    app: &App,
+    id: &str,
+    guard: &Guard,
+    chrome: &Chrome,
+) -> Result<client::Subject, Response> {
+    match app.subject(id).await {
+        Ok(Some(subject)) => Ok(subject),
+        Ok(None) => Err(render(
+            guard,
+            StatusCode::NOT_FOUND,
+            html::message(
+                chrome,
+                "No such subject",
+                "This board has no subject at that address.",
+            ),
+        )),
+        Err(error) => Err(render(
+            guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(chrome, &error),
+        )),
+    }
+}
+
+async fn held_remark(
+    app: &App,
+    topic: &str,
+    id: &str,
+    guard: &Guard,
+    chrome: &Chrome,
+) -> Result<Comment, Response> {
+    let mut number = 1u32;
+    loop {
+        let remarks = match app.comments(topic, number).await {
+            Ok(remarks) => remarks,
+            Err(error) => {
+                return Err(render(
+                    guard,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    unavailable(chrome, &error),
+                ));
+            }
+        };
+        let known = remarks.items.into_iter().find(|said| said.id == id);
+        if let Some(said) = known {
+            return Ok(said);
+        }
+        if !remarks.page.has_next || number >= LAST_PAGE {
+            return Err(render(
+                guard,
+                StatusCode::NOT_FOUND,
+                html::message(chrome, "No such remark", "This subject has no such remark."),
+            ));
+        }
+        number += 1;
+    }
+}
+
+fn remark_anchor(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}#remark-{}",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
 }
 
 async fn answered_of(app: &App, id: &str, parent: Option<&str>) -> Option<Comment> {

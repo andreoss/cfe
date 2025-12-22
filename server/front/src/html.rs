@@ -1,8 +1,8 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    ArchiveMonth, Comment, Criteria, Hit, Notification, Order, PageInfo, Paged, Profile, Scope,
-    Section, Subject, Tag, Topic,
+    ArchiveMonth, Change, Comment, Criteria, Hit, Notification, Order, PageInfo, Paged, Profile,
+    Scope, Section, Subject, Tag, Topic, Version,
 };
 
 pub fn escape(raw: &str) -> String {
@@ -736,7 +736,7 @@ pub fn pager(address: &str, page: &PageInfo) -> String {
     out
 }
 
-pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
+pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, holding: bool) -> String {
     let mut out = format!(
         concat!(
             "<article class=\"subject\">\n",
@@ -746,7 +746,8 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
             "<a href=\"/sections/{section}\">{section}</a>{marks}</p>\n",
             "<div class=\"remark-text\">{body}</div>\n",
             "<p class=\"tags\">Tags: {tags}</p>\n",
-            "<p><a href=\"{reply}\">Answer</a> | ",
+            "{actions}",
+            "<p class=\"links\"><a href=\"{history}\">What changed</a> | ",
             "<a href=\"/sections/{section}\">Back to the section</a></p>\n",
             "</article>\n",
             "<h3>{count}</h3>\n",
@@ -759,15 +760,43 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>) -> String {
         marks = subject_marks(subject),
         body = markup::render(&subject.body),
         tags = tag_links(&subject.tags),
+        actions = subject_actions(subject, holding),
+        history = escape(&history_address(&subject.id)),
         count = escape(&remark_count(comments.page.total)),
-        reply = escape(&reply_address(&subject.id)),
     );
-    out.push_str(&comment_list(&comments.items));
+    out.push_str(&comment_list(&comments.items, holding));
     out.push_str(&pager(
         &format!("/topics/{}", client::encode_path(&subject.id)),
         &comments.page,
     ));
     out
+}
+
+fn subject_actions(subject: &Subject, holding: bool) -> String {
+    if !holding {
+        return String::new();
+    }
+    let mut links = vec![
+        format!(
+            "<a href=\"{}\">Answer</a>",
+            escape(&reply_address(&subject.id))
+        ),
+        format!(
+            "<a href=\"{}\">Change</a>",
+            escape(&subject_edit_address(&subject.id))
+        ),
+    ];
+    links.push(match subject.deleted {
+        true => format!(
+            "<a href=\"{}\">Bring back</a>",
+            escape(&restore_address(&subject.id))
+        ),
+        false => format!(
+            "<a href=\"{}\">Remove</a>",
+            escape(&removal_form_address(&subject.id))
+        ),
+    });
+    format!("<p class=\"actions\">{}</p>\n", links.join(" | "))
 }
 
 pub fn subject_form_page(section: &Section, chrome: &Chrome, problem: Option<&str>) -> String {
@@ -844,6 +873,314 @@ pub fn remark_form_page(
     )
 }
 
+pub fn subject_edit_page(subject: &Subject, chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>Change a subject</h2>\n",
+            "{problem}",
+            "<form class=\"subject-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"title\">Title</label>\n",
+            "<input id=\"title\" name=\"title\" type=\"text\" required maxlength=\"120\" ",
+            "value=\"{title}\"></p>\n",
+            "<p><label for=\"body\">Text</label>\n",
+            "<textarea id=\"body\" name=\"body\" rows=\"12\" cols=\"60\" required>",
+            "{body}</textarea></p>\n",
+            "<p><label for=\"tags\">Tags</label>\n",
+            "<input id=\"tags\" name=\"tags\" type=\"text\" autocomplete=\"off\" ",
+            "value=\"{tags}\"></p>\n",
+            "<p><label for=\"minor\">A small mend</label>\n",
+            "<input id=\"minor\" name=\"minor\" type=\"checkbox\" value=\"yes\"></p>\n",
+            "<p><button type=\"submit\">Change</button></p>\n",
+            "</form>\n"
+        ),
+        problem = problem_paragraph(problem),
+        action = escape(&subject_edit_address(&subject.id)),
+        token = escape(&chrome.token),
+        title = escape(&subject.title),
+        body = escape(&subject.body),
+        tags = escape(&subject.tags.join(", ")),
+    )
+}
+
+pub fn subject_edit_address(id: &str) -> String {
+    format!("/topics/{}/edit", client::encode_path(id))
+}
+
+pub fn remark_edit_page(
+    subject: &Subject,
+    remark: &Comment,
+    chrome: &Chrome,
+    problem: Option<&str>,
+) -> String {
+    format!(
+        concat!(
+            "<h2>Change a remark</h2>\n",
+            "<p class=\"byline\">In <a href=\"/topics/{topic}\">{title}</a> ",
+            "by <span class=\"writer\">{author}</span></p>\n",
+            "{problem}",
+            "<form class=\"remark-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"body\">Text</label>\n",
+            "<textarea id=\"body\" name=\"body\" rows=\"10\" cols=\"60\" required>",
+            "{body}</textarea></p>\n",
+            "<p><button type=\"submit\">Change</button></p>\n",
+            "</form>\n"
+        ),
+        topic = escape(&subject.id),
+        title = escape(&subject.title),
+        author = escape(&remark.author_username),
+        problem = problem_paragraph(problem),
+        action = escape(&remark_edit_address(&subject.id, &remark.id)),
+        token = escape(&chrome.token),
+        body = escape(&remark.body),
+    )
+}
+
+pub fn remark_edit_address(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/edit",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
+}
+
+pub fn removal_page(subject: &Subject, chrome: &Chrome, problem: Option<&str>) -> String {
+    removal_form(
+        "Remove a subject",
+        &removal_address(&subject.id),
+        &chrome.token,
+        problem,
+        &format!(
+            "<p class=\"byline\">Removing <a href=\"/topics/{id}\">{title}</a></p>\n",
+            id = escape(&subject.id),
+            title = escape(&subject.title),
+        ),
+    )
+}
+
+pub fn remark_removal_page(
+    subject: &Subject,
+    remark: &Comment,
+    chrome: &Chrome,
+    problem: Option<&str>,
+) -> String {
+    removal_form(
+        "Remove a remark",
+        &remark_removal_address(&subject.id, &remark.id),
+        &chrome.token,
+        problem,
+        &format!(
+            concat!(
+                "<p class=\"byline\">Removing what <span class=\"writer\">{author}</span> ",
+                "said in <a href=\"/topics/{topic}\">{title}</a></p>\n",
+            ),
+            author = escape(&remark.author_username),
+            topic = escape(&subject.id),
+            title = escape(&subject.title),
+        ),
+    )
+}
+
+fn removal_form(
+    heading: &str,
+    action: &str,
+    token: &str,
+    problem: Option<&str>,
+    byline: &str,
+) -> String {
+    format!(
+        concat!(
+            "<h2>{heading}</h2>\n",
+            "{byline}",
+            "{problem}",
+            "<form class=\"removal-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"reason\">Why</label>\n",
+            "<input id=\"reason\" name=\"reason\" type=\"text\" required maxlength=\"200\"></p>\n",
+            "<p><button type=\"submit\">Remove</button></p>\n",
+            "</form>\n"
+        ),
+        heading = escape(heading),
+        byline = byline,
+        problem = problem_paragraph(problem),
+        action = escape(action),
+        token = escape(token),
+    )
+}
+
+pub fn removal_address(id: &str) -> String {
+    format!("/topics/{}/delete", client::encode_path(id))
+}
+
+pub fn removal_form_address(id: &str) -> String {
+    format!("/topics/{}/remove", client::encode_path(id))
+}
+
+pub fn remark_removal_address(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/delete",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
+}
+
+pub fn remark_removal_form_address(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/remove",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
+}
+
+pub fn restore_page(subject: &Subject, chrome: &Chrome, problem: Option<&str>) -> String {
+    restore_form(
+        "Bring a subject back",
+        &restore_address(&subject.id),
+        &chrome.token,
+        problem,
+        &format!(
+            "<p class=\"byline\">Bringing <a href=\"/topics/{id}\">{title}</a> back</p>\n",
+            id = escape(&subject.id),
+            title = escape(&subject.title),
+        ),
+    )
+}
+
+pub fn remark_restore_page(
+    subject: &Subject,
+    remark: &Comment,
+    chrome: &Chrome,
+    problem: Option<&str>,
+) -> String {
+    restore_form(
+        "Bring a remark back",
+        &remark_restore_address(&subject.id, &remark.id),
+        &chrome.token,
+        problem,
+        &format!(
+            concat!(
+                "<p class=\"byline\">Bringing back what <span class=\"writer\">{author}</span> ",
+                "said in <a href=\"/topics/{topic}\">{title}</a></p>\n",
+            ),
+            author = escape(&remark.author_username),
+            topic = escape(&subject.id),
+            title = escape(&subject.title),
+        ),
+    )
+}
+
+fn restore_form(
+    heading: &str,
+    action: &str,
+    token: &str,
+    problem: Option<&str>,
+    byline: &str,
+) -> String {
+    format!(
+        concat!(
+            "<h2>{heading}</h2>\n",
+            "{byline}",
+            "{problem}",
+            "<form class=\"restore-form\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><button type=\"submit\">Bring back</button></p>\n",
+            "</form>\n"
+        ),
+        heading = escape(heading),
+        byline = byline,
+        problem = problem_paragraph(problem),
+        action = escape(action),
+        token = escape(token),
+    )
+}
+
+pub fn restore_address(id: &str) -> String {
+    format!("/topics/{}/restore", client::encode_path(id))
+}
+
+pub fn remark_restore_address(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/restore",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
+}
+
+pub fn history_page(subject: &Subject, versions: &[Version]) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>What changed</h2>\n",
+            "<p class=\"byline\">Versions of <a href=\"/topics/{id}\">{title}</a></p>\n",
+        ),
+        id = escape(&subject.id),
+        title = escape(&subject.title),
+    );
+    if versions.is_empty() {
+        out.push_str("<p>Nothing was changed here yet.</p>\n");
+        return out;
+    }
+    out.push_str("<ol class=\"versions\">\n");
+    for version in versions {
+        out.push_str(&format!(
+            concat!(
+                "<li><a href=\"{address}\"><time datetime=\"{stamp}\">{shown}</time></a> ",
+                "by <span class=\"writer\">{editor}</span></li>\n",
+            ),
+            address = escape(&version_address(&subject.id, &version.id)),
+            stamp = escape(&version.written_at),
+            shown = escape(&shown_date(&version.written_at)),
+            editor = escape(&version.editor),
+        ));
+    }
+    out.push_str("</ol>\n");
+    out
+}
+
+pub fn history_address(id: &str) -> String {
+    format!("/topics/{}/history", client::encode_path(id))
+}
+
+pub fn difference_page(subject: &Subject, version: &Version, changes: &[Change]) -> String {
+    let mut out = format!(
+        concat!(
+            "<h2>What changed at {shown}</h2>\n",
+            "<p class=\"byline\"><span class=\"writer\">{editor}</span> in ",
+            "<a href=\"/topics/{id}\">{title}</a></p>\n",
+        ),
+        shown = escape(&shown_date(&version.written_at)),
+        editor = escape(&version.editor),
+        id = escape(&subject.id),
+        title = escape(&subject.title),
+    );
+    if changes.is_empty() {
+        out.push_str("<p>Nothing is different in this version.</p>\n");
+    } else {
+        out.push_str("<ul class=\"changes\">\n");
+        for change in changes {
+            out.push_str(&format!(
+                "<li class=\"change\"><span class=\"kind\">{kind}</span> {line}</li>\n",
+                kind = escape(&change.kind),
+                line = escape(&change.line),
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str(&format!(
+        "<p><a href=\"{history}\">Back to what changed</a></p>\n",
+        history = escape(&history_address(&subject.id)),
+    ));
+    out
+}
+
+pub fn version_address(id: &str, version: &str) -> String {
+    format!(
+        "/topics/{}/history/{}",
+        client::encode_path(id),
+        client::encode_path(version)
+    )
+}
+
 fn remark_count(total: u64) -> String {
     match total {
         1 => "1 remark".to_owned(),
@@ -886,7 +1223,7 @@ fn subject_marks(subject: &Subject) -> String {
     )
 }
 
-pub fn comment_list(comments: &[Comment]) -> String {
+pub fn comment_list(comments: &[Comment], holding: bool) -> String {
     let branches = client::thread(comments);
     if branches.is_empty() {
         return "<p>No remarks here yet.</p>\n".to_owned();
@@ -908,6 +1245,7 @@ pub fn comment_list(comments: &[Comment]) -> String {
         out.push_str(&remark_item(
             &branch.comment,
             answered(&branch.comment, comments),
+            holding,
         ));
         before = Some(branch.depth);
     }
@@ -921,9 +1259,9 @@ pub fn comment_list(comments: &[Comment]) -> String {
     out
 }
 
-fn remark_item(comment: &Comment, answered: Option<&Comment>) -> String {
+fn remark_item(comment: &Comment, answered: Option<&Comment>, holding: bool) -> String {
     let out = format!(
-        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n",
+        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n{actions}",
         id = escape(&comment.id),
         author = escape(&comment.author_username),
         stamp = escape(&comment.created_at),
@@ -931,8 +1269,26 @@ fn remark_item(comment: &Comment, answered: Option<&Comment>) -> String {
         marks = comment_marks(comment),
         quote = answered.map(quote_of).unwrap_or_default(),
         body = remark_body(comment),
+        actions = remark_actions(comment, holding),
     );
     out
+}
+
+fn remark_actions(comment: &Comment, holding: bool) -> String {
+    if !holding {
+        return String::new();
+    }
+    if comment.deleted {
+        return format!(
+            "<p class=\"actions\"><a href=\"{}\">Bring back</a></p>\n",
+            escape(&remark_restore_address(&comment.topic_id, &comment.id))
+        );
+    }
+    format!(
+        "<p class=\"actions\"><a href=\"{edit}\">Change</a> | <a href=\"{remove}\">Remove</a></p>\n",
+        edit = escape(&remark_edit_address(&comment.topic_id, &comment.id)),
+        remove = escape(&remark_removal_form_address(&comment.topic_id, &comment.id)),
+    )
 }
 
 fn answered<'a>(comment: &'a Comment, known: &'a [Comment]) -> Option<&'a Comment> {
@@ -1809,6 +2165,7 @@ mod tests {
                 ],
                 2,
             ),
+            true,
         );
         assert!(html.contains("<h2>First subject</h2>"));
         assert!(html.contains(">alice<"));
@@ -1828,13 +2185,14 @@ mod tests {
         let html = subject_page(
             &subject("First", "body"),
             &remarks(vec![remark("1", "bob", "x")], 1),
+            true,
         );
         assert!(html.contains("<h3>1 remark</h3>"));
     }
 
     #[test]
     fn a_subject_with_no_remarks_says_so() {
-        let html = subject_page(&subject("First", "body"), &remarks(vec![], 0));
+        let html = subject_page(&subject("First", "body"), &remarks(vec![], 0), true);
         assert!(html.contains("No remarks here yet."));
         assert!(html.contains("<h3>0 remarks</h3>"));
     }
@@ -1844,12 +2202,13 @@ mod tests {
         let mut pinned = subject("First", "body");
         pinned.sticky = true;
         pinned.edited = true;
-        let html = subject_page(&pinned, &remarks(vec![], 0));
+        let html = subject_page(&pinned, &remarks(vec![], 0), true);
         assert!(html.contains("(pinned, edited)"));
         let mut edited = remark("1", "bob", "x");
         edited.edited = true;
         assert!(
-            subject_page(&subject("First", "body"), &remarks(vec![edited], 1)).contains("(edited)")
+            subject_page(&subject("First", "body"), &remarks(vec![edited], 1), true)
+                .contains("(edited)")
         );
     }
 
@@ -1860,7 +2219,11 @@ mod tests {
         removed.deleted_reason = Some("off topic".to_owned());
         let mut kept = remark("2", "carol", "hidden");
         kept.ignored = true;
-        let html = subject_page(&subject("First", "body"), &remarks(vec![removed, kept], 2));
+        let html = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![removed, kept], 2),
+            true,
+        );
         assert!(html.contains("Removed: off topic"));
         assert!(!html.contains(">gone<"));
         assert!(html.contains("Kept from you."));
@@ -1872,6 +2235,7 @@ mod tests {
         let html = subject_page(
             &subject("<b>bold</b>", "<img src=1 onerror=alert(1)>"),
             &remarks(vec![remark("1", "<i>bob", "<script>go()</script>")], 1),
+            true,
         );
         assert!(!html.contains("<b>"));
         assert!(!html.contains("<img"));
@@ -1885,6 +2249,7 @@ mod tests {
         let html = subject_page(
             &subject("First", "One.\n\nTwo *soft* lines"),
             &remarks(vec![], 0),
+            true,
         );
         assert!(html.contains("<p>One.</p>"), "no paragraph: {html}");
         assert!(
@@ -1899,6 +2264,7 @@ mod tests {
         let html = subject_page(
             &subject("First", "body"),
             &remarks(vec![remark("1", "bob", "> spoken\n\n- one")], 1),
+            true,
         );
         assert!(html.contains("<blockquote>"), "no quote: {html}");
         assert!(html.contains("<li>one</li>"), "no item: {html}");
@@ -1910,7 +2276,7 @@ mod tests {
         let mut removed = remark("1", "bob", "gone");
         removed.deleted = true;
         removed.deleted_reason = Some("*why*".to_owned());
-        let html = subject_page(&subject("First", "body"), &remarks(vec![removed], 1));
+        let html = subject_page(&subject("First", "body"), &remarks(vec![removed], 1), true);
         assert!(html.contains("Removed: *why*"), "the reason: {html}");
         assert!(!html.contains("<em>"));
     }
@@ -1931,6 +2297,7 @@ mod tests {
                 &subject_page(
                     &subject("First", source),
                     &remarks(vec![remark("1", "bob", source)], 1),
+                    true,
                 ),
             );
             assert!(
@@ -1944,7 +2311,7 @@ mod tests {
     fn a_reply_quotes_the_remark_it_answers() {
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[remark("1", "bob", "First thought"), answer]);
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer], true);
         assert!(html.contains("class=\"answer\""), "no quote: {html}");
         assert!(
             html.contains("<a href=\"#remark-1\">bob wrote</a>: First thought"),
@@ -1954,7 +2321,7 @@ mod tests {
 
     #[test]
     fn a_remark_that_answers_nothing_carries_no_quote() {
-        let html = comment_list(&[remark("1", "bob", "First thought")]);
+        let html = comment_list(&[remark("1", "bob", "First thought")], true);
         assert!(!html.contains("class=\"answer\""), "a quote: {html}");
     }
 
@@ -1962,7 +2329,7 @@ mod tests {
     fn a_reply_to_a_remark_off_the_page_carries_no_quote() {
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("9".to_owned());
-        let html = comment_list(&[remark("1", "bob", "First thought"), answer]);
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer], true);
         assert!(!html.contains("class=\"answer\""), "a quote: {html}");
         assert!(html.contains("I agree"), "the reply is missing: {html}");
     }
@@ -1974,7 +2341,7 @@ mod tests {
         gone.deleted_reason = Some("off topic".to_owned());
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[gone, answer]);
+        let html = comment_list(&[gone, answer], true);
         assert!(
             html.contains("Removed: off topic"),
             "the reason is missing: {html}"
@@ -1987,7 +2354,7 @@ mod tests {
         let long = "x".repeat(400);
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[remark("1", "bob", &long), answer]);
+        let html = comment_list(&[remark("1", "bob", &long), answer], true);
         let quote = html.split("class=\"answer\"").nth(1).unwrap_or_default();
         assert!(
             quote.contains(&format!("{}...", "x".repeat(120))),
@@ -2002,7 +2369,7 @@ mod tests {
 
     #[test]
     fn an_account_named_in_a_remark_is_a_link() {
-        let html = comment_list(&[remark("1", "bob", "ask @alice")]);
+        let html = comment_list(&[remark("1", "bob", "ask @alice")], true);
         assert!(
             html.contains("<a class=\"mention\" href=\"/u/alice\">@alice</a>"),
             "no link: {html}"
@@ -2015,7 +2382,7 @@ mod tests {
         answer.parent_id = Some("1".to_owned());
         let mut deeper = remark("3", "dave", "Deeper still");
         deeper.parent_id = Some("2".to_owned());
-        let html = comment_list(&[remark("1", "bob", "A reply"), answer, deeper]);
+        let html = comment_list(&[remark("1", "bob", "A reply"), answer, deeper], true);
         let opened = html.matches("<ol").count();
         let closed = html.matches("</ol>").count();
         assert_eq!(
@@ -2039,7 +2406,7 @@ mod tests {
     fn a_reply_comes_after_the_remark_it_answers_whatever_order_they_arrive_in() {
         let mut answer = remark("2", "carol", "An answer");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[answer, remark("1", "bob", "A reply")]);
+        let html = comment_list(&[answer, remark("1", "bob", "A reply")], true);
         assert!(html.find("id=\"remark-1\"").unwrap() < html.find("id=\"remark-2\"").unwrap());
     }
 
@@ -2047,7 +2414,7 @@ mod tests {
     fn a_reply_whose_remark_is_not_on_this_page_is_still_shown() {
         let mut orphan = remark("2", "carol", "An answer");
         orphan.parent_id = Some("gone".to_owned());
-        let html = comment_list(&[orphan]);
+        let html = comment_list(&[orphan], true);
         assert!(html.contains("id=\"remark-2\""));
         assert!(html.contains("An answer"));
     }
@@ -2126,6 +2493,7 @@ mod tests {
             &subject_page(
                 &subject("First", "body"),
                 &remarks(vec![remark("1", "bob", "A reply")], 1),
+                true,
             ),
         );
         assert!(scripting_free(&html), "not scripting free: {html}");

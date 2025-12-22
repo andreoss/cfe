@@ -6,9 +6,9 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ArchiveMonth, Avatar, ClientError, Comment, Criteria, Feed, Hit, Notification,
-    Paged, Profile, RegisterBody, Section, Session, Subject, Tag, Topic, User, encode_path,
-    find_section,
+    ApiClient, ArchiveMonth, Avatar, Change, ClientError, Comment, Criteria, Feed, Hit,
+    Notification, Paged, Profile, RegisterBody, Section, Session, Subject, Tag, Topic, User,
+    Version, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -80,6 +80,71 @@ impl App {
         body: &client::NewRemark,
     ) -> Result<Comment, ClientError> {
         self.client.create_comment(session, topic_id, body).await
+    }
+
+    pub async fn edit_topic(
+        &self,
+        session: &str,
+        id: &str,
+        body: &client::SubjectEdit,
+    ) -> Result<Subject, ClientError> {
+        self.client.edit_topic(session, id, body).await
+    }
+
+    pub async fn edit_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        body: &str,
+    ) -> Result<Comment, ClientError> {
+        self.client.edit_comment(session, topic_id, id, body).await
+    }
+
+    pub async fn delete_topic(
+        &self,
+        session: &str,
+        id: &str,
+        body: &client::Removal,
+    ) -> Result<Subject, ClientError> {
+        self.client.delete_topic(session, id, body).await
+    }
+
+    pub async fn restore_topic(&self, session: &str, id: &str) -> Result<Subject, ClientError> {
+        self.client.restore_topic(session, id).await
+    }
+
+    pub async fn delete_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        body: &client::Removal,
+    ) -> Result<Comment, ClientError> {
+        self.client
+            .delete_comment(session, topic_id, id, body)
+            .await
+    }
+
+    pub async fn restore_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Comment, ClientError> {
+        self.client.restore_comment(session, topic_id, id).await
+    }
+
+    pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
+        self.client.topic_history(id).await
+    }
+
+    pub async fn topic_difference(
+        &self,
+        id: &str,
+        version_id: &str,
+    ) -> Result<Vec<Change>, ClientError> {
+        self.client.topic_difference(id, version_id).await
     }
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {
