@@ -58,6 +58,11 @@ pub fn router(app: App) -> Router {
         .route("/topics/{id}/poll/new", get(poll_form))
         .route("/topics/{id}/poll", post(add_poll))
         .route("/topics/{id}/poll/vote", post(cast_vote))
+        .route("/topics/{id}/report", post(report_subject))
+        .route(
+            "/topics/{id}/comments/{remark}/report",
+            post(report_a_remark),
+        )
         .route("/topics/{id}/react", post(react_to_subject))
         .route("/topics/{id}/reactions/clear", post(clear_subject_reaction))
         .route(
@@ -100,6 +105,8 @@ pub fn router(app: App) -> Router {
         .route("/register", get(register_form).post(register))
         .route("/sign-in", get(sign_in_form).post(sign_in))
         .route("/sign-out", post(sign_out))
+        .route("/reports", get(reports))
+        .route("/reports/{id}/close", post(close_a_report))
         .route("/me/warnings", get(warnings))
         .route("/me/warnings/acknowledge", post(acknowledge_warnings))
         .route("/u/{username}", get(profile))
@@ -2204,6 +2211,13 @@ pub struct RemarkAboutForm {
     text: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ReportForm {
+    token: Option<String>,
+    kind: Option<String>,
+    reason: Option<String>,
+}
+
 async fn moderating(
     app: &App,
     username: &str,
@@ -2418,6 +2432,120 @@ async fn ban_of(
 }
 
 const WARNINGS_ADDRESS: &str = "/me/warnings";
+
+async fn reports(
+    State(app): State<App>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let address = reports_address(number);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, html::REPORTS_ADDRESS);
+    };
+    match app.reports(&session, number).await {
+        Ok(page) => {
+            let reports: Vec<html::ReportView> = page
+                .items
+                .into_iter()
+                .map(|report| html::ReportView {
+                    id: report.id,
+                    topic_id: report.topic_id,
+                    comment_id: report.comment_id,
+                    reporter: report.reporter_username,
+                    kind: report.kind,
+                    reason: report.reason,
+                    created_at: report.created_at,
+                })
+                .collect();
+            render(
+                &guard,
+                StatusCode::OK,
+                html::page(
+                    &chrome,
+                    "Open reports",
+                    &html::reports_page(&chrome, &reports, &page.page),
+                ),
+            )
+        }
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn close_a_report(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, html::REPORTS_ADDRESS).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, html::REPORTS_ADDRESS);
+    };
+    match app.close_report(&session, &id).await {
+        Ok(()) => see_other(&guard, html::REPORTS_ADDRESS),
+        Err(error) => render(
+            &guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&chrome, "Close a report", &error.to_string()),
+        ),
+    }
+}
+
+async fn report_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ReportForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .report_subject(
+            &held.session,
+            &id,
+            text_of(&form.kind),
+            text_of(&form.reason),
+        )
+        .await;
+    settled(&held, "Report a subject", outcome)
+}
+
+async fn report_a_remark(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<ReportForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .report_remark(
+            &held.session,
+            &id,
+            &remark,
+            text_of(&form.kind),
+            text_of(&form.reason),
+        )
+        .await;
+    settled(&held, "Report a remark", outcome)
+}
 
 async fn warnings(State(app): State<App>, headers: HeaderMap) -> Response {
     let guard = Guard::new(&headers);
@@ -3149,6 +3277,14 @@ fn topic_address(id: &str, page: u32) -> String {
         format!("/topics/{}", client::encode_path(id))
     } else {
         format!("/topics/{}?page={}", client::encode_path(id), page)
+    }
+}
+
+fn reports_address(page: u32) -> String {
+    if page <= 1 {
+        html::REPORTS_ADDRESS.to_owned()
+    } else {
+        format!("{}?page={}", html::REPORTS_ADDRESS, page)
     }
 }
 

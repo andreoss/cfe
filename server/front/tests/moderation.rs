@@ -29,6 +29,22 @@ const GIVEN_WARNING: &str = concat!(
     "\"reason\":\"spam\",\"created_at\":\"2024-12-18T00:00:00Z\",\"acknowledged\":false}"
 );
 const PROMOTED: &str = "{\"id\":\"9\",\"username\":\"bob\",\"role\":\"moderator\"}";
+const GIVEN_REPORT: &str = concat!(
+    "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"comment_id\":null,\"reporter_username\":\"bob\",",
+    "\"kind\":\"rule\",\"reason\":\"spam\",",
+    "\"created_at\":\"2024-12-18T01:00:00Z\"}"
+);
+const REPORTS: &str = concat!(
+    "{\"items\":[{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"comment_id\":\"22222222-2222-2222-2222-222222222222\",",
+    "\"reporter_username\":\"bob\",\"kind\":\"spelling\",",
+    "\"reason\":\"typos\",\"created_at\":\"2024-12-18T01:00:00Z\"}],",
+    "\"page\":{\"number\":1,\"size\":20,\"total\":1,\"total_pages\":1,",
+    "\"has_next\":false,\"has_previous\":false}}"
+);
 const REMARK: &str = "{\"text\":\"keeps the board clean\"}";
 const EMPTY: &str = "";
 const REFUSED: &str = "{\"error\":\"moderator role required\"}";
@@ -110,6 +126,13 @@ async fn board(role: &str, warnings: &str, ignored: bool, banned: bool) -> (Stri
                         "DELETE" => ("204 No Content", EMPTY.to_owned()),
                         _ => ("200 OK", REMARK.to_owned()),
                     },
+                    "/api/reports" => ("200 OK", REPORTS.to_owned()),
+                    path if path.starts_with("/api/reports/") && path.ends_with("/close") => {
+                        ("200 OK", GIVEN_REPORT.to_owned())
+                    }
+                    path if path.starts_with("/api/topics/") && path.ends_with("/report") => {
+                        ("200 OK", GIVEN_REPORT.to_owned())
+                    }
                     _ => ("404 Not Found", "{\"error\":\"no\"}".to_owned()),
                 };
                 let response = format!(
@@ -548,4 +571,149 @@ async fn a_remark_about_an_account_is_kept_and_taken_away() {
         log.calls()
             .contains(&"DELETE /api/users/bob/remark".to_owned())
     );
+}
+
+const SUBJECT: &str = "11111111-1111-1111-1111-111111111111";
+const REMARK_ID: &str = "22222222-2222-2222-2222-222222222222";
+
+#[tokio::test]
+async fn the_reports_of_the_board_are_on_a_page_of_their_own() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/reports", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("spelling"), "{page}");
+    assert!(page.contains("typos"), "{page}");
+    assert!(page.contains(">bob<"), "{page}");
+    assert!(
+        page.contains("action=\"/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/close\""),
+        "{page}"
+    );
+    assert!(!page.contains("<script"), "{page}");
+    assert!(log.calls().contains(&"GET /api/reports?page=1".to_owned()));
+}
+
+#[tokio::test]
+async fn a_reader_with_no_account_is_sent_to_sign_in_before_the_reports() {
+    let (board_url, _) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let response = get(&base, "/reports", None).await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/sign-in?return_to=/reports")
+    );
+}
+
+#[tokio::test]
+async fn closing_a_report_goes_back_to_the_reports() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/reports").await;
+    let response = post_form(
+        &base,
+        "/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/close",
+        &[("token", &token)],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/reports")
+    );
+    assert!(
+        log.calls()
+            .contains(&"POST /api/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/close".to_owned()),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn a_report_closed_without_the_token_of_the_page_is_refused() {
+    let (board_url, _) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let response = post_form(
+        &base,
+        "/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/close",
+        &[("token", "other")],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+}
+
+#[tokio::test]
+async fn a_subject_is_reported_from_its_page() {
+    let (board_url, log) = board("user", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let page = format!("/topics/{SUBJECT}");
+    let token = token_of(&base, "/reports").await;
+    let response = post_form(
+        &base,
+        &format!("{page}/report"),
+        &[("token", &token), ("kind", "rule"), ("reason", "spam")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some(page.as_str())
+    );
+    assert!(
+        log.calls()
+            .contains(&format!("POST /api/topics/{SUBJECT}/report")),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn a_remark_of_a_subject_is_reported_from_its_page() {
+    let (board_url, log) = board("user", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/reports").await;
+    let response = post_form(
+        &base,
+        &format!("/topics/{SUBJECT}/comments/{REMARK_ID}/report"),
+        &[("token", &token), ("kind", "spelling"), ("reason", "typos")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert!(
+        log.calls().contains(&format!(
+            "POST /api/topics/{SUBJECT}/comments/{REMARK_ID}/report"
+        )),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn a_report_without_the_token_of_the_page_is_refused() {
+    let (board_url, _) = board("user", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let response = post_form(
+        &base,
+        &format!("/topics/{SUBJECT}/report"),
+        &[("token", "other"), ("kind", "rule"), ("reason", "spam")],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 403);
 }

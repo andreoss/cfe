@@ -7,8 +7,8 @@ pub mod token;
 
 use client::{
     ApiClient, ArchiveMonth, Avatar, Ban, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
-    Image, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody, Section, Session,
-    Subject, Tag, Topic, User, Version, Warning, encode_path, find_section,
+    Image, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody, Report, Section,
+    Session, Subject, Tag, Topic, User, Version, Warning, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -532,6 +532,40 @@ impl App {
 
     pub async fn clear_remark(&self, session: &str, username: &str) -> Result<(), ClientError> {
         self.client.clear_remark(session, username).await
+    }
+
+    pub async fn reports(&self, session: &str, page: u32) -> Result<Paged<Report>, ClientError> {
+        self.client.reports(session, page).await
+    }
+
+    pub async fn close_report(&self, session: &str, id: &str) -> Result<(), ClientError> {
+        self.client.close_report(session, id).await?;
+        Ok(())
+    }
+
+    pub async fn report_subject(
+        &self,
+        session: &str,
+        id: &str,
+        kind: &str,
+        reason: &str,
+    ) -> Result<(), ClientError> {
+        self.client.report_topic(session, id, kind, reason).await?;
+        Ok(())
+    }
+
+    pub async fn report_remark(
+        &self,
+        session: &str,
+        topic: &str,
+        remark: &str,
+        kind: &str,
+        reason: &str,
+    ) -> Result<(), ClientError> {
+        self.client
+            .report_comment(session, topic, remark, kind, reason)
+            .await?;
+        Ok(())
     }
 
     pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {

@@ -7,6 +7,7 @@ use client::{
 use std::collections::BTreeMap;
 
 pub const REACTIONS: [&str; 4] = ["like", "agree", "disagree", "thanks"];
+pub const REPORTS_ADDRESS: &str = "/reports";
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -85,6 +86,17 @@ pub struct WarningView {
     pub reason: String,
     pub created_at: String,
     pub acknowledged: bool,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReportView {
+    pub id: String,
+    pub topic_id: String,
+    pub comment_id: Option<String>,
+    pub reporter: String,
+    pub kind: String,
+    pub reason: String,
+    pub created_at: String,
 }
 
 #[derive(Clone, Default)]
@@ -798,6 +810,7 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, view: &Subject
             "{life}",
             "{poll}",
             "{reactions}",
+            "{report}",
             "<p class=\"links\"><a href=\"{history}\">What changed</a> | ",
             "<a href=\"{gallery}\">Pictures</a> | ",
             "<a href=\"/sections/{section}\">Back to the section</a></p>\n",
@@ -826,6 +839,7 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, view: &Subject
         }),
         history = escape(&history_address(&subject.id)),
         count = escape(&remark_count(comments.page.total)),
+        report = subject_report(subject, view),
     );
     out.push_str(&comment_list(&comments.items, view));
     out.push_str(&pager(
@@ -1760,9 +1774,21 @@ pub fn comment_list(comments: &[Comment], view: &SubjectView) -> String {
     out
 }
 
+fn subject_report(subject: &Subject, view: &SubjectView) -> String {
+    if !view.holding {
+        return String::new();
+    }
+    report_form(
+        "subject",
+        &view.token,
+        &report_address(&subject.id),
+        "Report this subject",
+    )
+}
+
 fn remark_item(comment: &Comment, answered: Option<&Comment>, view: &SubjectView) -> String {
     let out = format!(
-        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n{actions}{reactions}",
+        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n{actions}{reactions}{report}",
         id = escape(&comment.id),
         author = escape(&comment.author_username),
         stamp = escape(&comment.created_at),
@@ -1778,8 +1804,21 @@ fn remark_item(comment: &Comment, answered: Option<&Comment>, view: &SubjectView
             token: &view.token,
             holding: view.holding,
         }),
+        report = remark_report(comment, view),
     );
     out
+}
+
+fn remark_report(comment: &Comment, view: &SubjectView) -> String {
+    if !view.holding || comment.deleted {
+        return String::new();
+    }
+    report_form(
+        &format!("remark-{}", comment.id),
+        &view.token,
+        &remark_report_address(&comment.topic_id, &comment.id),
+        "Report this remark",
+    )
 }
 
 fn remark_actions(comment: &Comment, holding: bool) -> String {
@@ -2168,6 +2207,103 @@ fn ban_note(ban: Option<&BanState>) -> String {
         words.push_str(&format!(" until {}", escape(until)));
     }
     format!("<p class=\"ban\">{words}.</p>\n")
+}
+
+pub fn reports_page(chrome: &Chrome, reports: &[ReportView], page: &PageInfo) -> String {
+    let mut out = "<h2>Open reports</h2>\n".to_owned();
+    if reports.is_empty() {
+        out.push_str("<p class=\"empty\">No open reports.</p>\n");
+        return out;
+    }
+    out.push_str("<ol class=\"reports\">\n");
+    for report in reports {
+        out.push_str(&format!(
+            concat!(
+                "<li class=\"report\">\n",
+                "<p class=\"target\"><a href=\"{target}\">{what}</a></p>\n",
+                "<p class=\"reason\">{reason}</p>\n",
+                "<p class=\"when\">{kind} &#183; by <span class=\"writer\">{reporter}</span> ",
+                "at <time datetime=\"{stamp}\">{shown}</time></p>\n",
+                "<form class=\"inline\" method=\"post\" action=\"{close}\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<button type=\"submit\">Close</button>\n",
+                "</form>\n",
+                "</li>\n",
+            ),
+            target = escape(&report_target(report)),
+            what = match report.comment_id {
+                Some(_) => "A remark",
+                None => "A subject",
+            },
+            reason = escape(&report.reason),
+            kind = escape(&report.kind),
+            reporter = escape(&report.reporter),
+            stamp = escape(&report.created_at),
+            shown = escape(&shown_date(&report.created_at)),
+            close = escape(&report_close_address(&report.id)),
+            token = escape(&chrome.token),
+        ));
+    }
+    out.push_str("</ol>\n");
+    out.push_str(&pager(REPORTS_ADDRESS, page));
+    out
+}
+
+fn report_target(report: &ReportView) -> String {
+    let subject = subject_address(&report.topic_id);
+    match report.comment_id.as_deref() {
+        Some(remark) => format!("{subject}#remark-{remark}"),
+        None => subject,
+    }
+}
+
+fn report_kinds() -> String {
+    let kinds = [
+        ("rule", "against the rules"),
+        ("spelling", "spelling"),
+        ("tag", "wrong tags"),
+        ("group", "wrong group"),
+    ];
+    kinds
+        .iter()
+        .map(|(kind, words)| format!("<option value=\"{kind}\">{words}</option>\n"))
+        .collect()
+}
+
+fn report_form(id: &str, token: &str, action: &str, legend: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"report\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<label for=\"{id}-kind\">{legend}</label>\n",
+            "<select id=\"{id}-kind\" name=\"kind\">{kinds}</select>\n",
+            "<label for=\"{id}-reason\">Why</label>\n",
+            "<input id=\"{id}-reason\" name=\"reason\" type=\"text\" required>\n",
+            "<button type=\"submit\">Report</button>\n",
+            "</form>\n",
+        ),
+        action = escape(action),
+        token = escape(token),
+        id = escape(id),
+        legend = escape(legend),
+        kinds = report_kinds(),
+    )
+}
+
+pub fn report_address(topic: &str) -> String {
+    format!("/topics/{}/report", client::encode_path(topic))
+}
+
+pub fn remark_report_address(topic: &str, remark: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/report",
+        client::encode_path(topic),
+        client::encode_path(remark)
+    )
+}
+
+pub fn report_close_address(id: &str) -> String {
+    format!("/reports/{}/close", client::encode_path(id))
 }
 
 pub fn warnings_page(chrome: &Chrome, warnings: &[WarningView]) -> String {
@@ -3359,5 +3495,118 @@ mod tests {
         assert!(scripting_free("<p>&lt;img src=1 onerror=go()&gt;</p>"));
         assert!(!scripting_free("<a href=\"javascript:go()\">x</a>"));
         assert!(scripting_free("<p>the words javascript: on a page</p>"));
+    }
+    fn one_page(total: u64) -> PageInfo {
+        PageInfo {
+            number: 1,
+            size: 25,
+            total,
+            total_pages: 1,
+            has_next: false,
+            has_previous: false,
+        }
+    }
+
+    fn report(id: &str, remark: Option<&str>) -> ReportView {
+        ReportView {
+            id: id.to_owned(),
+            topic_id: "11111111-1111-1111-1111-111111111111".to_owned(),
+            comment_id: remark.map(|remark| remark.to_owned()),
+            reporter: "bob".to_owned(),
+            kind: "rule".to_owned(),
+            reason: "spam".to_owned(),
+            created_at: "2024-12-18T01:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_subject_carries_the_way_to_report_it() {
+        let page = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![remark("1", "bob", "A reply")], 1),
+            &held(),
+        );
+        assert!(
+            page.contains("action=\"/topics/11111111-1111-1111-1111-111111111111/report\""),
+            "{page}"
+        );
+        assert!(page.contains("name=\"kind\""), "{page}");
+        assert!(page.contains("name=\"reason\""), "{page}");
+    }
+
+    #[test]
+    fn a_remark_carries_the_way_to_report_it() {
+        let page = comment_list(&[remark("1", "bob", "A reply")], &held());
+        assert!(
+            page.contains(
+                "action=\"/topics/11111111-1111-1111-1111-111111111111/comments/1/report\""
+            ),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn one_with_no_account_is_offered_no_way_to_report() {
+        let page = subject_page(
+            &subject("First", "body"),
+            &remarks(vec![remark("1", "bob", "A reply")], 1),
+            &SubjectView::default(),
+        );
+        assert!(!page.contains("/report"), "{page}");
+    }
+
+    #[test]
+    fn the_open_reports_are_on_a_page_of_their_own() {
+        let page = reports_page(&chrome(Theme::Light), &[report("1", None)], &one_page(1));
+        assert!(page.contains("<h2>Open reports</h2>"), "{page}");
+        assert!(page.contains(">bob<"), "{page}");
+        assert!(page.contains("rule"), "{page}");
+        assert!(page.contains("spam"), "{page}");
+        assert!(
+            page.contains("href=\"/topics/11111111-1111-1111-1111-111111111111\""),
+            "{page}"
+        );
+        assert!(page.contains("action=\"/reports/1/close\""), "{page}");
+    }
+
+    #[test]
+    fn a_report_of_a_remark_points_at_the_remark() {
+        let page = reports_page(
+            &chrome(Theme::Light),
+            &[report("1", Some("7"))],
+            &one_page(1),
+        );
+        assert!(
+            page.contains("href=\"/topics/11111111-1111-1111-1111-111111111111#remark-7\""),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn a_board_with_no_open_reports_says_so() {
+        let page = reports_page(&chrome(Theme::Light), &[], &one_page(0));
+        assert!(page.contains("No open reports"), "{page}");
+    }
+
+    #[test]
+    fn a_reports_page_carries_no_scripting() {
+        let page = page(
+            &chrome(Theme::Light),
+            "Open reports",
+            &reports_page(
+                &chrome(Theme::Light),
+                &[ReportView {
+                    id: "1".to_owned(),
+                    topic_id: "2".to_owned(),
+                    comment_id: None,
+                    reporter: "<script>".to_owned(),
+                    kind: "rule".to_owned(),
+                    reason: "<img src=1 onerror=go()>".to_owned(),
+                    created_at: "2024-12-18T01:00:00Z".to_owned(),
+                }],
+                &one_page(1),
+            ),
+        );
+        assert!(scripting_free(&page), "not scripting free: {page}");
     }
 }
