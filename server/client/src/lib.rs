@@ -458,6 +458,19 @@ pub struct Group {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SectionSettings {
+    pub slug: String,
+    pub title: String,
+    pub topics_score: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Maintenance {
+    pub blocked: usize,
+    pub dropped: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PollOption {
     pub id: String,
     pub text: String,
@@ -924,6 +937,95 @@ impl ApiClient {
     pub async fn groups(&self, slug: &str) -> Result<Vec<Group>, ClientError> {
         self.get(&format!("/api/sections/{}/groups", encode_path(slug)), None)
             .await
+    }
+
+    pub async fn create_section(
+        &self,
+        session: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        json_of(
+            self.post("/api/sections", &SectionBody { slug, title }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn rename_section(
+        &self,
+        session: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        let path = format!("/api/sections/{}/settings", encode_path(slug));
+        json_of(
+            self.patch(&path, &TitleBody { title }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn set_section_score(
+        &self,
+        session: &str,
+        slug: &str,
+        score: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        let path = format!("/api/sections/{}/topics-score", encode_path(slug));
+        json_of(
+            self.post(
+                &path,
+                &SectionScoreBody {
+                    topics_score: score,
+                },
+                Some(session),
+            )
+            .await?,
+        )
+        .await
+    }
+
+    pub async fn create_group(
+        &self,
+        session: &str,
+        section_slug: &str,
+        name: &str,
+        slug: &str,
+    ) -> Result<Group, ClientError> {
+        let path = format!("/api/sections/{}/groups", encode_path(section_slug));
+        json_of(
+            self.post(&path, &GroupBody { name, slug }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn rename_group(
+        &self,
+        session: &str,
+        section_slug: &str,
+        group_slug: &str,
+        name: &str,
+    ) -> Result<Group, ClientError> {
+        let path = format!(
+            "/api/sections/{}/groups/{}",
+            encode_path(section_slug),
+            encode_path(group_slug)
+        );
+        json_of(
+            self.patch(&path, &TitleBody { title: name }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn run_maintenance(&self, session: &str) -> Result<Maintenance, ClientError> {
+        json_of(
+            self.post("/api/maintenance/run", &Nothing {}, Some(session))
+                .await?,
+        )
+        .await
     }
 
     pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {
@@ -1739,6 +1841,23 @@ struct SignInBody {
 struct Nothing {}
 
 #[derive(Serialize)]
+struct SectionBody<'a> {
+    slug: &'a str,
+    title: &'a str,
+}
+
+#[derive(Serialize)]
+struct TitleBody<'a> {
+    title: &'a str,
+}
+
+#[derive(Serialize)]
+struct GroupBody<'a> {
+    name: &'a str,
+    slug: &'a str,
+}
+
+#[derive(Serialize)]
 struct RemarkEdit<'a> {
     body: &'a str,
 }
@@ -1761,6 +1880,11 @@ struct ResolvedBody {
 #[derive(Serialize)]
 struct ScoreBody {
     postscore: i32,
+}
+
+#[derive(Serialize)]
+struct SectionScoreBody<'a> {
+    topics_score: &'a str,
 }
 
 #[derive(Serialize)]
