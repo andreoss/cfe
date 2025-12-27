@@ -399,3 +399,141 @@ async fn the_remark_about_an_account_is_taken_away_with_the_session() {
     );
     assert!(request.contains("cookie: session=token"), "{request}");
 }
+
+const REPORT: &str = concat!(
+    "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"comment_id\":null,",
+    "\"reporter_username\":\"bob_02\",\"kind\":\"rule\",",
+    "\"reason\":\"spam\",\"created_at\":\"2024-12-18T00:50:00Z\"}"
+);
+const REPORTS: &str = concat!(
+    "{\"items\":[{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",",
+    "\"topic_id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"comment_id\":\"22222222-2222-2222-2222-222222222222\",",
+    "\"reporter_username\":\"bob_02\",\"kind\":\"spelling\",",
+    "\"reason\":\"typos\",\"created_at\":\"2024-12-18T00:50:00Z\"}],",
+    "\"page\":{\"number\":1,\"size\":20,\"total\":1,\"total_pages\":1,",
+    "\"has_next\":false,\"has_previous\":false}}"
+);
+const TOPIC: &str = "11111111-1111-1111-1111-111111111111";
+const COMMENT: &str = "22222222-2222-2222-2222-222222222222";
+
+#[tokio::test]
+async fn a_subject_is_reported_with_its_kind_and_a_reason() {
+    let (base, log) = board(answer("200 OK", REPORT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let report = client
+        .report_topic("token", TOPIC, "rule", "spam")
+        .await
+        .unwrap();
+    assert_eq!(report.kind, "rule".to_owned());
+    assert_eq!(report.reason, "spam".to_owned());
+    let request = log.last();
+    assert!(request.starts_with("POST /api/topics/1111111"), "{request}");
+    assert!(request.contains("/report "), "{request}");
+    assert!(
+        request.ends_with("{\"kind\":\"rule\",\"reason\":\"spam\"}"),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn a_remark_of_a_subject_is_reported_with_its_kind_and_a_reason() {
+    let (base, log) = board(answer("200 OK", REPORT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client
+        .report_comment("token", TOPIC, COMMENT, "spelling", "typos")
+        .await
+        .unwrap();
+    let request = log.last();
+    assert!(request.starts_with("POST /api/topics/1111111"), "{request}");
+    assert!(
+        request.contains("/comments/22222222-2222-2222-2222-222222222222/report "),
+        "{request}"
+    );
+    assert!(
+        request.ends_with("{\"kind\":\"spelling\",\"reason\":\"typos\"}"),
+        "{request}"
+    );
+}
+
+#[tokio::test]
+async fn a_report_of_a_subject_and_of_a_remark_tell_them_apart() {
+    let (base, _) = board(answer("200 OK", REPORT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let report = client
+        .report_topic("token", TOPIC, "rule", "spam")
+        .await
+        .unwrap();
+    assert_eq!(report.topic_id, TOPIC.to_owned());
+    assert!(report.comment_id.is_none());
+}
+
+#[tokio::test]
+async fn a_thing_reported_twice_is_refused() {
+    let (base, _) = board(answer("409 Conflict", "{\"error\":\"already reported\"}")).await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client
+        .report_topic("token", TOPIC, "rule", "spam")
+        .await
+        .unwrap_err();
+    assert_eq!(error.status(), Some(409));
+}
+
+#[tokio::test]
+async fn a_report_of_a_kind_nobody_knows_is_refused() {
+    let (base, _) = board(answer(
+        "422 Unprocessable Entity",
+        "{\"error\":\"invalid kind\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client
+        .report_comment("token", TOPIC, COMMENT, "whatever", "spam")
+        .await
+        .unwrap_err();
+    assert_eq!(error.status(), Some(422));
+}
+
+#[tokio::test]
+async fn the_open_reports_of_the_board_are_read_with_the_session() {
+    let (base, log) = board(answer("200 OK", REPORTS)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let page = client.reports("token", 1).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].reporter_username, "bob_02".to_owned());
+    assert_eq!(
+        page.items[0].comment_id,
+        Some("22222222-2222-2222-2222-222222222222".to_owned())
+    );
+    assert_eq!(page.page.total, 1);
+    let request = log.last();
+    assert!(request.starts_with("GET /api/reports?page=1 "), "{request}");
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn one_who_may_not_moderate_reads_no_reports() {
+    let (base, _) = board(answer(
+        "403 Forbidden",
+        "{\"error\":\"moderator role required\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client.reports("token", 1).await.unwrap_err();
+    assert_eq!(error.status(), Some(403));
+}
+
+#[tokio::test]
+async fn the_open_reports_are_read_a_page_at_a_time() {
+    let (base, log) = board(answer("200 OK", REPORTS)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.reports("token", 3).await.unwrap();
+    assert!(
+        log.last().starts_with("GET /api/reports?page=3 "),
+        "{}",
+        log.last()
+    );
+}

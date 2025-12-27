@@ -517,6 +517,17 @@ pub struct Remark {
     pub text: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Report {
+    pub id: String,
+    pub topic_id: String,
+    pub comment_id: Option<String>,
+    pub reporter_username: String,
+    pub kind: String,
+    pub reason: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
@@ -1179,6 +1190,46 @@ impl ApiClient {
         Ok(())
     }
 
+    pub async fn report_topic(
+        &self,
+        session: &str,
+        topic: &str,
+        kind: &str,
+        reason: &str,
+    ) -> Result<Report, ClientError> {
+        let path = format!("/api/topics/{}/report", encode_path(topic));
+        json_of(
+            self.post(&path, &ReportBody { kind, reason }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn report_comment(
+        &self,
+        session: &str,
+        topic: &str,
+        comment: &str,
+        kind: &str,
+        reason: &str,
+    ) -> Result<Report, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/report",
+            encode_path(topic),
+            encode_path(comment)
+        );
+        json_of(
+            self.post(&path, &ReportBody { kind, reason }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn reports(&self, session: &str, page: u32) -> Result<Paged<Report>, ClientError> {
+        self.get(&format!("/api/reports?page={page}"), Some(session))
+            .await
+    }
+
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
         self.get(&format!("/api/topics/{}/history", encode_path(id)), None)
             .await
@@ -1747,6 +1798,12 @@ struct RoleBody<'a> {
 #[derive(Serialize)]
 struct RemarkBody<'a> {
     text: &'a str,
+}
+
+#[derive(Serialize)]
+struct ReportBody<'a> {
+    kind: &'a str,
+    reason: &'a str,
 }
 
 #[derive(Serialize)]
