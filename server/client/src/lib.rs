@@ -471,6 +471,28 @@ pub struct Maintenance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct InvitationPolicy {
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Invitation {
+    pub code: String,
+    pub expires_at: String,
+    pub spent: bool,
+    pub spent_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AddressBlock {
+    pub addr: String,
+    pub reason: String,
+    pub blocked_at: String,
+    pub until: Option<String>,
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PollOption {
     pub id: String,
     pub text: String,
@@ -1026,6 +1048,56 @@ impl ApiClient {
                 .await?,
         )
         .await
+    }
+
+    pub async fn invitation_policy(&self) -> Result<InvitationPolicy, ClientError> {
+        self.get("/api/invitations/policy", None).await
+    }
+
+    pub async fn invitations(
+        &self,
+        session: &str,
+        page: u32,
+    ) -> Result<Paged<Invitation>, ClientError> {
+        self.get(&format!("/api/invitations?page={page}"), Some(session))
+            .await
+    }
+
+    pub async fn issue_invitation(&self, session: &str) -> Result<Invitation, ClientError> {
+        json_of(
+            self.post("/api/invitations", &Nothing {}, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn address_blocks(&self, session: &str) -> Result<Vec<AddressBlock>, ClientError> {
+        self.get("/api/address-blocks", Some(session)).await
+    }
+
+    pub async fn block_address(
+        &self,
+        session: &str,
+        addr: &str,
+        reason: &str,
+        days: Option<u32>,
+    ) -> Result<AddressBlock, ClientError> {
+        let body = AddressBlockBody {
+            addr,
+            reason,
+            days: days.map(|d| d as i64),
+        };
+        json_of(
+            self.post("/api/address-blocks", &body, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn lift_address_block(&self, session: &str, addr: &str) -> Result<(), ClientError> {
+        let path = format!("/api/address-blocks/{}", encode_path(addr));
+        self.delete(&path, Some(session)).await?;
+        Ok(())
     }
 
     pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {
@@ -1855,6 +1927,13 @@ struct TitleBody<'a> {
 struct GroupBody<'a> {
     name: &'a str,
     slug: &'a str,
+}
+
+#[derive(Serialize)]
+struct AddressBlockBody<'a> {
+    addr: &'a str,
+    reason: &'a str,
+    days: Option<i64>,
 }
 
 #[derive(Serialize)]

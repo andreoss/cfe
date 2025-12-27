@@ -1,4 +1,6 @@
-use client::{ApiClient, ClientError, Group, Maintenance};
+use client::{
+    AddressBlock, ApiClient, ClientError, Group, Invitation, InvitationPolicy, Maintenance, Paged,
+};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -50,6 +52,27 @@ const GROUP: &str = concat!(
     "\"section_slug\":\"general\",\"name\":\"Talk\",\"slug\":\"talk\"}"
 );
 const MAINTENANCE: &str = "{\"blocked\":2,\"dropped\":1}";
+const POLICY: &str = "{\"required\":true}";
+const INVITATIONS: &str = concat!(
+    "{\"items\":[{\"code\":\"CODE-ONE\",\"expires_at\":\"2024-12-25T00:00:00Z\",",
+    "\"spent\":true,\"spent_by\":\"bob\"},{\"code\":\"CODE-TWO\",",
+    "\"expires_at\":\"2024-12-26T00:00:00Z\",\"spent\":false,\"spent_by\":null}],",
+    "\"page\":{\"number\":1,\"size\":25,\"total\":2,\"total_pages\":1,",
+    "\"has_next\":false,\"has_previous\":false}}"
+);
+const INVITATION: &str = concat!(
+    "{\"code\":\"CODE-THREE\",\"expires_at\":\"2024-12-27T00:00:00Z\",",
+    "\"spent\":false,\"spent_by\":null}"
+);
+const BLOCKS: &str = concat!(
+    "[{\"addr\":\"203.0.113.7\",\"reason\":\"spam\",",
+    "\"blocked_at\":\"2024-12-18T00:00:00Z\",\"until\":\"2025-01-17T00:00:00Z\",",
+    "\"mode\":\"write\"}]"
+);
+const BLOCK: &str = concat!(
+    "{\"addr\":\"203.0.113.9\",\"reason\":\"spam\",",
+    "\"blocked_at\":\"2024-12-18T00:00:00Z\",\"until\":null,\"mode\":\"write\"}"
+);
 
 #[tokio::test]
 async fn a_section_is_made_with_the_session() {
@@ -200,4 +223,119 @@ async fn an_answer_that_is_not_the_promised_shape_is_an_error() {
             .unwrap_err(),
         ClientError::Detail(_)
     ));
+}
+
+#[tokio::test]
+async fn the_policy_of_the_board_is_read() {
+    let (base, log) = board(answer("200 OK", POLICY)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let policy = client.invitation_policy().await.unwrap();
+    assert_eq!(policy, InvitationPolicy { required: true });
+    assert!(log.last().starts_with("GET /api/invitations/policy "));
+}
+
+#[tokio::test]
+async fn the_invitations_of_an_account_are_read_with_the_session() {
+    let (base, log) = board(answer("200 OK", INVITATIONS)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let page: Paged<Invitation> = client.invitations("token", 1).await.unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.items[0].code, "CODE-ONE");
+    assert_eq!(page.items[0].expires_at, "2024-12-25T00:00:00Z");
+    assert!(page.items[0].spent);
+    assert_eq!(page.items[0].spent_by, Some("bob".to_owned()));
+    assert!(!page.items[1].spent);
+    assert_eq!(page.items[1].spent_by, None);
+    assert_eq!(page.page.total, 2);
+    let request = log.last();
+    assert!(
+        request.starts_with("GET /api/invitations?page=1 "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_invitation_is_issued_with_the_session() {
+    let (base, log) = board(answer("201 Created", INVITATION)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let invitation = client.issue_invitation("token").await.unwrap();
+    assert_eq!(invitation.code, "CODE-THREE");
+    assert!(!invitation.spent);
+    let request = log.last();
+    assert!(request.starts_with("POST /api/invitations "), "{request}");
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn the_address_blocks_are_read_with_the_session() {
+    let (base, log) = board(answer("200 OK", BLOCKS)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let blocks = client.address_blocks("token").await.unwrap();
+    assert_eq!(
+        blocks[0],
+        AddressBlock {
+            addr: "203.0.113.7".to_owned(),
+            reason: "spam".to_owned(),
+            blocked_at: "2024-12-18T00:00:00Z".to_owned(),
+            until: Some("2025-01-17T00:00:00Z".to_owned()),
+            mode: "write".to_owned(),
+        }
+    );
+    let request = log.last();
+    assert!(request.starts_with("GET /api/address-blocks "), "{request}");
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_address_is_blocked_with_the_session() {
+    let (base, log) = board(answer("200 OK", BLOCK)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let block = client
+        .block_address("token", "203.0.113.9", "spam", None)
+        .await
+        .unwrap();
+    assert_eq!(block.addr, "203.0.113.9");
+    assert_eq!(block.until, None);
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/address-blocks "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+    assert!(request.contains("\"addr\":\"203.0.113.9\""), "{request}");
+    assert!(request.contains("\"reason\":\"spam\""), "{request}");
+}
+
+#[tokio::test]
+async fn an_address_block_is_lifted_with_the_session() {
+    let (base, log) = board(answer("204 No Content", "")).await;
+    let client = ApiClient::new(&base).unwrap();
+    client
+        .lift_address_block("token", "203.0.113.9")
+        .await
+        .unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("DELETE /api/address-blocks/203.0.113.9 "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_unspent_invitation_is_the_limit_and_an_answer_keeps_its_reason() {
+    let (base, _) = board(answer(
+        "422 Unprocessable Entity",
+        "{\"error\":\"too many unused invitations\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    assert_eq!(
+        client.issue_invitation("token").await.unwrap_err(),
+        ClientError::Rejected {
+            status: 422,
+            reason: "too many unused invitations".to_owned()
+        }
+    );
 }
