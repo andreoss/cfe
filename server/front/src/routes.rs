@@ -104,6 +104,15 @@ pub fn router(app: App) -> Router {
         .route("/me/warnings/acknowledge", post(acknowledge_warnings))
         .route("/u/{username}", get(profile))
         .route("/u/{username}/bio", post(change_bio))
+        .route("/u/{username}/ban", post(ban_account))
+        .route("/u/{username}/ban/lift", post(lift_the_ban))
+        .route("/u/{username}/warn", post(warn_account))
+        .route("/u/{username}/promote", post(promote_account))
+        .route("/u/{username}/role", post(set_standing))
+        .route("/u/{username}/ignore", post(ignore_account))
+        .route("/u/{username}/ignore/stop", post(stop_ignoring_account))
+        .route("/u/{username}/remark", post(keep_remark))
+        .route("/u/{username}/remark/remove", post(take_remark_away))
         .route("/u/{username}/avatar", get(avatar))
         .route(
             "/settings/password",
@@ -2142,11 +2151,14 @@ async fn profile(
         );
     };
     let own = chrome.account_name() == Some(profile.username.as_str());
+    let moderator = chrome.standing() == Some("moderator");
     let view = html::ProfileView {
         own,
         has_avatar: app.avatar(&username).await.is_some(),
         ignored: ignored_of(&app, &headers, own, &username).await,
         ban: ban_of(&app, &headers, &chrome, &username).await,
+        moderator,
+        remark: remark_of(&app, &headers, moderator, &username).await,
     };
     render(
         &guard,
@@ -2165,6 +2177,219 @@ async fn ignored_of(app: &App, headers: &HeaderMap, own: bool, username: &str) -
     }
     let session = session_of(headers)?;
     app.ignore_state(&session, username).await
+}
+
+#[derive(Deserialize)]
+pub struct BanForm {
+    token: Option<String>,
+    reason: Option<String>,
+    days: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ReasonForm {
+    token: Option<String>,
+    reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct StandingForm {
+    token: Option<String>,
+    role: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct RemarkAboutForm {
+    token: Option<String>,
+    text: Option<String>,
+}
+
+async fn moderating(
+    app: &App,
+    username: &str,
+    headers: &HeaderMap,
+    token: Option<&str>,
+) -> Result<Holding, Response> {
+    let guard = Guard::new(headers);
+    let theme = theme_of(headers, app);
+    let address = format!("/u/{username}");
+    let chrome = chrome_of(&guard, app, headers, theme, &address).await;
+    if !guard.allows(token) {
+        return Err(render(&guard, StatusCode::FORBIDDEN, expired(&chrome)));
+    }
+    let Some(session) = session_of(headers) else {
+        return Err(sign_in_first(&guard, &address));
+    };
+    Ok(Holding {
+        guard,
+        chrome,
+        address,
+        session,
+    })
+}
+
+fn text_of(raw: &Option<String>) -> &str {
+    raw.as_deref().unwrap_or_default().trim()
+}
+
+async fn ban_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BanForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let days = text_of(&form.days).parse::<u32>().ok();
+    let outcome = app
+        .ban(&held.session, &username, text_of(&form.reason), days)
+        .await;
+    settled(&held, "Ban an account", outcome)
+}
+
+async fn lift_the_ban(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.lift_ban(&held.session, &username).await;
+    settled(&held, "Lift a ban", outcome)
+}
+
+async fn warn_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ReasonForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .warn(&held.session, &username, text_of(&form.reason))
+        .await;
+    settled(&held, "Warn an account", outcome)
+}
+
+async fn promote_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.promote(&held.session, &username).await;
+    settled(&held, "Promote an account", outcome)
+}
+
+async fn set_standing(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<StandingForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let role = text_of(&form.role);
+    let outcome = match role {
+        "user" | "corrector" | "moderator" => app.set_role(&held.session, &username, role).await,
+        _ => {
+            return render(
+                &held.guard,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                html::message(
+                    &held.chrome,
+                    "Standing",
+                    "The board knows no such standing.",
+                ),
+            );
+        }
+    };
+    settled(&held, "Set the standing", outcome)
+}
+
+async fn ignore_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.ignore(&held.session, &username).await;
+    settled(&held, "Ignore an account", outcome)
+}
+
+async fn stop_ignoring_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.stop_ignoring(&held.session, &username).await;
+    settled(&held, "Stop ignoring an account", outcome)
+}
+
+async fn keep_remark(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<RemarkAboutForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .set_remark(&held.session, &username, text_of(&form.text))
+        .await;
+    settled(&held, "Keep a remark", outcome)
+}
+
+async fn take_remark_away(
+    State(app): State<App>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match moderating(&app, &username, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.clear_remark(&held.session, &username).await;
+    settled(&held, "Take a remark away", outcome)
+}
+
+async fn remark_of(
+    app: &App,
+    headers: &HeaderMap,
+    moderator: bool,
+    username: &str,
+) -> Option<String> {
+    if !moderator {
+        return None;
+    }
+    let session = session_of(headers)?;
+    app.remark(&session, username).await
 }
 
 async fn ban_of(
@@ -2315,6 +2540,8 @@ async fn change_bio(
                             has_avatar: app.avatar(&username).await.is_some(),
                             ignored: None,
                             ban: None,
+                            moderator: false,
+                            remark: None,
                         },
                         Some(&error.to_string()),
                     ),

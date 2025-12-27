@@ -69,6 +69,8 @@ pub struct ProfileView {
     pub has_avatar: bool,
     pub ignored: Option<bool>,
     pub ban: Option<BanState>,
+    pub moderator: bool,
+    pub remark: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1966,14 +1968,180 @@ pub fn profile_page(
         picture = profile_picture(profile, view.has_avatar),
         score = profile.score,
         role = escape(&profile.role),
-        moderation = moderation_notes(view.ignored, view.ban.as_ref()),
+        moderation = moderation_notes(chrome, &profile.username, view),
         bio = profile_bio(profile.bio.as_deref()),
         form = bio_form(chrome, profile, view.own, problem),
     )
 }
 
-fn moderation_notes(ignored: Option<bool>, ban: Option<&BanState>) -> String {
-    format!("{}{}", ignore_note(ignored), ban_note(ban))
+fn moderation_notes(chrome: &Chrome, name: &str, view: &ProfileView) -> String {
+    format!(
+        "{}{}{}",
+        ignore_note(view.ignored),
+        ban_note(view.ban.as_ref()),
+        moderation_forms(chrome, name, view),
+    )
+}
+
+fn moderation_forms(chrome: &Chrome, name: &str, view: &ProfileView) -> String {
+    let mut out = ignore_form(chrome, name, view.ignored);
+    if !view.moderator {
+        return out;
+    }
+    out.push_str(&ban_form(chrome, name, view.ban.as_ref()));
+    out.push_str(&reason_form(
+        chrome,
+        &warn_address(name),
+        "Warn",
+        "Warn this account",
+    ));
+    out.push_str(&token_form(
+        chrome,
+        &promote_address(name),
+        "Promote to moderator",
+    ));
+    out.push_str(&role_form(chrome, name));
+    out.push_str(&remark_form(chrome, name, view.remark.as_deref()));
+    out
+}
+
+fn ignore_form(chrome: &Chrome, name: &str, ignored: Option<bool>) -> String {
+    match ignored {
+        Some(true) => token_form(chrome, &stop_ignoring_address(name), "Stop ignoring"),
+        Some(false) => token_form(chrome, &ignore_address(name), "Ignore this account"),
+        None => String::new(),
+    }
+}
+
+fn ban_form(chrome: &Chrome, name: &str, ban: Option<&BanState>) -> String {
+    if ban.map(|ban| ban.banned) == Some(true) {
+        return token_form(chrome, &lift_ban_address(name), "Lift the ban");
+    }
+    format!(
+        concat!(
+            "<form class=\"moderation\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"ban-reason\">Reason</label>\n",
+            "<input id=\"ban-reason\" name=\"reason\" type=\"text\" required></p>\n",
+            "<p><label for=\"ban-days\">Days</label>\n",
+            "<input id=\"ban-days\" name=\"days\" type=\"number\" min=\"1\"></p>\n",
+            "<p><button type=\"submit\">Ban this account</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(&ban_address(name)),
+        token = escape(&chrome.token),
+    )
+}
+
+fn reason_form(chrome: &Chrome, action: &str, label: &str, legend: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"moderation\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"{id}\">{legend}</label>\n",
+            "<input id=\"{id}\" name=\"reason\" type=\"text\" required></p>\n",
+            "<p><button type=\"submit\">{label}</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(action),
+        token = escape(&chrome.token),
+        id = escape(&label.to_lowercase().replace(' ', "-")),
+        legend = escape(legend),
+        label = escape(label),
+    )
+}
+
+fn token_form(chrome: &Chrome, action: &str, label: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"moderation\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><button type=\"submit\">{label}</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(action),
+        token = escape(&chrome.token),
+        label = escape(label),
+    )
+}
+
+fn role_form(chrome: &Chrome, name: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"moderation\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"role\">Standing</label>\n",
+            "<select id=\"role\" name=\"role\">\n",
+            "<option value=\"user\">user</option>\n",
+            "<option value=\"corrector\">corrector</option>\n",
+            "<option value=\"moderator\">moderator</option>\n",
+            "</select></p>\n",
+            "<p><button type=\"submit\">Set the standing</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(&role_address(name)),
+        token = escape(&chrome.token),
+    )
+}
+
+fn remark_form(chrome: &Chrome, name: &str, remark: Option<&str>) -> String {
+    let mut out = format!(
+        concat!(
+            "<form class=\"moderation\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"remark-text\">A remark about this account</label>\n",
+            "<textarea id=\"remark-text\" name=\"text\" rows=\"3\">{remark}</textarea></p>\n",
+            "<p><button type=\"submit\">Keep the remark</button></p>\n",
+            "</form>\n",
+        ),
+        action = escape(&remark_address(name)),
+        token = escape(&chrome.token),
+        remark = escape(remark.unwrap_or_default()),
+    );
+    if remark.is_some() {
+        out.push_str(&token_form(
+            chrome,
+            &account_remark_removal_address(name),
+            "Take the remark away",
+        ));
+    }
+    out
+}
+
+pub fn ban_address(name: &str) -> String {
+    format!("/u/{name}/ban")
+}
+
+pub fn lift_ban_address(name: &str) -> String {
+    format!("/u/{name}/ban/lift")
+}
+
+pub fn warn_address(name: &str) -> String {
+    format!("/u/{name}/warn")
+}
+
+pub fn promote_address(name: &str) -> String {
+    format!("/u/{name}/promote")
+}
+
+pub fn role_address(name: &str) -> String {
+    format!("/u/{name}/role")
+}
+
+pub fn ignore_address(name: &str) -> String {
+    format!("/u/{name}/ignore")
+}
+
+pub fn stop_ignoring_address(name: &str) -> String {
+    format!("/u/{name}/ignore/stop")
+}
+
+pub fn remark_address(name: &str) -> String {
+    format!("/u/{name}/remark")
+}
+
+pub fn account_remark_removal_address(name: &str) -> String {
+    format!("/u/{name}/remark/remove")
 }
 
 fn ignore_note(ignored: Option<bool>) -> String {
@@ -2377,6 +2545,8 @@ mod tests {
             has_avatar,
             ignored: None,
             ban: None,
+            moderator: false,
+            remark: None,
         }
     }
 
@@ -2390,6 +2560,8 @@ mod tests {
                 has_avatar: false,
                 ignored: Some(true),
                 ban: None,
+                moderator: false,
+                remark: None,
             },
             None,
         );
@@ -2410,6 +2582,8 @@ mod tests {
                     reason: Some("spam".to_owned()),
                     until: None,
                 }),
+                moderator: true,
+                remark: None,
             },
             None,
         );
@@ -2507,6 +2681,8 @@ mod tests {
                 has_avatar: false,
                 ignored: None,
                 ban: None,
+                moderator: false,
+                remark: None,
             },
             None,
         );

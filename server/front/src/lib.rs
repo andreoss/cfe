@@ -468,6 +468,72 @@ impl App {
             .flatten()
     }
 
+    pub async fn ban(
+        &self,
+        session: &str,
+        username: &str,
+        reason: &str,
+        days: Option<u32>,
+    ) -> Result<(), ClientError> {
+        self.client.ban(session, username, reason, days).await?;
+        Ok(())
+    }
+
+    pub async fn lift_ban(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        self.client.lift_ban(session, username).await
+    }
+
+    pub async fn warn(
+        &self,
+        session: &str,
+        username: &str,
+        reason: &str,
+    ) -> Result<(), ClientError> {
+        self.client.warn(session, username, reason).await?;
+        Ok(())
+    }
+
+    pub async fn promote(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        self.client.promote(session, username).await?;
+        Ok(())
+    }
+
+    pub async fn set_role(
+        &self,
+        session: &str,
+        username: &str,
+        role: &str,
+    ) -> Result<(), ClientError> {
+        self.client.set_role(session, username, role).await?;
+        Ok(())
+    }
+
+    pub async fn ignore(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        self.client.ignore(session, username).await
+    }
+
+    pub async fn stop_ignoring(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        self.client.stop_ignoring(session, username).await
+    }
+
+    pub async fn remark(&self, session: &str, username: &str) -> Option<String> {
+        self.client.remark(session, username).await.ok().flatten()
+    }
+
+    pub async fn set_remark(
+        &self,
+        session: &str,
+        username: &str,
+        text: &str,
+    ) -> Result<(), ClientError> {
+        self.client.set_remark(session, username, text).await?;
+        Ok(())
+    }
+
+    pub async fn clear_remark(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        self.client.clear_remark(session, username).await
+    }
+
     pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {
         self.client.register(body).await
     }

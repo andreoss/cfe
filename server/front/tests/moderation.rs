@@ -23,6 +23,14 @@ const IGNORED: &str = "{\"ignored\":true}";
 const NOT_IGNORED: &str = "{\"ignored\":false}";
 const BANNED: &str = "{\"banned\":true,\"reason\":\"spam\",\"until\":\"2024-12-19T23:00:00Z\"}";
 const NOT_BANNED: &str = "{\"banned\":false,\"reason\":null,\"until\":null}";
+const GIVEN_BAN: &str = "{\"reason\":\"spam\",\"until\":null}";
+const GIVEN_WARNING: &str = concat!(
+    "{\"id\":\"99999999-9999-9999-9999-999999999999\",",
+    "\"reason\":\"spam\",\"created_at\":\"2024-12-18T00:00:00Z\",\"acknowledged\":false}"
+);
+const PROMOTED: &str = "{\"id\":\"9\",\"username\":\"bob\",\"role\":\"moderator\"}";
+const REMARK: &str = "{\"text\":\"keeps the board clean\"}";
+const EMPTY: &str = "";
 const REFUSED: &str = "{\"error\":\"moderator role required\"}";
 
 fn user(role: &str) -> String {
@@ -79,18 +87,29 @@ async fn board(role: &str, warnings: &str, ignored: bool, banned: bool) -> (Stri
                     ),
                     "/api/users/bob/ban" => {
                         if role == "moderator" {
-                            (
-                                "200 OK",
-                                if banned {
-                                    BANNED.to_owned()
-                                } else {
-                                    NOT_BANNED.to_owned()
-                                },
-                            )
+                            match method.as_str() {
+                                "POST" => ("200 OK", GIVEN_BAN.to_owned()),
+                                "DELETE" => ("204 No Content", EMPTY.to_owned()),
+                                _ => (
+                                    "200 OK",
+                                    if banned {
+                                        BANNED.to_owned()
+                                    } else {
+                                        NOT_BANNED.to_owned()
+                                    },
+                                ),
+                            }
                         } else {
                             ("403 Forbidden", REFUSED.to_owned())
                         }
                     }
+                    "/api/users/bob/warn" => ("200 OK", GIVEN_WARNING.to_owned()),
+                    "/api/users/bob/promote" => ("200 OK", PROMOTED.to_owned()),
+                    "/api/users/bob/role" => ("200 OK", PROMOTED.to_owned()),
+                    "/api/users/bob/remark" => match method.as_str() {
+                        "DELETE" => ("204 No Content", EMPTY.to_owned()),
+                        _ => ("200 OK", REMARK.to_owned()),
+                    },
                     _ => ("404 Not Found", "{\"error\":\"no\"}".to_owned()),
                 };
                 let response = format!(
@@ -332,5 +351,201 @@ async fn an_account_that_does_not_keep_the_board_is_not_told_about_bans() {
         !log.calls().iter().any(|call| call.contains("/ban")),
         "{:?}",
         log.calls()
+    );
+}
+
+#[tokio::test]
+async fn the_page_of_an_account_offers_a_moderator_its_ways() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/u/bob", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("action=\"/u/bob/ban\""), "{page}");
+    assert!(page.contains("action=\"/u/bob/warn\""), "{page}");
+    assert!(page.contains("action=\"/u/bob/promote\""), "{page}");
+    assert!(page.contains("action=\"/u/bob/role\""), "{page}");
+    assert!(page.contains("action=\"/u/bob/remark\""), "{page}");
+    assert!(page.contains("keeps the board clean"), "{page}");
+    assert!(page.contains("action=\"/u/bob/remark/remove\""), "{page}");
+    assert!(!page.contains("<script"), "{page}");
+    assert!(
+        log.calls()
+            .contains(&"GET /api/users/bob/remark".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn an_account_that_does_not_keep_the_board_is_offered_none_of_them() {
+    let (board_url, log) = board("user", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/u/bob", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(!page.contains("action=\"/u/bob/ban\""), "{page}");
+    assert!(!page.contains("action=\"/u/bob/warn\""), "{page}");
+    assert!(!page.contains("action=\"/u/bob/promote\""), "{page}");
+    assert!(!page.contains("action=\"/u/bob/role\""), "{page}");
+    assert!(!page.contains("action=\"/u/bob/remark\""), "{page}");
+    assert!(
+        !log.calls().iter().any(|call| call.contains("remark")),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn the_way_to_ban_an_account_carries_the_reason_and_the_days() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let response = post_form(
+        &base,
+        "/u/bob/ban",
+        &[("token", token.as_str()), ("reason", "spam"), ("days", "3")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/u/bob")
+    );
+    assert!(log.calls().contains(&"POST /api/users/bob/ban".to_owned()));
+}
+
+#[tokio::test]
+async fn the_ban_of_an_account_is_lifted_from_its_page() {
+    let (board_url, log) = board("moderator", WARNINGS, false, true).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let response = post_form(&base, "/u/bob/ban/lift", &[("token", &token)], Some(&token)).await;
+    assert_eq!(response.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"DELETE /api/users/bob/ban".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn the_way_to_warn_an_account_carries_the_reason() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let response = post_form(
+        &base,
+        "/u/bob/warn",
+        &[("token", token.as_str()), ("reason", "spam")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert!(log.calls().contains(&"POST /api/users/bob/warn".to_owned()));
+}
+
+#[tokio::test]
+async fn the_role_of_an_account_is_set_from_its_page() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let promote = post_form(&base, "/u/bob/promote", &[("token", &token)], Some(&token)).await;
+    assert_eq!(promote.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"POST /api/users/bob/promote".to_owned())
+    );
+    let role = post_form(
+        &base,
+        "/u/bob/role",
+        &[("token", token.as_str()), ("role", "corrector")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(role.status(), 303);
+    assert!(log.calls().contains(&"POST /api/users/bob/role".to_owned()));
+}
+
+#[tokio::test]
+async fn a_way_of_moderation_without_the_token_of_the_page_is_refused() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let response = post_form(
+        &base,
+        "/u/bob/ban",
+        &[("token", "not-mine"), ("reason", "spam")],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    assert!(
+        !log.calls()
+            .iter()
+            .any(|call| call.starts_with("POST /api/users/bob/ban")),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn the_way_to_ignore_an_account_is_on_its_page() {
+    let (board_url, log) = board("user", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let response = post_form(&base, "/u/bob/ignore", &[("token", &token)], Some(&token)).await;
+    assert_eq!(response.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"POST /api/users/bob/ignore".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn an_account_one_ignores_is_offered_the_way_to_stop() {
+    let (board_url, _) = board("user", WARNINGS, true, false).await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/u/bob", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("action=\"/u/bob/ignore/stop\""), "{page}");
+    assert!(!page.contains("action=\"/u/bob/ignore\""), "{page}");
+}
+
+#[tokio::test]
+async fn a_remark_about_an_account_is_kept_and_taken_away() {
+    let (board_url, log) = board("moderator", WARNINGS, false, false).await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/u/bob").await;
+    let kept = post_form(
+        &base,
+        "/u/bob/remark",
+        &[("token", token.as_str()), ("text", "keeps the board clean")],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(kept.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"PUT /api/users/bob/remark".to_owned())
+    );
+    let gone = post_form(
+        &base,
+        "/u/bob/remark/remove",
+        &[("token", &token)],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(gone.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"DELETE /api/users/bob/remark".to_owned())
     );
 }
