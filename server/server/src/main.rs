@@ -373,7 +373,9 @@ async fn main() {
         )
         .route(
             "/api/users/{username}/ban",
-            post(handlers::ban_user_handler).delete(handlers::lift_ban_handler),
+            get(handlers::ban_state_handler)
+                .post(handlers::ban_user_handler)
+                .delete(handlers::lift_ban_handler),
         )
         .route(
             "/api/users/{username}/warn",

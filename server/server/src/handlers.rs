@@ -2250,6 +2250,13 @@ pub struct BanResponse {
     pub until: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct BanStateResponse {
+    pub banned: bool,
+    pub reason: Option<String>,
+    pub until: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct BlockAddressRequest {
     pub addr: String,
@@ -2359,6 +2366,30 @@ pub async fn ban_user_handler(
         reason: ban.reason().as_str().to_owned(),
         until: ban.until().and_then(|u| u.format(&Rfc3339).ok()),
     }))
+}
+
+pub async fn ban_state_handler(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    CurrentUser(current): CurrentUser,
+) -> Result<Json<BanStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !current.role().is_moderator() {
+        return Err(error(StatusCode::FORBIDDEN, "moderator role required"));
+    }
+    let target = find_user_id(&state, &username).await?;
+    let enforcement = state.backend.enforcement();
+    let ban = active_ban(&*enforcement, target, OffsetDateTime::now_utc()).await;
+    Ok(Json(ban_state_of(ban.as_ref())))
+}
+
+fn ban_state_of(ban: Option<&domain::Ban>) -> BanStateResponse {
+    BanStateResponse {
+        banned: ban.is_some(),
+        reason: ban.map(|ban| ban.reason().as_str().to_owned()),
+        until: ban
+            .and_then(|ban| ban.until())
+            .and_then(|until| until.format(&Rfc3339).ok()),
+    }
 }
 
 pub async fn lift_ban_handler(
@@ -3538,6 +3569,29 @@ mod tests {
         let b = generate_token();
         assert!(a.as_str().len() >= 32);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn an_account_without_a_ban_is_answered_as_not_banned() {
+        let state = ban_state_of(None);
+        assert!(!state.banned);
+        assert_eq!(state.reason, None);
+        assert_eq!(state.until, None);
+    }
+
+    #[test]
+    fn a_ban_is_answered_with_its_reason_and_its_end() {
+        let start = OffsetDateTime::UNIX_EPOCH;
+        let ban = domain::Ban::new(
+            domain::UserId::new(uuid::Uuid::nil()),
+            domain::Reason::parse("spam").unwrap(),
+            start,
+            Some(start + Duration::days(2)),
+        );
+        let state = ban_state_of(Some(&ban));
+        assert!(state.banned);
+        assert_eq!(state.reason, Some("spam".to_owned()));
+        assert_eq!(state.until, Some("1970-01-03T00:00:00Z".to_owned()));
     }
 
     #[test]

@@ -486,6 +486,26 @@ pub struct Reactions {
     pub mine: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Warning {
+    pub id: String,
+    pub reason: String,
+    pub created_at: String,
+    pub acknowledged: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Ban {
+    pub banned: bool,
+    pub reason: Option<String>,
+    pub until: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct IgnoreState {
+    pub ignored: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
@@ -1033,6 +1053,32 @@ impl ApiClient {
             encode_path(id)
         );
         json_of(self.delete(&path, Some(session)).await?).await
+    }
+
+    pub async fn warnings(&self, session: &str) -> Result<Vec<Warning>, ClientError> {
+        self.get("/api/me/warnings", Some(session)).await
+    }
+
+    pub async fn acknowledge_warnings(&self, session: &str) -> Result<(), ClientError> {
+        self.post("/api/me/warnings/acknowledge", &Nothing {}, Some(session))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn ignore_state(&self, session: &str, username: &str) -> Result<bool, ClientError> {
+        let path = format!("/api/users/{}/ignore", encode_path(username));
+        let state: IgnoreState = self.get(&path, Some(session)).await?;
+        Ok(state.ignored)
+    }
+
+    pub async fn ban_state(
+        &self,
+        session: &str,
+        username: &str,
+    ) -> Result<Option<Ban>, ClientError> {
+        let path = format!("/api/users/{}/ban", encode_path(username));
+        let state: Option<Ban> = self.maybe_get(&path, Some(session)).await?;
+        Ok(state.filter(|ban| ban.banned))
     }
 
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
