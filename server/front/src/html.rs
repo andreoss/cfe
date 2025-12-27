@@ -63,10 +63,26 @@ impl Chrome {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProfileView {
     pub own: bool,
     pub has_avatar: bool,
+    pub ignored: Option<bool>,
+    pub ban: Option<BanState>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct BanState {
+    pub banned: bool,
+    pub reason: Option<String>,
+    pub until: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct WarningView {
+    pub reason: String,
+    pub created_at: String,
+    pub acknowledged: bool,
 }
 
 #[derive(Clone, Default)]
@@ -1942,6 +1958,7 @@ pub fn profile_page(
             "<h2>{name}</h2>\n",
             "{picture}",
             "<p class=\"standing\">Score {score} &#183; {role}</p>\n",
+            "{moderation}",
             "{bio}",
             "{form}",
         ),
@@ -1949,9 +1966,80 @@ pub fn profile_page(
         picture = profile_picture(profile, view.has_avatar),
         score = profile.score,
         role = escape(&profile.role),
+        moderation = moderation_notes(view.ignored, view.ban.as_ref()),
         bio = profile_bio(profile.bio.as_deref()),
         form = bio_form(chrome, profile, view.own, problem),
     )
+}
+
+fn moderation_notes(ignored: Option<bool>, ban: Option<&BanState>) -> String {
+    format!("{}{}", ignore_note(ignored), ban_note(ban))
+}
+
+fn ignore_note(ignored: Option<bool>) -> String {
+    let words = match ignored {
+        Some(true) => "You ignore this account.",
+        Some(false) => "You do not ignore this account.",
+        None => return String::new(),
+    };
+    format!("<p class=\"ignore\">{words}</p>\n")
+}
+
+fn ban_note(ban: Option<&BanState>) -> String {
+    let Some(ban) = ban else {
+        return String::new();
+    };
+    if !ban.banned {
+        return "<p class=\"ban\">This account is not banned.</p>\n".to_owned();
+    }
+    let mut words = "This account is banned".to_owned();
+    if let Some(reason) = ban.reason.as_deref() {
+        words.push_str(&format!(" for {}", escape(reason)));
+    }
+    if let Some(until) = ban.until.as_deref() {
+        words.push_str(&format!(" until {}", escape(until)));
+    }
+    format!("<p class=\"ban\">{words}.</p>\n")
+}
+
+pub fn warnings_page(chrome: &Chrome, warnings: &[WarningView]) -> String {
+    let open = warnings.iter().any(|warning| !warning.acknowledged);
+    let mut out = "<h2>Warnings</h2>\n".to_owned();
+    if warnings.is_empty() {
+        out.push_str("<p class=\"empty\">No warnings have been given.</p>\n");
+    } else {
+        out.push_str("<ol class=\"warnings\">\n");
+        for warning in warnings {
+            out.push_str(&format!(
+                concat!(
+                    "<li class=\"warning\">\n",
+                    "<p class=\"reason\">{reason}</p>\n",
+                    "<p class=\"when\">{when} &#183; {state}</p>\n",
+                    "</li>\n"
+                ),
+                reason = escape(&warning.reason),
+                when = escape(&warning.created_at),
+                state = if warning.acknowledged {
+                    "acknowledged"
+                } else {
+                    "open"
+                },
+            ));
+        }
+        out.push_str("</ol>\n");
+    }
+    if open {
+        out.push_str(&format!(
+            concat!(
+                "<form class=\"acknowledge\" method=\"post\" action=\"/me/warnings/acknowledge\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<p><button type=\"submit\">Acknowledge</button></p>\n",
+                "</form>\n"
+            ),
+            token = escape(&chrome.token),
+        ));
+    }
+    out
 }
 
 fn profile_picture(profile: &Profile, has_avatar: bool) -> String {
@@ -2287,7 +2375,84 @@ mod tests {
         ProfileView {
             own: true,
             has_avatar,
+            ignored: None,
+            ban: None,
         }
+    }
+
+    #[test]
+    fn a_profile_page_tells_whether_one_ignores_the_account() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", None),
+            &ProfileView {
+                own: false,
+                has_avatar: false,
+                ignored: Some(true),
+                ban: None,
+            },
+            None,
+        );
+        assert!(page.contains("You ignore this account."), "{page}");
+    }
+
+    #[test]
+    fn a_profile_page_tells_a_moderator_about_a_ban() {
+        let page = profile_page(
+            &chrome(Theme::Light),
+            &profile("alice", None),
+            &ProfileView {
+                own: false,
+                has_avatar: false,
+                ignored: Some(false),
+                ban: Some(BanState {
+                    banned: true,
+                    reason: Some("spam".to_owned()),
+                    until: None,
+                }),
+            },
+            None,
+        );
+        assert!(page.contains("This account is banned for spam."), "{page}");
+    }
+
+    #[test]
+    fn a_warnings_page_carries_every_warning_and_the_way_to_acknowledge_them() {
+        let warnings = vec![
+            WarningView {
+                reason: "spam".to_owned(),
+                created_at: "2024-12-17T23:00:00Z".to_owned(),
+                acknowledged: false,
+            },
+            WarningView {
+                reason: "<script>".to_owned(),
+                created_at: "2024-12-17T23:10:00Z".to_owned(),
+                acknowledged: true,
+            },
+        ];
+        let page = warnings_page(&chrome(Theme::Light), &warnings);
+        assert!(page.contains("spam"), "{page}");
+        assert!(page.contains("acknowledged"), "{page}");
+        assert!(page.contains("open"), "{page}");
+        assert!(page.contains("&lt;script&gt;"), "{page}");
+        assert!(!page.contains("<script"), "{page}");
+        assert!(
+            page.contains("action=\"/me/warnings/acknowledge\""),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn a_warnings_page_with_nothing_to_acknowledge_offers_no_way() {
+        let warnings = vec![WarningView {
+            reason: "spam".to_owned(),
+            created_at: "2024-12-17T23:00:00Z".to_owned(),
+            acknowledged: true,
+        }];
+        let page = warnings_page(&chrome(Theme::Light), &warnings);
+        assert!(!page.contains("me/warnings/acknowledge"), "{page}");
+        let empty = warnings_page(&chrome(Theme::Light), &[]);
+        assert!(empty.contains("No warnings"), "{empty}");
     }
 
     #[test]
@@ -2340,6 +2505,8 @@ mod tests {
             &ProfileView {
                 own: false,
                 has_avatar: false,
+                ignored: None,
+                ban: None,
             },
             None,
         );

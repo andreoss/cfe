@@ -6,9 +6,9 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ArchiveMonth, Avatar, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
+    ApiClient, ArchiveMonth, Avatar, Ban, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
     Image, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody, Section, Session,
-    Subject, Tag, Topic, User, Version, encode_path, find_section,
+    Subject, Tag, Topic, User, Version, Warning, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -446,6 +446,26 @@ impl App {
         bio: Option<&str>,
     ) -> Result<Profile, ClientError> {
         self.client.update_bio(session, bio).await
+    }
+
+    pub async fn warnings(&self, session: &str) -> Result<Vec<Warning>, ClientError> {
+        self.client.warnings(session).await
+    }
+
+    pub async fn acknowledge_warnings(&self, session: &str) -> Result<(), ClientError> {
+        self.client.acknowledge_warnings(session).await
+    }
+
+    pub async fn ignore_state(&self, session: &str, username: &str) -> Option<bool> {
+        self.client.ignore_state(session, username).await.ok()
+    }
+
+    pub async fn ban_state(&self, session: &str, username: &str) -> Option<Ban> {
+        self.client
+            .ban_state(session, username)
+            .await
+            .ok()
+            .flatten()
     }
 
     pub async fn register(&self, body: &RegisterBody) -> Result<Session, ClientError> {

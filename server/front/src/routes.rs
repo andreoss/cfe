@@ -100,6 +100,8 @@ pub fn router(app: App) -> Router {
         .route("/register", get(register_form).post(register))
         .route("/sign-in", get(sign_in_form).post(sign_in))
         .route("/sign-out", post(sign_out))
+        .route("/me/warnings", get(warnings))
+        .route("/me/warnings/acknowledge", post(acknowledge_warnings))
         .route("/u/{username}", get(profile))
         .route("/u/{username}/bio", post(change_bio))
         .route("/u/{username}/avatar", get(avatar))
@@ -2139,9 +2141,12 @@ async fn profile(
             ),
         );
     };
+    let own = chrome.account_name() == Some(profile.username.as_str());
     let view = html::ProfileView {
-        own: chrome.account_name() == Some(profile.username.as_str()),
+        own,
         has_avatar: app.avatar(&username).await.is_some(),
+        ignored: ignored_of(&app, &headers, own, &username).await,
+        ban: ban_of(&app, &headers, &chrome, &username).await,
     };
     render(
         &guard,
@@ -2152,6 +2157,100 @@ async fn profile(
             &html::profile_page(&chrome, &profile, &view, None),
         ),
     )
+}
+
+async fn ignored_of(app: &App, headers: &HeaderMap, own: bool, username: &str) -> Option<bool> {
+    if own {
+        return None;
+    }
+    let session = session_of(headers)?;
+    app.ignore_state(&session, username).await
+}
+
+async fn ban_of(
+    app: &App,
+    headers: &HeaderMap,
+    chrome: &Chrome,
+    username: &str,
+) -> Option<html::BanState> {
+    if chrome.standing() != Some("moderator") {
+        return None;
+    }
+    let session = session_of(headers)?;
+    let ban = app.ban_state(&session, username).await;
+    Some(match ban {
+        Some(ban) => html::BanState {
+            banned: true,
+            reason: ban.reason,
+            until: ban.until,
+        },
+        None => html::BanState {
+            banned: false,
+            reason: None,
+            until: None,
+        },
+    })
+}
+
+const WARNINGS_ADDRESS: &str = "/me/warnings";
+
+async fn warnings(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, WARNINGS_ADDRESS).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, WARNINGS_ADDRESS);
+    };
+    match app.warnings(&session).await {
+        Ok(warnings) => {
+            let warnings: Vec<html::WarningView> = warnings
+                .into_iter()
+                .map(|warning| html::WarningView {
+                    reason: warning.reason,
+                    created_at: warning.created_at,
+                    acknowledged: warning.acknowledged,
+                })
+                .collect();
+            render(
+                &guard,
+                StatusCode::OK,
+                html::page(
+                    &chrome,
+                    "Warnings",
+                    &html::warnings_page(&chrome, &warnings),
+                ),
+            )
+        }
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn acknowledge_warnings(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, WARNINGS_ADDRESS).await;
+    if !guard.allows(form.token.as_deref()) {
+        return render(&guard, StatusCode::FORBIDDEN, expired(&chrome));
+    }
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, WARNINGS_ADDRESS);
+    };
+    match app.acknowledge_warnings(&session).await {
+        Ok(()) => see_other(&guard, WARNINGS_ADDRESS),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
 }
 
 async fn avatar(State(app): State<App>, Path(username): Path<String>) -> Response {
@@ -2214,6 +2313,8 @@ async fn change_bio(
                         &html::ProfileView {
                             own: true,
                             has_avatar: app.avatar(&username).await.is_some(),
+                            ignored: None,
+                            ban: None,
                         },
                         Some(&error.to_string()),
                     ),
