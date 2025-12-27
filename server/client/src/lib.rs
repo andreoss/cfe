@@ -506,6 +506,17 @@ pub struct IgnoreState {
     pub ignored: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BanGiven {
+    pub reason: String,
+    pub until: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Remark {
+    pub text: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
@@ -1081,6 +1092,93 @@ impl ApiClient {
         Ok(state.filter(|ban| ban.banned))
     }
 
+    pub async fn ban(
+        &self,
+        session: &str,
+        username: &str,
+        reason: &str,
+        days: Option<u32>,
+    ) -> Result<BanGiven, ClientError> {
+        let path = format!("/api/users/{}/ban", encode_path(username));
+        let body = BanBody { reason, days };
+        json_of(self.post(&path, &body, Some(session)).await?).await
+    }
+
+    pub async fn lift_ban(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        let path = format!("/api/users/{}/ban", encode_path(username));
+        self.delete(&path, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn warn(
+        &self,
+        session: &str,
+        username: &str,
+        reason: &str,
+    ) -> Result<Warning, ClientError> {
+        let path = format!("/api/users/{}/warn", encode_path(username));
+        json_of(
+            self.post(&path, &ReasonBody { reason }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn promote(&self, session: &str, username: &str) -> Result<User, ClientError> {
+        let path = format!("/api/users/{}/promote", encode_path(username));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
+    pub async fn set_role(
+        &self,
+        session: &str,
+        username: &str,
+        role: &str,
+    ) -> Result<User, ClientError> {
+        let path = format!("/api/users/{}/role", encode_path(username));
+        json_of(self.post(&path, &RoleBody { role }, Some(session)).await?).await
+    }
+
+    pub async fn ignore(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        let path = format!("/api/users/{}/ignore", encode_path(username));
+        self.post(&path, &Nothing {}, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn stop_ignoring(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        let path = format!("/api/users/{}/ignore", encode_path(username));
+        self.delete(&path, Some(session)).await?;
+        Ok(())
+    }
+
+    pub async fn remark(
+        &self,
+        session: &str,
+        username: &str,
+    ) -> Result<Option<String>, ClientError> {
+        let path = format!("/api/users/{}/remark", encode_path(username));
+        let remark: Option<Remark> = self.maybe_get(&path, Some(session)).await?;
+        Ok(remark.and_then(|remark| remark.text))
+    }
+
+    pub async fn set_remark(
+        &self,
+        session: &str,
+        username: &str,
+        text: &str,
+    ) -> Result<String, ClientError> {
+        let path = format!("/api/users/{}/remark", encode_path(username));
+        let body = RemarkBody { text };
+        let remark: Remark = json_of(self.put(&path, &body, Some(session)).await?).await?;
+        Ok(remark.text.unwrap_or_default())
+    }
+
+    pub async fn clear_remark(&self, session: &str, username: &str) -> Result<(), ClientError> {
+        let path = format!("/api/users/{}/remark", encode_path(username));
+        self.delete(&path, Some(session)).await?;
+        Ok(())
+    }
+
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
         self.get(&format!("/api/topics/{}/history", encode_path(id)), None)
             .await
@@ -1471,6 +1569,22 @@ impl ApiClient {
         Ok(response)
     }
 
+    async fn put<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        session: Option<&str>,
+    ) -> Result<reqwest::Response, ClientError> {
+        let response = self
+            .send(self.http.put(self.address(path)).json(body), session)
+            .await?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        Ok(response)
+    }
+
     async fn patch<B: Serialize>(
         &self,
         path: &str,
@@ -1612,6 +1726,27 @@ struct PollBody<'a> {
 #[derive(Serialize)]
 struct VoteBody<'a> {
     option_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct BanBody<'a> {
+    reason: &'a str,
+    days: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct ReasonBody<'a> {
+    reason: &'a str,
+}
+
+#[derive(Serialize)]
+struct RoleBody<'a> {
+    role: &'a str,
+}
+
+#[derive(Serialize)]
+struct RemarkBody<'a> {
+    text: &'a str,
 }
 
 #[derive(Serialize)]

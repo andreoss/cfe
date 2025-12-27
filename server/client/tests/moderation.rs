@@ -56,6 +56,18 @@ const NOT_IGNORED: &str = "{\"ignored\":false}";
 const BANNED: &str = "{\"banned\":true,\"reason\":\"spam\",\"until\":null}";
 const NOT_BANNED: &str = "{\"banned\":false,\"reason\":null,\"until\":null}";
 
+const PUT_BAN: &str = "{\"reason\":\"spam\",\"until\":\"2024-12-25T00:00:00Z\"}";
+const WARNING: &str = concat!(
+    "{\"id\":\"99999999-9999-9999-9999-999999999999\",",
+    "\"reason\":\"spam\",\"created_at\":\"2024-12-18T00:00:00Z\",\"acknowledged\":false}"
+);
+const ACCOUNT: &str = concat!(
+    "{\"id\":\"11111111-1111-1111-1111-111111111111\",",
+    "\"username\":\"bob_02\",\"role\":\"moderator\"}"
+);
+const REMARK: &str = "{\"text\":\"keeps the board clean\"}";
+const NO_REMARK: &str = "{\"text\":null}";
+
 const NAME: &str = "bob_02";
 
 #[tokio::test]
@@ -181,4 +193,209 @@ async fn a_ban_state_an_account_may_not_read_is_refused() {
     assert!(
         matches!(error, ClientError::Rejected { reason, .. } if reason == "moderator role required")
     );
+}
+
+#[tokio::test]
+async fn an_account_is_banned_with_a_reason_and_a_number_of_days() {
+    let (base, log) = board(answer("200 OK", PUT_BAN)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let ban = client.ban("token", NAME, "spam", Some(3)).await.unwrap();
+    assert_eq!(ban.reason, "spam".to_owned());
+    assert_eq!(ban.until, Some("2024-12-25T00:00:00Z".to_owned()));
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/users/bob_02/ban "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+    assert!(
+        request.ends_with("{\"reason\":\"spam\",\"days\":3}"),
+        "{request}"
+    );
+}
+
+#[tokio::test]
+async fn an_account_is_banned_without_an_end() {
+    let (base, log) = board(answer("200 OK", PUT_BAN)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.ban("token", NAME, "spam", None).await.unwrap();
+    assert!(
+        log.last().ends_with("{\"reason\":\"spam\",\"days\":null}"),
+        "{}",
+        log.last()
+    );
+}
+
+#[tokio::test]
+async fn an_odd_name_stays_inside_one_step_of_the_ban_address() {
+    let (base, log) = board(answer("200 OK", PUT_BAN)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.ban("token", "bob 02/x", "spam", None).await.unwrap();
+    assert!(
+        log.last().starts_with("POST /api/users/bob%2002%2Fx/ban "),
+        "{}",
+        log.last()
+    );
+}
+
+#[tokio::test]
+async fn a_ban_an_account_may_not_put_on_another_is_refused() {
+    let (base, _) = board(answer(
+        "403 Forbidden",
+        "{\"error\":\"moderator role required\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client.ban("token", NAME, "spam", None).await.unwrap_err();
+    assert_eq!(error.status(), Some(403));
+}
+
+#[tokio::test]
+async fn the_ban_of_an_account_is_lifted_with_the_session() {
+    let (base, log) = board(answer("204 No Content", "")).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.lift_ban("token", NAME).await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("DELETE /api/users/bob_02/ban "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_account_is_warned_with_a_reason() {
+    let (base, log) = board(answer("200 OK", WARNING)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let warning = client.warn("token", NAME, "spam").await.unwrap();
+    assert_eq!(warning.reason, "spam".to_owned());
+    assert!(!warning.acknowledged);
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/users/bob_02/warn "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+    assert!(request.ends_with("{\"reason\":\"spam\"}"), "{request}");
+}
+
+#[tokio::test]
+async fn an_account_is_promoted_with_the_session() {
+    let (base, log) = board(answer("200 OK", ACCOUNT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let account = client.promote("token", NAME).await.unwrap();
+    assert_eq!(account.username, "bob_02".to_owned());
+    assert_eq!(account.role, "moderator".to_owned());
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/users/bob_02/promote "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn the_role_of_an_account_is_set_with_the_session() {
+    let (base, log) = board(answer("200 OK", ACCOUNT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let account = client.set_role("token", NAME, "corrector").await.unwrap();
+    assert_eq!(account.role, "moderator".to_owned());
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/users/bob_02/role "),
+        "{request}"
+    );
+    assert!(request.ends_with("{\"role\":\"corrector\"}"), "{request}");
+}
+
+#[tokio::test]
+async fn an_account_ignores_another_with_the_session() {
+    let (base, log) = board(answer("200 OK", IGNORED)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.ignore("token", NAME).await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/users/bob_02/ignore "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_account_stops_ignoring_another_with_the_session() {
+    let (base, log) = board(answer("200 OK", NOT_IGNORED)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.stop_ignoring("token", NAME).await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("DELETE /api/users/bob_02/ignore "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn the_remark_about_an_account_is_read_with_the_session() {
+    let (base, log) = board(answer("200 OK", REMARK)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let remark = client.remark("token", NAME).await.unwrap().unwrap();
+    assert_eq!(remark, "keeps the board clean".to_owned());
+    let request = log.last();
+    assert!(
+        request.starts_with("GET /api/users/bob_02/remark "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn an_account_with_no_remark_about_it_has_none() {
+    let (base, _) = board(answer("200 OK", NO_REMARK)).await;
+    let client = ApiClient::new(&base).unwrap();
+    assert!(client.remark("token", NAME).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_remark_about_an_account_is_kept_with_the_session() {
+    let (base, log) = board(answer("200 OK", REMARK)).await;
+    let client = ApiClient::new(&base).unwrap();
+    let remark = client
+        .set_remark("token", NAME, "keeps the board clean")
+        .await
+        .unwrap();
+    assert_eq!(remark, "keeps the board clean".to_owned());
+    let request = log.last();
+    assert!(
+        request.starts_with("PUT /api/users/bob_02/remark "),
+        "{request}"
+    );
+    assert!(
+        request.ends_with("{\"text\":\"keeps the board clean\"}"),
+        "{request}"
+    );
+}
+
+#[tokio::test]
+async fn a_remark_about_oneself_is_refused() {
+    let (base, _) = board(answer(
+        "422 Unprocessable Entity",
+        "{\"error\":\"not about yourself\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client.set_remark("token", NAME, "mine").await.unwrap_err();
+    assert_eq!(error.status(), Some(422));
+}
+
+#[tokio::test]
+async fn the_remark_about_an_account_is_taken_away_with_the_session() {
+    let (base, log) = board(answer("204 No Content", "")).await;
+    let client = ApiClient::new(&base).unwrap();
+    client.clear_remark("token", NAME).await.unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("DELETE /api/users/bob_02/remark "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
 }
