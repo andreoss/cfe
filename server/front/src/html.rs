@@ -2,8 +2,11 @@ use crate::markup;
 use crate::theme::Theme;
 use client::{
     ArchiveMonth, Change, Comment, Criteria, Group, Hit, Image, Notification, Order, PageInfo,
-    Paged, Profile, Scope, Section, Subject, Tag, Topic, Version,
+    Paged, Poll, Profile, Reactions, Scope, Section, Subject, Tag, Topic, Version,
 };
+use std::collections::BTreeMap;
+
+pub const REACTIONS: [&str; 4] = ["like", "agree", "disagree", "thanks"];
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -74,6 +77,9 @@ pub struct SubjectView {
     pub token: String,
     pub groups: Vec<Group>,
     pub pictures: Vec<Image>,
+    pub poll: Option<Poll>,
+    pub reactions: Option<Reactions>,
+    pub remark_reactions: BTreeMap<String, Reactions>,
 }
 
 impl SubjectView {
@@ -772,6 +778,8 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, view: &Subject
             "{pictures}",
             "{actions}",
             "{life}",
+            "{poll}",
+            "{reactions}",
             "<p class=\"links\"><a href=\"{history}\">What changed</a> | ",
             "<a href=\"{gallery}\">Pictures</a> | ",
             "<a href=\"/sections/{section}\">Back to the section</a></p>\n",
@@ -790,10 +798,18 @@ pub fn subject_page(subject: &Subject, comments: &Paged<Comment>, view: &Subject
         gallery = escape(&pictures_address(&subject.id)),
         actions = subject_actions(subject, view),
         life = subject_life(subject, view),
+        poll = subject_poll(subject, view),
+        reactions = reaction_bar(&ReactionView {
+            action: react_address(&subject.id),
+            clear: clear_reaction_address(&subject.id),
+            counts: view.reactions.as_ref(),
+            token: &view.token,
+            holding: view.holding,
+        }),
         history = escape(&history_address(&subject.id)),
         count = escape(&remark_count(comments.page.total)),
     );
-    out.push_str(&comment_list(&comments.items, view.holding));
+    out.push_str(&comment_list(&comments.items, view));
     out.push_str(&pager(
         &format!("/topics/{}", client::encode_path(&subject.id)),
         &comments.page,
@@ -884,6 +900,182 @@ fn subject_pictures(subject: &Subject, view: &SubjectView) -> String {
     }
     out.push_str("</ul>\n");
     out
+}
+
+fn subject_poll(subject: &Subject, view: &SubjectView) -> String {
+    let Some(poll) = view.poll.as_ref() else {
+        return match view.holding && view.writer {
+            true => format!(
+                "<p class=\"links\"><a href=\"{}\">Put a poll up</a></p>\n",
+                escape(&poll_form_address(&subject.id))
+            ),
+            false => String::new(),
+        };
+    };
+    let mut out = format!(
+        "<section class=\"poll\">\n<h3>{question}</h3>\n",
+        question = escape(&poll.question),
+    );
+    if view.holding {
+        out.push_str(&format!(
+            "<form method=\"post\" action=\"{action}\">\n<input type=\"hidden\" name=\"token\" value=\"{token}\">\n<ul class=\"options\">\n",
+            action = escape(&vote_address(&subject.id)),
+            token = escape(&view.token),
+        ));
+        for option in &poll.options {
+            out.push_str(&format!(
+                concat!(
+                    "<li><button type=\"submit\" name=\"option\" value=\"{id}\"{mine}>",
+                    "{text} ({votes})</button></li>\n",
+                ),
+                id = escape(&option.id),
+                mine = match poll.mine.as_deref() == Some(option.id.as_str()) {
+                    true => " class=\"mine\"",
+                    false => "",
+                },
+                text = escape(&option.text),
+                votes = option.votes,
+            ));
+        }
+        out.push_str("</ul>\n</form>\n");
+    } else {
+        out.push_str("<ul class=\"options\">\n");
+        for option in &poll.options {
+            out.push_str(&format!(
+                "<li><button type=\"button\" disabled>{text} ({votes})</button></li>\n",
+                text = escape(&option.text),
+                votes = option.votes,
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str(&format!(
+        "<p class=\"byline\">{total}</p>\n</section>\n",
+        total = escape(&vote_count(poll.total_votes)),
+    ));
+    out
+}
+
+fn vote_count(total: u64) -> String {
+    match total {
+        1 => "1 vote".to_owned(),
+        other => format!("{other} votes"),
+    }
+}
+
+pub struct ReactionView<'a> {
+    pub action: String,
+    pub clear: String,
+    pub counts: Option<&'a Reactions>,
+    pub token: &'a str,
+    pub holding: bool,
+}
+
+pub fn reaction_bar(view: &ReactionView<'_>) -> String {
+    let mine = view
+        .counts
+        .and_then(|reactions| reactions.mine.as_deref())
+        .unwrap_or_default();
+    let mut out = String::from("<div class=\"reactions\">\n");
+    for kind in REACTIONS {
+        let count = view
+            .counts
+            .and_then(|reactions| {
+                reactions
+                    .counts
+                    .iter()
+                    .find(|found| found.kind == kind)
+                    .map(|found| found.count)
+            })
+            .unwrap_or(0);
+        let label = format!("{kind} {count}");
+        out.push_str(&match view.holding {
+            true => {
+                let (action, mine) = match mine == kind {
+                    true => (&view.clear, " class=\"reaction mine\""),
+                    false => (&view.action, " class=\"reaction\""),
+                };
+                format!(
+                    concat!(
+                        "<form class=\"inline\" method=\"post\" action=\"{action}\">",
+                        "<input type=\"hidden\" name=\"token\" value=\"{token}\">",
+                        "<input type=\"hidden\" name=\"kind\" value=\"{kind}\">",
+                        "<button type=\"submit\"{mine}>{label}</button></form>",
+                    ),
+                    action = escape(action),
+                    token = escape(view.token),
+                    kind = escape(kind),
+                    mine = mine,
+                    label = escape(&label),
+                )
+            }
+            false => format!(
+                "<button type=\"button\" class=\"reaction\" disabled>{label}</button>",
+                label = escape(&label),
+            ),
+        });
+    }
+    out.push_str("</div>\n");
+    out
+}
+
+pub fn poll_form_address(id: &str) -> String {
+    format!("/topics/{}/poll/new", client::encode_path(id))
+}
+
+pub fn vote_address(id: &str) -> String {
+    format!("/topics/{}/poll/vote", client::encode_path(id))
+}
+
+pub fn react_address(id: &str) -> String {
+    format!("/topics/{}/react", client::encode_path(id))
+}
+
+pub fn clear_reaction_address(id: &str) -> String {
+    format!("/topics/{}/reactions/clear", client::encode_path(id))
+}
+
+pub fn remark_react_address(topic_id: &str, remark_id: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/react",
+        client::encode_path(topic_id),
+        client::encode_path(remark_id)
+    )
+}
+
+pub fn remark_clear_address(topic_id: &str, remark_id: &str) -> String {
+    format!(
+        "/topics/{}/comments/{}/reactions/clear",
+        client::encode_path(topic_id),
+        client::encode_path(remark_id)
+    )
+}
+
+pub fn poll_form_page(subject: &Subject, chrome: &Chrome, problem: Option<&str>) -> String {
+    format!(
+        concat!(
+            "<h2>A poll on {title}</h2>\n",
+            "{problem}",
+            "<form class=\"panel\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><label for=\"question\">The question</label>\n",
+            "<input id=\"question\" name=\"question\" type=\"text\" maxlength=\"200\" required></p>\n",
+            "<p><label for=\"options\">The ways to answer, one on each line</label>\n",
+            "<textarea id=\"options\" name=\"options\" rows=\"4\" required></textarea></p>\n",
+            "<p><button type=\"submit\">Put up</button></p>\n",
+            "</form>\n",
+            "<p class=\"links\"><a href=\"{subject}\">Back to the subject</a></p>\n",
+        ),
+        title = escape(&subject.title),
+        problem = problem_paragraph(problem),
+        action = escape(&poll_create_address(&subject.id)),
+        token = escape(&chrome.token),
+        subject = escape(&subject_address(&subject.id)),
+    )
+}
+
+pub fn poll_create_address(id: &str) -> String {
+    format!("/topics/{}/poll", client::encode_path(id))
 }
 
 fn subject_life(subject: &Subject, view: &SubjectView) -> String {
@@ -1514,7 +1706,7 @@ fn subject_marks(subject: &Subject) -> String {
     )
 }
 
-pub fn comment_list(comments: &[Comment], holding: bool) -> String {
+pub fn comment_list(comments: &[Comment], view: &SubjectView) -> String {
     let branches = client::thread(comments);
     if branches.is_empty() {
         return "<p>No remarks here yet.</p>\n".to_owned();
@@ -1536,7 +1728,7 @@ pub fn comment_list(comments: &[Comment], holding: bool) -> String {
         out.push_str(&remark_item(
             &branch.comment,
             answered(&branch.comment, comments),
-            holding,
+            view,
         ));
         before = Some(branch.depth);
     }
@@ -1550,9 +1742,9 @@ pub fn comment_list(comments: &[Comment], holding: bool) -> String {
     out
 }
 
-fn remark_item(comment: &Comment, answered: Option<&Comment>, holding: bool) -> String {
+fn remark_item(comment: &Comment, answered: Option<&Comment>, view: &SubjectView) -> String {
     let out = format!(
-        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n{actions}",
+        "<li class=\"remark\" id=\"remark-{id}\">\n<p class=\"byline\"><span class=\"writer\">{author}</span> <time datetime=\"{stamp}\">{shown}</time>{marks}</p>\n{quote}{body}\n{actions}{reactions}",
         id = escape(&comment.id),
         author = escape(&comment.author_username),
         stamp = escape(&comment.created_at),
@@ -1560,7 +1752,14 @@ fn remark_item(comment: &Comment, answered: Option<&Comment>, holding: bool) -> 
         marks = comment_marks(comment),
         quote = answered.map(quote_of).unwrap_or_default(),
         body = remark_body(comment),
-        actions = remark_actions(comment, holding),
+        actions = remark_actions(comment, view.holding),
+        reactions = reaction_bar(&ReactionView {
+            action: remark_react_address(&comment.topic_id, &comment.id),
+            clear: remark_clear_address(&comment.topic_id, &comment.id),
+            counts: view.remark_reactions.get(&comment.id),
+            token: &view.token,
+            holding: view.holding,
+        }),
     );
     out
 }
@@ -2617,7 +2816,7 @@ mod tests {
     fn a_reply_quotes_the_remark_it_answers() {
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[remark("1", "bob", "First thought"), answer], true);
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer], &held());
         assert!(html.contains("class=\"answer\""), "no quote: {html}");
         assert!(
             html.contains("<a href=\"#remark-1\">bob wrote</a>: First thought"),
@@ -2627,7 +2826,7 @@ mod tests {
 
     #[test]
     fn a_remark_that_answers_nothing_carries_no_quote() {
-        let html = comment_list(&[remark("1", "bob", "First thought")], true);
+        let html = comment_list(&[remark("1", "bob", "First thought")], &held());
         assert!(!html.contains("class=\"answer\""), "a quote: {html}");
     }
 
@@ -2635,7 +2834,7 @@ mod tests {
     fn a_reply_to_a_remark_off_the_page_carries_no_quote() {
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("9".to_owned());
-        let html = comment_list(&[remark("1", "bob", "First thought"), answer], true);
+        let html = comment_list(&[remark("1", "bob", "First thought"), answer], &held());
         assert!(!html.contains("class=\"answer\""), "a quote: {html}");
         assert!(html.contains("I agree"), "the reply is missing: {html}");
     }
@@ -2647,7 +2846,7 @@ mod tests {
         gone.deleted_reason = Some("off topic".to_owned());
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[gone, answer], true);
+        let html = comment_list(&[gone, answer], &held());
         assert!(
             html.contains("Removed: off topic"),
             "the reason is missing: {html}"
@@ -2660,7 +2859,7 @@ mod tests {
         let long = "x".repeat(400);
         let mut answer = remark("2", "carol", "I agree");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[remark("1", "bob", &long), answer], true);
+        let html = comment_list(&[remark("1", "bob", &long), answer], &held());
         let quote = html.split("class=\"answer\"").nth(1).unwrap_or_default();
         assert!(
             quote.contains(&format!("{}...", "x".repeat(120))),
@@ -2675,7 +2874,7 @@ mod tests {
 
     #[test]
     fn an_account_named_in_a_remark_is_a_link() {
-        let html = comment_list(&[remark("1", "bob", "ask @alice")], true);
+        let html = comment_list(&[remark("1", "bob", "ask @alice")], &held());
         assert!(
             html.contains("<a class=\"mention\" href=\"/u/alice\">@alice</a>"),
             "no link: {html}"
@@ -2688,7 +2887,7 @@ mod tests {
         answer.parent_id = Some("1".to_owned());
         let mut deeper = remark("3", "dave", "Deeper still");
         deeper.parent_id = Some("2".to_owned());
-        let html = comment_list(&[remark("1", "bob", "A reply"), answer, deeper], true);
+        let html = comment_list(&[remark("1", "bob", "A reply"), answer, deeper], &held());
         let opened = html.matches("<ol").count();
         let closed = html.matches("</ol>").count();
         assert_eq!(
@@ -2712,7 +2911,7 @@ mod tests {
     fn a_reply_comes_after_the_remark_it_answers_whatever_order_they_arrive_in() {
         let mut answer = remark("2", "carol", "An answer");
         answer.parent_id = Some("1".to_owned());
-        let html = comment_list(&[answer, remark("1", "bob", "A reply")], true);
+        let html = comment_list(&[answer, remark("1", "bob", "A reply")], &held());
         assert!(html.find("id=\"remark-1\"").unwrap() < html.find("id=\"remark-2\"").unwrap());
     }
 
@@ -2720,7 +2919,7 @@ mod tests {
     fn a_reply_whose_remark_is_not_on_this_page_is_still_shown() {
         let mut orphan = remark("2", "carol", "An answer");
         orphan.parent_id = Some("gone".to_owned());
-        let html = comment_list(&[orphan], true);
+        let html = comment_list(&[orphan], &held());
         assert!(html.contains("id=\"remark-2\""));
         assert!(html.contains("An answer"));
     }

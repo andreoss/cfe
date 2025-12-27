@@ -7,8 +7,8 @@ pub mod token;
 
 use client::{
     ApiClient, ArchiveMonth, Avatar, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
-    Image, Notification, Paged, Picture, Profile, RegisterBody, Section, Session, Subject, Tag,
-    Topic, User, Version, encode_path, find_section,
+    Image, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody, Section, Session,
+    Subject, Tag, Topic, User, Version, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -245,6 +245,88 @@ impl App {
         image_id: &str,
     ) -> Result<(), ClientError> {
         self.client.remove_image(session, topic_id, image_id).await
+    }
+
+    pub async fn poll(&self, session: Option<&str>, id: &str) -> Result<Option<Poll>, ClientError> {
+        self.client.poll(session, id).await
+    }
+
+    pub async fn create_poll(
+        &self,
+        session: &str,
+        id: &str,
+        question: &str,
+        options: &[&str],
+    ) -> Result<Poll, ClientError> {
+        self.client
+            .create_poll(session, id, question, options)
+            .await
+    }
+
+    pub async fn vote(
+        &self,
+        session: &str,
+        id: &str,
+        option_id: &str,
+    ) -> Result<Poll, ClientError> {
+        self.client.vote(session, id, option_id).await
+    }
+
+    pub async fn topic_reactions(
+        &self,
+        session: Option<&str>,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client.topic_reactions(session, id).await
+    }
+
+    pub async fn comment_reactions(
+        &self,
+        session: Option<&str>,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client.comment_reactions(session, topic_id, id).await
+    }
+
+    pub async fn react_to_topic(
+        &self,
+        session: &str,
+        id: &str,
+        kind: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client.react_to_topic(session, id, kind).await
+    }
+
+    pub async fn react_to_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        kind: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client
+            .react_to_comment(session, topic_id, id, kind)
+            .await
+    }
+
+    pub async fn clear_topic_reaction(
+        &self,
+        session: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client.clear_topic_reaction(session, id).await
+    }
+
+    pub async fn clear_comment_reaction(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.client
+            .clear_comment_reaction(session, topic_id, id)
+            .await
     }
 
     pub async fn search(&self, criteria: &Criteria) -> Result<Vec<Hit>, ClientError> {

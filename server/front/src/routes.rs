@@ -8,6 +8,7 @@ use axum::{
 use base64::Engine as _;
 use base64::prelude::BASE64_STANDARD as BASE64;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use client::Comment;
 
@@ -54,6 +55,19 @@ pub fn router(app: App) -> Router {
         )
         .route("/topics/{id}/images/{picture}", get(picture))
         .route("/topics/{id}/images/{picture}/remove", post(remove_picture))
+        .route("/topics/{id}/poll/new", get(poll_form))
+        .route("/topics/{id}/poll", post(add_poll))
+        .route("/topics/{id}/poll/vote", post(cast_vote))
+        .route("/topics/{id}/react", post(react_to_subject))
+        .route("/topics/{id}/reactions/clear", post(clear_subject_reaction))
+        .route(
+            "/topics/{id}/comments/{remark}/react",
+            post(react_to_remark),
+        )
+        .route(
+            "/topics/{id}/comments/{remark}/reactions/clear",
+            post(clear_remark_reaction),
+        )
         .route("/topics/{id}/history", get(history))
         .route("/topics/{id}/history/{version}", get(difference))
         .route(
@@ -222,27 +236,47 @@ async fn topic(
     let holding = session.is_some();
     let pictures = app.images(&id).await.unwrap_or_default();
     let groups = app.groups(&subject.section_slug).await.unwrap_or_default();
+    let poll = app.poll(session.as_deref(), &id).await.unwrap_or_default();
+    let reactions = app
+        .topic_reactions(session.as_deref(), &id)
+        .await
+        .ok()
+        .filter(|found| !found.counts.is_empty());
     match app.comments(session.as_deref(), &id, number).await {
-        Ok(comments) => render(
-            &guard,
-            StatusCode::OK,
-            html::page(
-                &chrome,
-                &subject.title,
-                &html::subject_page(
-                    &subject,
-                    &comments,
-                    &html::SubjectView {
-                        holding,
-                        standing: chrome.standing().map(str::to_owned),
-                        writer: chrome.account_name() == Some(subject.author_username.as_str()),
-                        token: guard.token().to_owned(),
-                        groups,
-                        pictures,
-                    },
+        Ok(comments) => {
+            let mut remark_reactions = BTreeMap::new();
+            for remark in &comments.items {
+                let found = app
+                    .comment_reactions(session.as_deref(), &id, &remark.id)
+                    .await;
+                if let Some(found) = found.ok().filter(|found| !found.counts.is_empty()) {
+                    remark_reactions.insert(remark.id.clone(), found);
+                }
+            }
+            render(
+                &guard,
+                StatusCode::OK,
+                html::page(
+                    &chrome,
+                    &subject.title,
+                    &html::subject_page(
+                        &subject,
+                        &comments,
+                        &html::SubjectView {
+                            holding,
+                            standing: chrome.standing().map(str::to_owned),
+                            writer: chrome.account_name() == Some(subject.author_username.as_str()),
+                            token: guard.token().to_owned(),
+                            groups,
+                            pictures,
+                            poll,
+                            reactions,
+                            remark_reactions,
+                        },
+                    ),
                 ),
-            ),
-        ),
+            )
+        }
         Err(error) => render(
             &guard,
             StatusCode::SERVICE_UNAVAILABLE,
@@ -561,6 +595,209 @@ async fn remove_picture(
             ),
         ),
     }
+}
+
+#[derive(Deserialize)]
+pub struct PollForm {
+    token: Option<String>,
+    question: Option<String>,
+    options: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct VoteForm {
+    token: Option<String>,
+    option: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ReactForm {
+    token: Option<String>,
+    kind: Option<String>,
+}
+
+async fn poll_form(State(app): State<App>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let address = html::poll_form_address(&id);
+    let chrome = chrome_of(&guard, &app, &headers, theme, &address).await;
+    let subject = match held_subject(&app, &id, &guard, &chrome, &headers).await {
+        Ok(subject) => subject,
+        Err(answer) => return answer,
+    };
+    if app
+        .poll(session_of(&headers).as_deref(), &id)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return render(
+            &guard,
+            StatusCode::CONFLICT,
+            html::message(
+                &chrome,
+                "The subject has a poll",
+                "A subject carries one poll, and this one has it already.",
+            ),
+        );
+    }
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            &format!("A poll on {}", subject.title),
+            &html::poll_form_page(&subject, &chrome, None),
+        ),
+    )
+}
+
+async fn add_poll(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<PollForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let question = form.question.clone().unwrap_or_default().trim().to_owned();
+    let options: Vec<&str> = form
+        .options
+        .as_deref()
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if question.is_empty() || options.len() < 2 {
+        let subject = match app.subject(Some(&held.session), &id).await {
+            Ok(Some(subject)) => subject,
+            _ => return went(&held.guard, &None, &held.address),
+        };
+        return render(
+            &held.guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::page(
+                &held.chrome,
+                &format!("A poll on {}", subject.title),
+                &html::poll_form_page(
+                    &subject,
+                    &held.chrome,
+                    Some("A poll needs a question and at least two ways to answer."),
+                ),
+            ),
+        );
+    }
+    let outcome = app
+        .create_poll(&held.session, &id, &question, &options)
+        .await
+        .map(|_| ());
+    settled(&held, "The poll was not put up", outcome)
+}
+
+async fn cast_vote(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<VoteForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let Some(option) = form.option.as_deref().map(str::trim) else {
+        return went(&held.guard, &None, &held.address);
+    };
+    if option.is_empty() {
+        return went(&held.guard, &None, &held.address);
+    }
+    let outcome = app.vote(&held.session, &id, option).await.map(|_| ());
+    settled(&held, "The vote was not counted", outcome)
+}
+
+async fn react_to_subject(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ReactForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let Some(kind) = kind_of(form.kind.as_deref()) else {
+        return went(&held.guard, &None, &held.address);
+    };
+    let outcome = app
+        .react_to_topic(&held.session, &id, kind)
+        .await
+        .map(|_| ());
+    settled(&held, "The reaction was not kept", outcome)
+}
+
+async fn clear_subject_reaction(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .clear_topic_reaction(&held.session, &id)
+        .await
+        .map(|_| ());
+    settled(&held, "The reaction was not taken away", outcome)
+}
+
+async fn react_to_remark(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<ReactForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let Some(kind) = kind_of(form.kind.as_deref()) else {
+        return went(&held.guard, &None, &held.address);
+    };
+    let outcome = app
+        .react_to_comment(&held.session, &id, &remark, kind)
+        .await
+        .map(|_| ());
+    settled(&held, "The reaction was not kept", outcome)
+}
+
+async fn clear_remark_reaction(
+    State(app): State<App>,
+    Path((id, remark)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match holding(&app, &id, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .clear_comment_reaction(&held.session, &id, &remark)
+        .await
+        .map(|_| ());
+    settled(&held, "The reaction was not taken away", outcome)
+}
+
+fn kind_of(raw: Option<&str>) -> Option<&str> {
+    let kind = raw.map(str::trim)?;
+    html::REACTIONS
+        .iter()
+        .find(|known| **known == kind)
+        .copied()
 }
 
 async fn subject_form(
