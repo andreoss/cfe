@@ -457,6 +457,35 @@ pub struct Group {
     pub slug: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PollOption {
+    pub id: String,
+    pub text: String,
+    pub votes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Poll {
+    pub id: String,
+    pub topic_id: String,
+    pub question: String,
+    pub options: Vec<PollOption>,
+    pub mine: Option<String>,
+    pub total_votes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ReactionCount {
+    pub kind: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Reactions {
+    pub counts: Vec<ReactionCount>,
+    pub mine: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     token: String,
@@ -898,6 +927,114 @@ impl ApiClient {
         Ok(())
     }
 
+    pub async fn poll(&self, session: Option<&str>, id: &str) -> Result<Option<Poll>, ClientError> {
+        self.maybe_get(&format!("/api/topics/{}/poll", encode_path(id)), session)
+            .await
+    }
+
+    pub async fn create_poll(
+        &self,
+        session: &str,
+        id: &str,
+        question: &str,
+        options: &[&str],
+    ) -> Result<Poll, ClientError> {
+        let path = format!("/api/topics/{}/poll", encode_path(id));
+        let body = PollBody {
+            question,
+            options: options.iter().map(|text| (*text).to_owned()).collect(),
+        };
+        json_of(self.post(&path, &body, Some(session)).await?).await
+    }
+
+    pub async fn vote(
+        &self,
+        session: &str,
+        id: &str,
+        option_id: &str,
+    ) -> Result<Poll, ClientError> {
+        let path = format!("/api/topics/{}/poll/vote", encode_path(id));
+        json_of(
+            self.post(&path, &VoteBody { option_id }, Some(session))
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn topic_reactions(
+        &self,
+        session: Option<&str>,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        self.get(
+            &format!("/api/topics/{}/reactions", encode_path(id)),
+            session,
+        )
+        .await
+    }
+
+    pub async fn comment_reactions(
+        &self,
+        session: Option<&str>,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/reactions",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        self.get(&path, session).await
+    }
+
+    pub async fn react_to_topic(
+        &self,
+        session: &str,
+        id: &str,
+        kind: &str,
+    ) -> Result<Reactions, ClientError> {
+        let path = format!("/api/topics/{}/reactions", encode_path(id));
+        json_of(self.post(&path, &ReactBody { kind }, Some(session)).await?).await
+    }
+
+    pub async fn react_to_comment(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+        kind: &str,
+    ) -> Result<Reactions, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/reactions",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        json_of(self.post(&path, &ReactBody { kind }, Some(session)).await?).await
+    }
+
+    pub async fn clear_topic_reaction(
+        &self,
+        session: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        let path = format!("/api/topics/{}/reactions", encode_path(id));
+        json_of(self.delete(&path, Some(session)).await?).await
+    }
+
+    pub async fn clear_comment_reaction(
+        &self,
+        session: &str,
+        topic_id: &str,
+        id: &str,
+    ) -> Result<Reactions, ClientError> {
+        let path = format!(
+            "/api/topics/{}/comments/{}/reactions",
+            encode_path(topic_id),
+            encode_path(id)
+        );
+        json_of(self.delete(&path, Some(session)).await?).await
+    }
+
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
         self.get(&format!("/api/topics/{}/history", encode_path(id)), None)
             .await
@@ -1250,6 +1387,28 @@ impl ApiClient {
             .map_err(|e| ClientError::Detail(e.to_string()))
     }
 
+    async fn maybe_get<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        session: Option<&str>,
+    ) -> Result<Option<T>, ClientError> {
+        let response = self
+            .send(self.http.get(self.address(path)), session)
+            .await?;
+        let status = response.status().as_u16();
+        if status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, response).await);
+        }
+        response
+            .json()
+            .await
+            .map(Some)
+            .map_err(|e| ClientError::Detail(e.to_string()))
+    }
+
     async fn post<B: Serialize>(
         &self,
         path: &str,
@@ -1396,6 +1555,22 @@ struct MoveBody<'a> {
 #[derive(Serialize)]
 struct ImageBody<'a> {
     data: &'a str,
+}
+
+#[derive(Serialize)]
+struct PollBody<'a> {
+    question: &'a str,
+    options: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct VoteBody<'a> {
+    option_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct ReactBody<'a> {
+    kind: &'a str,
 }
 
 async fn json_of<T: for<'de> Deserialize<'de>>(
