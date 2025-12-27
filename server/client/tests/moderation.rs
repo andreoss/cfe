@@ -537,3 +537,42 @@ async fn the_open_reports_are_read_a_page_at_a_time() {
         log.last()
     );
 }
+
+#[tokio::test]
+async fn a_report_is_closed_with_the_session() {
+    let (base, log) = board(answer("200 OK", REPORT)).await;
+    let client = ApiClient::new(&base).unwrap();
+    client
+        .close_report("token", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        .await
+        .unwrap();
+    let request = log.last();
+    assert!(
+        request.starts_with("POST /api/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/close "),
+        "{request}"
+    );
+    assert!(request.contains("cookie: session=token"), "{request}");
+}
+
+#[tokio::test]
+async fn a_report_already_closed_is_refused() {
+    let (base, _) = board(answer(
+        "409 Conflict",
+        "{\"error\":\"report already closed\"}",
+    ))
+    .await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client
+        .close_report("token", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        .await
+        .unwrap_err();
+    assert_eq!(error.status(), Some(409));
+}
+
+#[tokio::test]
+async fn a_report_nobody_knows_is_refused() {
+    let (base, _) = board(answer("404 Not Found", "{\"error\":\"report not found\"}")).await;
+    let client = ApiClient::new(&base).unwrap();
+    let error = client.close_report("token", "whatever").await.unwrap_err();
+    assert_eq!(error.status(), Some(404));
+}

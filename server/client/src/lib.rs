@@ -1230,6 +1230,11 @@ impl ApiClient {
             .await
     }
 
+    pub async fn close_report(&self, session: &str, id: &str) -> Result<Report, ClientError> {
+        let path = format!("/api/reports/{}/close", encode_path(id));
+        json_of(self.post(&path, &Nothing {}, Some(session)).await?).await
+    }
+
     pub async fn topic_history(&self, id: &str) -> Result<Vec<Version>, ClientError> {
         self.get(&format!("/api/topics/{}/history", encode_path(id)), None)
             .await
