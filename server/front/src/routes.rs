@@ -107,6 +107,16 @@ pub fn router(app: App) -> Router {
         .route("/sign-out", post(sign_out))
         .route("/reports", get(reports))
         .route("/reports/{id}/close", post(close_a_report))
+        .route("/admin", get(admin))
+        .route("/admin/sections", post(make_section))
+        .route("/admin/sections/{slug}/rename", post(rename_section))
+        .route("/admin/sections/{slug}/score", post(set_section_score))
+        .route("/admin/sections/{slug}/groups", post(make_group))
+        .route(
+            "/admin/sections/{section}/groups/{group}/rename",
+            post(rename_group),
+        )
+        .route("/admin/maintenance", post(run_maintenance))
         .route("/me/warnings", get(warnings))
         .route("/me/warnings/acknowledge", post(acknowledge_warnings))
         .route("/u/{username}", get(profile))
@@ -2500,6 +2510,233 @@ async fn close_a_report(
             &guard,
             StatusCode::UNPROCESSABLE_ENTITY,
             html::message(&chrome, "Close a report", &error.to_string()),
+        ),
+    }
+}
+
+async fn administrating(
+    app: &App,
+    headers: &HeaderMap,
+    token: Option<&str>,
+) -> Result<Holding, Response> {
+    let guard = Guard::new(headers);
+    let theme = theme_of(headers, app);
+    let address = html::ADMIN_ADDRESS.to_owned();
+    let chrome = chrome_of(&guard, app, headers, theme, &address).await;
+    if !guard.allows(token) {
+        return Err(render(&guard, StatusCode::FORBIDDEN, expired(&chrome)));
+    }
+    let Some(session) = session_of(headers) else {
+        return Err(sign_in_first(&guard, &address));
+    };
+    Ok(Holding {
+        guard,
+        chrome,
+        address,
+        session,
+    })
+}
+
+async fn admin(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, html::ADMIN_ADDRESS).await;
+    let Some(_) = session_of(&headers) else {
+        return sign_in_first(&guard, html::ADMIN_ADDRESS);
+    };
+    let moderator = chrome.standing() == Some("moderator");
+    let sections = match app.sections().await {
+        Ok(sections) => sections,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    let mut views = Vec::with_capacity(sections.len());
+    for section in sections {
+        let mut groups = Vec::new();
+        if moderator {
+            match app.groups(&section.slug).await {
+                Ok(listed) => {
+                    groups = listed
+                        .into_iter()
+                        .map(|group| html::GroupView {
+                            slug: group.slug,
+                            name: group.name,
+                        })
+                        .collect();
+                }
+                Err(error) => {
+                    return render(
+                        &guard,
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        unavailable(&chrome, &error),
+                    );
+                }
+            }
+        }
+        views.push(html::SectionView {
+            slug: section.slug,
+            title: section.title,
+            score: section.topics_score,
+            groups,
+        });
+    }
+    render(
+        &guard,
+        StatusCode::OK,
+        html::page(
+            &chrome,
+            "Administration",
+            &html::admin_page(&chrome, &views, moderator),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct SectionForm {
+    token: Option<String>,
+    slug: Option<String>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TitleForm {
+    token: Option<String>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct GroupForm {
+    token: Option<String>,
+    name: Option<String>,
+    slug: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NameForm {
+    token: Option<String>,
+    name: Option<String>,
+}
+
+async fn make_section(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<SectionForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .create_section(&held.session, text_of(&form.slug), text_of(&form.title))
+        .await
+        .map(|_| ());
+    settled(&held, "The section was not made", outcome)
+}
+
+async fn rename_section(
+    State(app): State<App>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TitleForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .rename_section(&held.session, &slug, text_of(&form.title))
+        .await
+        .map(|_| ());
+    settled(&held, "The section was not renamed", outcome)
+}
+
+async fn set_section_score(
+    State(app): State<App>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ScoreForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .set_section_score(&held.session, &slug, text_of(&form.score))
+        .await
+        .map(|_| ());
+    settled(&held, "The score was not set", outcome)
+}
+
+async fn make_group(
+    State(app): State<App>,
+    Path(section): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<GroupForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .create_group(
+            &held.session,
+            &section,
+            text_of(&form.name),
+            text_of(&form.slug),
+        )
+        .await
+        .map(|_| ());
+    settled(&held, "The group was not made", outcome)
+}
+
+async fn rename_group(
+    State(app): State<App>,
+    Path((section, group)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<NameForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app
+        .rename_group(&held.session, &section, &group, text_of(&form.name))
+        .await
+        .map(|_| ());
+    settled(&held, "The group was not renamed", outcome)
+}
+
+async fn run_maintenance(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match administrating(&app, &headers, form.token.as_deref()).await {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    match app.run_maintenance(&held.session).await {
+        Ok(report) => render(
+            &held.guard,
+            StatusCode::OK,
+            html::message(
+                &held.chrome,
+                "Maintenance",
+                &format!(
+                    "The maintenance blocked {} accounts and dropped {} others.",
+                    report.blocked, report.dropped
+                ),
+            ),
+        ),
+        Err(error) => render(
+            &held.guard,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            html::message(&held.chrome, "Maintenance", &error.to_string()),
         ),
     }
 }

@@ -7,8 +7,9 @@ pub mod token;
 
 use client::{
     ApiClient, ArchiveMonth, Avatar, Ban, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
-    Image, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody, Report, Section,
-    Session, Subject, Tag, Topic, User, Version, Warning, encode_path, find_section,
+    Image, Maintenance, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody,
+    Report, Section, SectionSettings, Session, Subject, Tag, Topic, User, Version, Warning,
+    encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -215,6 +216,61 @@ impl App {
 
     pub async fn groups(&self, slug: &str) -> Result<Vec<Group>, ClientError> {
         self.client.groups(slug).await
+    }
+
+    pub async fn create_section(
+        &self,
+        session: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        self.client.create_section(session, slug, title).await
+    }
+
+    pub async fn rename_section(
+        &self,
+        session: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        self.client.rename_section(session, slug, title).await
+    }
+
+    pub async fn set_section_score(
+        &self,
+        session: &str,
+        slug: &str,
+        score: &str,
+    ) -> Result<SectionSettings, ClientError> {
+        self.client.set_section_score(session, slug, score).await
+    }
+
+    pub async fn create_group(
+        &self,
+        session: &str,
+        section_slug: &str,
+        name: &str,
+        slug: &str,
+    ) -> Result<Group, ClientError> {
+        self.client
+            .create_group(session, section_slug, name, slug)
+            .await
+    }
+
+    pub async fn rename_group(
+        &self,
+        session: &str,
+        section_slug: &str,
+        group_slug: &str,
+        name: &str,
+    ) -> Result<Group, ClientError> {
+        self.client
+            .rename_group(session, section_slug, group_slug, name)
+            .await
+    }
+
+    pub async fn run_maintenance(&self, session: &str) -> Result<Maintenance, ClientError> {
+        self.client.run_maintenance(session).await
     }
 
     pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {

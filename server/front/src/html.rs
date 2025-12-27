@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 pub const REACTIONS: [&str; 4] = ["like", "agree", "disagree", "thanks"];
 pub const REPORTS_ADDRESS: &str = "/reports";
+pub const ADMIN_ADDRESS: &str = "/admin";
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -97,6 +98,20 @@ pub struct ReportView {
     pub kind: String,
     pub reason: String,
     pub created_at: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct GroupView {
+    pub slug: String,
+    pub name: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SectionView {
+    pub slug: String,
+    pub title: String,
+    pub score: String,
+    pub groups: Vec<GroupView>,
 }
 
 #[derive(Clone, Default)]
@@ -2304,6 +2319,142 @@ pub fn remark_report_address(topic: &str, remark: &str) -> String {
 
 pub fn report_close_address(id: &str) -> String {
     format!("/reports/{}/close", client::encode_path(id))
+}
+
+pub fn section_rename_address(slug: &str) -> String {
+    format!("/admin/sections/{}/rename", client::encode_path(slug))
+}
+
+pub fn section_score_address(slug: &str) -> String {
+    format!("/admin/sections/{}/score", client::encode_path(slug))
+}
+
+pub fn section_make_group_address(slug: &str) -> String {
+    format!("/admin/sections/{}/groups", client::encode_path(slug))
+}
+
+pub fn group_rename_address(section: &str, group: &str) -> String {
+    format!(
+        "/admin/sections/{}/groups/{}/rename",
+        client::encode_path(section),
+        client::encode_path(group)
+    )
+}
+
+pub fn admin_page(chrome: &Chrome, sections: &[SectionView], moderator: bool) -> String {
+    let mut out = "<h2>Administration</h2>\n".to_owned();
+    if !moderator {
+        out.push_str("<p class=\"empty\">Only a moderator administers the board.</p>\n");
+        return out;
+    }
+    out.push_str(&format!(
+        concat!(
+            "<h3>Make a section</h3>\n",
+            "<form class=\"admin\" method=\"post\" action=\"/admin/sections\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<label for=\"section-slug\">Address</label>\n",
+            "<input id=\"section-slug\" name=\"slug\" type=\"text\" required>\n",
+            "<label for=\"section-title\">Title</label>\n",
+            "<input id=\"section-title\" name=\"title\" type=\"text\" required>\n",
+            "<button type=\"submit\">Make a section</button>\n",
+            "</form>\n"
+        ),
+        token = escape(&chrome.token),
+    ));
+    if sections.is_empty() {
+        out.push_str("<p class=\"empty\">No sections yet.</p>\n");
+        return out;
+    }
+    for section in sections {
+        out.push_str(&format!(
+            "<section class=\"admin-section\">\n<h3>{title} <code>{slug}</code> &#183; it takes {score} to post</h3>\n",
+            title = escape(&section.title),
+            slug = escape(&section.slug),
+            score = escape(&section.score),
+        ));
+        out.push_str(&form(
+            &section_rename_address(&section.slug),
+            "section-rename",
+            "Rename to",
+            "title",
+            "Rename",
+            chrome.token.as_str(),
+        ));
+        out.push_str(&form(
+            &section_score_address(&section.slug),
+            "section-score",
+            "What it takes to post",
+            "score",
+            "Set the score",
+            chrome.token.as_str(),
+        ));
+        out.push_str("<h4>Groups</h4>\n");
+        if section.groups.is_empty() {
+            out.push_str("<p class=\"empty\">No groups yet.</p>\n");
+        } else {
+            for group in &section.groups {
+                out.push_str(&format!(
+                    "<p class=\"admin-group\"><code>{slug}</code> {name}</p>\n",
+                    slug = escape(&group.slug),
+                    name = escape(&group.name),
+                ));
+                out.push_str(&form(
+                    &group_rename_address(&section.slug, &group.slug),
+                    "group-rename",
+                    "Rename to",
+                    "name",
+                    "Rename",
+                    chrome.token.as_str(),
+                ));
+            }
+        }
+        out.push_str(&format!(
+            concat!(
+                "<h4>Make a group</h4>\n",
+                "<form class=\"admin\" method=\"post\" action=\"{action}\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<label for=\"group-name\">Group name</label>\n",
+                "<input id=\"group-name\" name=\"name\" type=\"text\" required>\n",
+                "<label for=\"group-slug\">Group address</label>\n",
+                "<input id=\"group-slug\" name=\"slug\" type=\"text\" required>\n",
+                "<button type=\"submit\">Make a group</button>\n",
+                "</form>\n",
+            ),
+            action = escape(&section_make_group_address(&section.slug)),
+            token = escape(&chrome.token),
+        ));
+        out.push_str("</section>\n");
+    }
+    out.push_str(&format!(
+        concat!(
+            "<h3>Maintenance</h3>\n",
+            "<form class=\"admin\" method=\"post\" action=\"/admin/maintenance\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><button type=\"submit\">Run the maintenance</button></p>\n",
+            "</form>\n"
+        ),
+        token = escape(&chrome.token),
+    ));
+    out
+}
+
+fn form(action: &str, id: &str, label: &str, name: &str, words: &str, token: &str) -> String {
+    format!(
+        concat!(
+            "<form class=\"admin\" method=\"post\" action=\"{action}\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<label for=\"{id}\">{label}</label>\n",
+            "<input id=\"{id}\" name=\"{name}\" type=\"text\" required>\n",
+            "<button type=\"submit\">{words}</button>\n",
+            "</form>\n"
+        ),
+        action = escape(action),
+        token = escape(token),
+        id = escape(id),
+        label = escape(label),
+        name = escape(name),
+        words = escape(words),
+    )
 }
 
 pub fn warnings_page(chrome: &Chrome, warnings: &[WarningView]) -> String {
