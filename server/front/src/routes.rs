@@ -1,7 +1,8 @@
 use axum::{
     Form, Router,
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
+    middleware::{Next, from_fn_with_state},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -153,7 +154,32 @@ pub fn router(app: App) -> Router {
         .route("/static/style.css", get(stylesheet))
         .route("/theme", post(set_theme))
         .fallback(not_found)
+        .layer(from_fn_with_state(app.clone(), method_not_allowed))
         .with_state(app)
+}
+
+async fn method_not_allowed(
+    State(app): State<App>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    let response = next.run(request).await;
+    if response.status() != StatusCode::METHOD_NOT_ALLOWED {
+        return response;
+    }
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, "/").await;
+    render(
+        &guard,
+        StatusCode::METHOD_NOT_ALLOWED,
+        html::message(
+            &chrome,
+            "Wrong door",
+            "This address does not answer to that method.",
+        ),
+    )
 }
 
 async fn health() -> &'static str {

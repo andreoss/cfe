@@ -158,7 +158,6 @@ pub fn page(chrome: &Chrome, title: &str, body: &str) -> String {
             "<main id=\"main\">\n",
             "{body}\n",
             "</main>\n",
-            "<footer class=\"foot\"><p>Server-rendered pages. Nothing here needs scripts.</p></footer>\n",
             "</body>\n",
             "</html>\n"
         ),
@@ -793,7 +792,7 @@ fn hit_item(hit: &Hit) -> String {
 pub fn pager(address: &str, page: &PageInfo) -> String {
     let base = escape(address);
     let mut out = format!(
-        "<nav class=\"pager\">\n<p>Page {number} of {pages}</p>\n<ul>\n",
+        "<nav class=\"pager\" aria-label=\"Pager\">\n<p>Page {number} of {pages}</p>\n<ul>\n",
         number = page.number,
         pages = page.total_pages,
     );

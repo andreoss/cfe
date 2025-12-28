@@ -250,6 +250,163 @@ async fn a_board_that_answers_badly_gives_a_page_too() {
     assert_eq!(response.status(), 503);
 }
 
+fn heading_levels(body: &str) -> Vec<u8> {
+    let mut levels = Vec::new();
+    let mut rest = body;
+    while let Some(at) = rest.find("<h") {
+        rest = &rest[at + 2..];
+        if let Some(level) = rest.chars().next().and_then(|c| c.to_digit(10)) {
+            levels.push(level as u8);
+        }
+    }
+    levels
+}
+
+fn heading_run_is_ordered(body: &str) -> bool {
+    let levels = heading_levels(body);
+    if levels.first() != Some(&1) {
+        return false;
+    }
+    let mut deepest = 1u8;
+    for level in levels {
+        if level > deepest + 1 {
+            return false;
+        }
+        deepest = deepest.max(level);
+    }
+    true
+}
+
+fn every_visible_control_is_labelled(body: &str) -> bool {
+    for tag in ["input", "select", "textarea"] {
+        let opener = format!("<{tag} id=\"");
+        let mut rest = body;
+        while let Some(at) = rest.find(&opener) {
+            rest = &rest[at + opener.len()..];
+            let id = &rest[..rest.find('"').unwrap_or(0)];
+            if !body.contains(&format!("<label for=\"{id}\"")) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn wayfinding_and_pager_are_named(body: &str) -> bool {
+    (!body.contains("<nav class=\"ways\"") || body.contains("<nav class=\"ways\" aria-label"))
+        && (!body.contains("<nav class=\"pager\"") || body.contains("<nav class=\"pager\" aria-label"))
+}
+
+const VOID_ELEMENTS: [&str; 14] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+    "source", "track", "wbr",
+];
+
+fn tags_are_balanced(body: &str) -> bool {
+    let mut stack = Vec::new();
+    let mut rest = body;
+    while let Some(open) = rest.find('<') {
+        rest = &rest[open + 1..];
+        let Some(end) = rest.find('>') else {
+            return false;
+        };
+        let raw = &rest[..end];
+        rest = &rest[end + 1..];
+        if raw.starts_with('!') {
+            continue;
+        }
+        let closing = raw.starts_with('/');
+        let self_closing = raw.trim_end().ends_with('/');
+        let name_part = if closing { &raw[1..] } else { raw };
+        let name = name_part
+            .split(|c: char| c.is_whitespace() || c == '/')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        if closing {
+            match stack.pop() {
+                Some(top) if top == name => {}
+                _ => return false,
+            }
+        } else if !self_closing && !VOID_ELEMENTS.contains(&name.as_str()) {
+            stack.push(name);
+        }
+    }
+    stack.is_empty()
+}
+
+fn ids_are_unique(body: &str) -> bool {
+    let opener = "id=\"";
+    let mut rest = body;
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(at) = rest.find(opener) {
+        rest = &rest[at + opener.len()..];
+        let id = &rest[..rest.find('"').unwrap_or(0)];
+        if !seen.insert(id.to_owned()) {
+            return false;
+        }
+    }
+    true
+}
+
+fn page_is_accessible(body: &str) -> bool {
+    front::html::scripting_free(body)
+        && body.matches("<h1").count() == 1
+        && heading_run_is_ordered(body)
+        && every_visible_control_is_labelled(body)
+        && wayfinding_and_pager_are_named(body)
+        && tags_are_balanced(body)
+        && ids_are_unique(body)
+}
+
+#[tokio::test]
+async fn every_theme_of_every_reachable_page_is_accessible() {
+    let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    for theme in ["light", "classic", "dark", "contrast"] {
+        for path in ["/", "/nowhere"] {
+            let body = http()
+                .get(format!("{base}{path}"))
+                .header("cookie", format!("theme={theme}"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert!(page_is_accessible(&body), "{theme} {path}:\n{body}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_page_ends_with_its_content_and_says_nothing_about_itself() {
+    let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    let page = http()
+        .get(&base)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!page.contains("Server-rendered"));
+    assert!(!page.contains("<footer"));
+}
+
+#[tokio::test]
+async fn an_address_asked_for_the_wrong_method_answers_with_its_own_page() {
+    let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
+    let response = http().post(&base).send().await.unwrap();
+    assert_eq!(response.status(), 405);
+    let body = response.text().await.unwrap();
+    assert!(front::html::scripting_free(&body));
+    assert!(body.contains("<h1"));
+    assert!(!body.is_empty());
+}
+
 #[tokio::test]
 async fn a_page_that_does_not_exist_is_named_as_such() {
     let base = front(&stub("200 OK", "application/json", SECTIONS).await).await;
