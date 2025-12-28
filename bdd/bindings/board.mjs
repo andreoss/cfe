@@ -1,5 +1,6 @@
 const bindings = {
   clone: () => import('./backend.mjs'),
+  reference: () => import('./reference.mjs'),
 }
 
 export async function openBoard() {
