@@ -26,6 +26,25 @@ const RENAMED_GROUP: &str = concat!(
 );
 const MAINTENANCE: &str = "{\"blocked\":1,\"dropped\":2}";
 
+const POLICY_REQUIRED: &str = "{\"required\":true}";
+const POLICY_OPEN: &str = "{\"required\":false}";
+const INVITATIONS: &str = concat!(
+    "{\"items\":[{\"code\":\"ABCD-EFGH\",\"expires_at\":\"2024-12-19T02:00:00Z\",",
+    "\"spent\":false,\"spent_by\":null}],",
+    "\"page\":{\"number\":1,\"size\":20,\"total\":1,\"total_pages\":1,",
+    "\"has_next\":false,\"has_previous\":false}}"
+);
+const ISSUED: &str = "{\"code\":\"WXYZ-JKLM\",\"expires_at\":\"2024-12-19T02:00:00Z\",\"spent\":false,\"spent_by\":null}";
+const BLOCKS: &str = concat!(
+    "[{\"addr\":\"1.2.3.4\",\"reason\":\"flood\",\"blocked_at\":\"2024-12-18T01:00:00Z\",",
+    "\"until\":\"2024-12-21T01:00:00Z\",\"mode\":\"silent\"}]"
+);
+const BLOCKED: &str = concat!(
+    "{\"addr\":\"5.6.7.8\",\"reason\":\"spam\",\"blocked_at\":\"2024-12-18T02:00:00Z\",",
+    "\"until\":null,\"mode\":\"silent\"}"
+);
+const NONE: &str = "[]";
+
 fn user(role: &str) -> String {
     format!("{{\"id\":\"9\",\"username\":\"alice\",\"role\":\"{role}\"}}")
 }
@@ -40,7 +59,12 @@ impl Log {
 }
 
 async fn board(role: &str) -> (String, Log) {
+    board_with(role, BLOCKS).await
+}
+
+async fn board_with(role: &str, blocks: &str) -> (String, Log) {
     let role = role.to_owned();
+    let blocks = blocks.to_owned();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let log = Log(Arc::new(Mutex::new(Vec::new())));
@@ -53,6 +77,7 @@ async fn board(role: &str) -> (String, Log) {
             };
             let sink = sink.clone();
             let role = role.clone();
+            let blocks = blocks.clone();
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 16384];
                 let read = socket.read(&mut buffer).await.unwrap_or(0);
@@ -76,6 +101,31 @@ async fn board(role: &str) -> (String, Log) {
                         ("200 OK", RENAMED_GROUP.to_owned())
                     }
                     ("/api/maintenance/run", "POST") => ("200 OK", MAINTENANCE.to_owned()),
+                    ("/api/invitations/policy", _) => {
+                        if role == "moderator" {
+                            ("200 OK", POLICY_REQUIRED.to_owned())
+                        } else {
+                            ("200 OK", POLICY_OPEN.to_owned())
+                        }
+                    }
+                    ("/api/invitations", "GET") => ("200 OK", INVITATIONS.to_owned()),
+                    ("/api/invitations", "POST") => ("201 Created", ISSUED.to_owned()),
+                    ("/api/address-blocks", _) => {
+                        if role == "moderator" {
+                            match method.as_str() {
+                                "POST" => ("200 OK", BLOCKED.to_owned()),
+                                _ => ("200 OK", blocks),
+                            }
+                        } else {
+                            (
+                                "403 Forbidden",
+                                "{\"error\":\"moderator role required\"}".to_owned(),
+                            )
+                        }
+                    }
+                    (inner, _) if inner.starts_with("/api/address-blocks/") => {
+                        ("204 No Content", String::new())
+                    }
                     _ => ("404 Not Found", "{\"error\":\"no\"}".to_owned()),
                 };
                 let response = format!(
@@ -369,4 +419,196 @@ async fn every_way_without_the_token_of_the_page_is_refused() {
         .filter(|call| call.starts_with("POST /api") || call.starts_with("PATCH /api"))
         .count();
     assert_eq!(posting, 0, "{:?}", log.calls());
+}
+
+#[tokio::test]
+async fn the_invitations_are_on_a_page_of_their_own() {
+    let (board_url, log) = board("user").await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/admin/invitations", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("Invitations"), "{page}");
+    assert!(page.contains("asks for no invitation"), "{page}");
+    assert!(page.contains("ABCD-EFGH"), "{page}");
+    assert!(page.contains("unused"), "{page}");
+    assert!(page.contains("action=\"/admin/invitations\""), "{page}");
+    assert!(!page.contains("<script"), "{page}");
+    assert!(
+        log.calls()
+            .contains(&"GET /api/invitations/policy".to_owned())
+    );
+    assert!(
+        log.calls()
+            .iter()
+            .any(|call| call.starts_with("GET /api/invitations")),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn a_board_that_requires_an_invitation_says_so() {
+    let (board_url, _) = board("moderator").await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/admin/invitations", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("requires an invitation"), "{page}");
+}
+
+#[tokio::test]
+async fn an_invitation_is_issued_from_the_page() {
+    let (board_url, log) = board("user").await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/admin/invitations").await;
+    let response = post_form(
+        &base,
+        "/admin/invitations",
+        &[("token", &token)],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/admin/invitations")
+    );
+    assert!(log.calls().contains(&"POST /api/invitations".to_owned()));
+}
+
+#[tokio::test]
+async fn the_address_blocks_are_on_a_page_of_their_own() {
+    let (board_url, log) = board("moderator").await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/admin/blocks", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("Address blocks"), "{page}");
+    assert!(page.contains("1.2.3.4"), "{page}");
+    assert!(page.contains("flood"), "{page}");
+    assert!(page.contains("silent"), "{page}");
+    assert!(page.contains("action=\"/admin/blocks\""), "{page}");
+    assert!(
+        page.contains("action=\"/admin/blocks/1.2.3.4/lift\""),
+        "{page}"
+    );
+    assert!(!page.contains("<script"), "{page}");
+    assert!(log.calls().contains(&"GET /api/address-blocks".to_owned()));
+}
+
+#[tokio::test]
+async fn a_board_with_no_blocks_says_so() {
+    let (board_url, log) = board_with("moderator", NONE).await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/admin/blocks", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("No address blocks"), "{page}");
+    assert!(log.calls().contains(&"GET /api/address-blocks".to_owned()));
+}
+
+#[tokio::test]
+async fn an_account_that_does_not_keep_the_board_is_offered_no_block_page() {
+    let (board_url, log) = board("user").await;
+    let base = front(&board_url).await;
+    let page = get(&base, "/admin/blocks", Some("token"))
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(!page.contains("action=\"/admin/blocks\""), "{page}");
+    assert!(
+        !log.calls()
+            .iter()
+            .any(|call| call.contains("address-blocks")),
+        "{:?}",
+        log.calls()
+    );
+}
+
+#[tokio::test]
+async fn an_address_is_blocked_from_the_page() {
+    let (board_url, log) = board("moderator").await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/admin/blocks").await;
+    let response = post_form(
+        &base,
+        "/admin/blocks",
+        &[
+            ("token", &token),
+            ("addr", "5.6.7.8"),
+            ("reason", "spam"),
+            ("days", "3"),
+        ],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert!(log.calls().contains(&"POST /api/address-blocks".to_owned()));
+}
+
+#[tokio::test]
+async fn an_address_block_is_lifted_from_the_page() {
+    let (board_url, log) = board("moderator").await;
+    let base = front(&board_url).await;
+    let token = token_of(&base, "/admin/blocks").await;
+    let response = post_form(
+        &base,
+        "/admin/blocks/1.2.3.4/lift",
+        &[("token", &token)],
+        Some(&token),
+    )
+    .await;
+    assert_eq!(response.status(), 303);
+    assert!(
+        log.calls()
+            .contains(&"DELETE /api/address-blocks/1.2.3.4".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn a_reader_with_no_account_goes_to_sign_in_before_its_invitations() {
+    let (board_url, _) = board("user").await;
+    let base = front(&board_url).await;
+    let response = get(&base, "/admin/invitations", None).await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/sign-in?return_to=/admin/invitations")
+    );
+}
+
+#[tokio::test]
+async fn the_ways_of_issue_and_of_lift_without_the_token_are_refused() {
+    let (board_url, log) = board("moderator").await;
+    let base = front(&board_url).await;
+    let actions = [
+        ("/admin/invitations", "POST"),
+        ("/admin/blocks", "POST"),
+        ("/admin/blocks/1.2.3.4/lift", "POST"),
+    ];
+    for (action, expected) in actions {
+        let response = post_form(&base, action, &[("token", "not-mine")], None).await;
+        assert_eq!(response.status(), 403, "{action}");
+        assert!(
+            !log.calls().iter().any(|call| call.starts_with(expected)),
+            "{action}: {:?}",
+            log.calls()
+        );
+    }
 }

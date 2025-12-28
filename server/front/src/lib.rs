@@ -6,10 +6,10 @@ pub mod theme;
 pub mod token;
 
 use client::{
-    ApiClient, ArchiveMonth, Avatar, Ban, Change, ClientError, Comment, Criteria, Feed, Group, Hit,
-    Image, Maintenance, Notification, Paged, Picture, Poll, Profile, Reactions, RegisterBody,
-    Report, Section, SectionSettings, Session, Subject, Tag, Topic, User, Version, Warning,
-    encode_path, find_section,
+    AddressBlock, ApiClient, ArchiveMonth, Avatar, Ban, Change, ClientError, Comment, Criteria,
+    Feed, Group, Hit, Image, Invitation, InvitationPolicy, Maintenance, Notification, Paged,
+    Picture, Poll, Profile, Reactions, RegisterBody, Report, Section, SectionSettings, Session,
+    Subject, Tag, Topic, User, Version, Warning, encode_path, find_section,
 };
 use config::Config;
 use theme::Theme;
@@ -271,6 +271,41 @@ impl App {
 
     pub async fn run_maintenance(&self, session: &str) -> Result<Maintenance, ClientError> {
         self.client.run_maintenance(session).await
+    }
+
+    pub async fn invitation_policy(&self) -> Result<InvitationPolicy, ClientError> {
+        self.client.invitation_policy().await
+    }
+
+    pub async fn invitations(
+        &self,
+        session: &str,
+        page: u32,
+    ) -> Result<Paged<Invitation>, ClientError> {
+        self.client.invitations(session, page).await
+    }
+
+    pub async fn issue_invitation(&self, session: &str) -> Result<Invitation, ClientError> {
+        self.client.issue_invitation(session).await
+    }
+
+    pub async fn address_blocks(&self, session: &str) -> Result<Vec<AddressBlock>, ClientError> {
+        self.client.address_blocks(session).await
+    }
+
+    pub async fn block_address(
+        &self,
+        session: &str,
+        addr: &str,
+        reason: &str,
+        days: Option<u32>,
+    ) -> Result<AddressBlock, ClientError> {
+        self.client.block_address(session, addr, reason, days).await
+    }
+
+    pub async fn lift_address_block(&self, session: &str, addr: &str) -> Result<(), ClientError> {
+        self.client.lift_address_block(session, addr).await?;
+        Ok(())
     }
 
     pub async fn images(&self, id: &str) -> Result<Vec<Image>, ClientError> {

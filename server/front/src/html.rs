@@ -1,14 +1,17 @@
 use crate::markup;
 use crate::theme::Theme;
 use client::{
-    ArchiveMonth, Change, Comment, Criteria, Group, Hit, Image, Notification, Order, PageInfo,
-    Paged, Poll, Profile, Reactions, Scope, Section, Subject, Tag, Topic, Version,
+    AddressBlock, ArchiveMonth, Change, Comment, Criteria, Group, Hit, Image, Invitation,
+    Notification, Order, PageInfo, Paged, Poll, Profile, Reactions, Scope, Section, Subject, Tag,
+    Topic, Version,
 };
 use std::collections::BTreeMap;
 
 pub const REACTIONS: [&str; 4] = ["like", "agree", "disagree", "thanks"];
 pub const REPORTS_ADDRESS: &str = "/reports";
 pub const ADMIN_ADDRESS: &str = "/admin";
+pub const ADMIN_INVITATIONS_ADDRESS: &str = "/admin/invitations";
+pub const ADMIN_BLOCKS_ADDRESS: &str = "/admin/blocks";
 
 pub fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -2455,6 +2458,113 @@ fn form(action: &str, id: &str, label: &str, name: &str, words: &str, token: &st
         name = escape(name),
         words = escape(words),
     )
+}
+
+pub fn invitation_page(chrome: &Chrome, required: bool, invitations: &Paged<Invitation>) -> String {
+    let mut out = "<h2>Invitations</h2>\n".to_owned();
+    out.push_str(if required {
+        "<p class=\"state\">The board requires an invitation.</p>\n"
+    } else {
+        "<p class=\"state\">The board asks for no invitation.</p>\n"
+    });
+    out.push_str(&format!(
+        concat!(
+            "<form class=\"admin\" method=\"post\" action=\"/admin/invitations\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<p><button type=\"submit\">Issue an invitation</button></p>\n",
+            "</form>\n"
+        ),
+        token = escape(&chrome.token),
+    ));
+    if invitations.items.is_empty() {
+        out.push_str("<p class=\"empty\">No invitations yet.</p>\n");
+    } else {
+        out.push_str("<ol class=\"invitations\">\n");
+        for invitation in &invitations.items {
+            let state = match invitation.spent_by.as_deref() {
+                Some(who) => format!("spent by {}", escape(who)),
+                None if invitation.spent => "spent".to_owned(),
+                None => "unused".to_owned(),
+            };
+            out.push_str(&format!(
+                concat!(
+                    "<li class=\"invitation\">\n",
+                    "<p class=\"code\"><code>{code}</code></p>\n",
+                    "<p class=\"when\">expires at <time datetime=\"{stamp}\">{shown}</time> &#183; {state}</p>\n",
+                    "</li>\n"
+                ),
+                code = escape(&invitation.code),
+                stamp = escape(&invitation.expires_at),
+                shown = escape(&shown_date(&invitation.expires_at)),
+                state = state,
+            ));
+        }
+        out.push_str("</ol>\n");
+    }
+    out.push_str(&pager(ADMIN_INVITATIONS_ADDRESS, &invitations.page));
+    out
+}
+
+pub fn block_lift_address(addr: &str) -> String {
+    format!("/admin/blocks/{}/lift", client::encode_path(addr))
+}
+
+pub fn block_page(chrome: &Chrome, blocks: &[AddressBlock]) -> String {
+    let mut out = "<h2>Address blocks</h2>\n".to_owned();
+    out.push_str(&format!(
+        concat!(
+            "<h3>Block an address</h3>\n",
+            "<form class=\"admin\" method=\"post\" action=\"/admin/blocks\">\n",
+            "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+            "<label for=\"block-addr\">Address</label>\n",
+            "<input id=\"block-addr\" name=\"addr\" type=\"text\" required>\n",
+            "<label for=\"block-reason\">Why</label>\n",
+            "<input id=\"block-reason\" name=\"reason\" type=\"text\" required>\n",
+            "<label for=\"block-days\">Days (leave empty for no end)</label>\n",
+            "<input id=\"block-days\" name=\"days\" type=\"text\">\n",
+            "<button type=\"submit\">Block the address</button>\n",
+            "</form>\n"
+        ),
+        token = escape(&chrome.token),
+    ));
+    if blocks.is_empty() {
+        out.push_str("<p class=\"empty\">No address blocks yet.</p>\n");
+        return out;
+    }
+    out.push_str("<ol class=\"blocks\">\n");
+    for block in blocks {
+        let ends = match block.until.as_deref() {
+            Some(stamp) => format!(
+                "until <time datetime=\"{stamp}\">{shown}</time>",
+                stamp = escape(stamp),
+                shown = escape(&shown_date(stamp))
+            ),
+            None => "with no end".to_owned(),
+        };
+        out.push_str(&format!(
+            concat!(
+                "<li class=\"block\">\n",
+                "<p class=\"addr\"><code>{addr}</code></p>\n",
+                "<p class=\"reason\">{reason}</p>\n",
+                "<p class=\"when\">blocked at <time datetime=\"{stamp}\">{shown}</time> &#183; {ends} &#183; {mode}</p>\n",
+                "<form class=\"inline\" method=\"post\" action=\"{lift}\">\n",
+                "<input type=\"hidden\" name=\"token\" value=\"{token}\">\n",
+                "<button type=\"submit\">Lift</button>\n",
+                "</form>\n",
+                "</li>\n"
+            ),
+            addr = escape(&block.addr),
+            reason = escape(&block.reason),
+            stamp = escape(&block.blocked_at),
+            shown = escape(&shown_date(&block.blocked_at)),
+            ends = ends,
+            mode = escape(&block.mode),
+            lift = escape(&block_lift_address(&block.addr)),
+            token = escape(&chrome.token),
+        ));
+    }
+    out.push_str("</ol>\n");
+    out
 }
 
 pub fn warnings_page(chrome: &Chrome, warnings: &[WarningView]) -> String {

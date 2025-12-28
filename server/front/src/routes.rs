@@ -117,6 +117,12 @@ pub fn router(app: App) -> Router {
             post(rename_group),
         )
         .route("/admin/maintenance", post(run_maintenance))
+        .route(
+            "/admin/invitations",
+            get(admin_invitations).post(issue_invitation),
+        )
+        .route("/admin/blocks", get(admin_blocks).post(put_up_block))
+        .route("/admin/blocks/{addr}/lift", post(lift_block))
         .route("/me/warnings", get(warnings))
         .route("/me/warnings/acknowledge", post(acknowledge_warnings))
         .route("/u/{username}", get(profile))
@@ -2518,21 +2524,21 @@ async fn administrating(
     app: &App,
     headers: &HeaderMap,
     token: Option<&str>,
+    address: &str,
 ) -> Result<Holding, Response> {
     let guard = Guard::new(headers);
     let theme = theme_of(headers, app);
-    let address = html::ADMIN_ADDRESS.to_owned();
-    let chrome = chrome_of(&guard, app, headers, theme, &address).await;
+    let chrome = chrome_of(&guard, app, headers, theme, address).await;
     if !guard.allows(token) {
         return Err(render(&guard, StatusCode::FORBIDDEN, expired(&chrome)));
     }
     let Some(session) = session_of(headers) else {
-        return Err(sign_in_first(&guard, &address));
+        return Err(sign_in_first(&guard, address));
     };
     Ok(Holding {
         guard,
         chrome,
-        address,
+        address: address.to_owned(),
         session,
     })
 }
@@ -2627,10 +2633,11 @@ async fn make_section(
     headers: HeaderMap,
     Form(form): Form<SectionForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     let outcome = app
         .create_section(&held.session, text_of(&form.slug), text_of(&form.title))
         .await
@@ -2644,10 +2651,11 @@ async fn rename_section(
     headers: HeaderMap,
     Form(form): Form<TitleForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     let outcome = app
         .rename_section(&held.session, &slug, text_of(&form.title))
         .await
@@ -2661,10 +2669,11 @@ async fn set_section_score(
     headers: HeaderMap,
     Form(form): Form<ScoreForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     let outcome = app
         .set_section_score(&held.session, &slug, text_of(&form.score))
         .await
@@ -2678,10 +2687,11 @@ async fn make_group(
     headers: HeaderMap,
     Form(form): Form<GroupForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     let outcome = app
         .create_group(
             &held.session,
@@ -2700,10 +2710,11 @@ async fn rename_group(
     headers: HeaderMap,
     Form(form): Form<NameForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     let outcome = app
         .rename_group(&held.session, &section, &group, text_of(&form.name))
         .await
@@ -2716,10 +2727,11 @@ async fn run_maintenance(
     headers: HeaderMap,
     Form(form): Form<TokenForm>,
 ) -> Response {
-    let held = match administrating(&app, &headers, form.token.as_deref()).await {
-        Ok(held) => held,
-        Err(answer) => return answer,
-    };
+    let held =
+        match administrating(&app, &headers, form.token.as_deref(), html::ADMIN_ADDRESS).await {
+            Ok(held) => held,
+            Err(answer) => return answer,
+        };
     match app.run_maintenance(&held.session).await {
         Ok(report) => render(
             &held.guard,
@@ -2739,6 +2751,167 @@ async fn run_maintenance(
             html::message(&held.chrome, "Maintenance", &error.to_string()),
         ),
     }
+}
+
+async fn admin_invitations(
+    State(app): State<App>,
+    Query(query): Query<PageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let number = page_of(query.page.as_deref());
+    let chrome = chrome_of(
+        &guard,
+        &app,
+        &headers,
+        theme,
+        html::ADMIN_INVITATIONS_ADDRESS,
+    )
+    .await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, html::ADMIN_INVITATIONS_ADDRESS);
+    };
+    let required = match app.invitation_policy().await {
+        Ok(policy) => policy.required,
+        Err(error) => {
+            return render(
+                &guard,
+                StatusCode::SERVICE_UNAVAILABLE,
+                unavailable(&chrome, &error),
+            );
+        }
+    };
+    match app.invitations(&session, number).await {
+        Ok(invitations) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                "Invitations",
+                &html::invitation_page(&chrome, required, &invitations),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+async fn issue_invitation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match administrating(
+        &app,
+        &headers,
+        form.token.as_deref(),
+        html::ADMIN_INVITATIONS_ADDRESS,
+    )
+    .await
+    {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.issue_invitation(&held.session).await.map(|_| ());
+    settled(&held, "The invitation was not issued", outcome)
+}
+
+async fn admin_blocks(State(app): State<App>, headers: HeaderMap) -> Response {
+    let guard = Guard::new(&headers);
+    let theme = theme_of(&headers, &app);
+    let chrome = chrome_of(&guard, &app, &headers, theme, html::ADMIN_BLOCKS_ADDRESS).await;
+    let Some(session) = session_of(&headers) else {
+        return sign_in_first(&guard, html::ADMIN_BLOCKS_ADDRESS);
+    };
+    if chrome.standing() != Some("moderator") {
+        return render(
+            &guard,
+            StatusCode::OK,
+            html::message(
+                &chrome,
+                "Address blocks",
+                "Only a moderator keeps the address blocks.",
+            ),
+        );
+    }
+    match app.address_blocks(&session).await {
+        Ok(blocks) => render(
+            &guard,
+            StatusCode::OK,
+            html::page(
+                &chrome,
+                "Address blocks",
+                &html::block_page(&chrome, &blocks),
+            ),
+        ),
+        Err(error) => render(
+            &guard,
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable(&chrome, &error),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BlockForm {
+    token: Option<String>,
+    addr: Option<String>,
+    reason: Option<String>,
+    days: Option<String>,
+}
+
+async fn put_up_block(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Form(form): Form<BlockForm>,
+) -> Response {
+    let held = match administrating(
+        &app,
+        &headers,
+        form.token.as_deref(),
+        html::ADMIN_BLOCKS_ADDRESS,
+    )
+    .await
+    {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let days = text_of(&form.days).parse::<u32>().ok();
+    let outcome = app
+        .block_address(
+            &held.session,
+            text_of(&form.addr),
+            text_of(&form.reason),
+            days,
+        )
+        .await
+        .map(|_| ());
+    settled(&held, "The address was not blocked", outcome)
+}
+
+async fn lift_block(
+    State(app): State<App>,
+    Path(addr): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenForm>,
+) -> Response {
+    let held = match administrating(
+        &app,
+        &headers,
+        form.token.as_deref(),
+        html::ADMIN_BLOCKS_ADDRESS,
+    )
+    .await
+    {
+        Ok(held) => held,
+        Err(answer) => return answer,
+    };
+    let outcome = app.lift_address_block(&held.session, &addr).await;
+    settled(&held, "The address block was not lifted", outcome)
 }
 
 async fn report_subject(
