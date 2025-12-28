@@ -28,6 +28,9 @@ startup.
 . `cd server && cargo run -p server` -- binds to `BIND_ADDR`
   (default `127.0.0.1:8080`).
 . `cd web && npm run dev`.
+. `cd server && SERVER_URL=http://127.0.0.1:8080 cargo run -p front`
+  -- the html-only presentation service, binds to `BIND_ADDR`
+  (default `127.0.0.1:8081`).
 
 Behaviour knobs (`RATE_LIMIT_*`, `SLOW_MODE_*`, `CHALLENGE_*`,
 `INVITATION_REQUIRED`, ...) are configuration with defaults, settable
@@ -50,8 +53,10 @@ npm run test:unit
 
 == Test
 
-- `cd server && cargo test` -- domain, app, and adapter tests
+- `cd server && cargo test` -- domain, app, adapter and front tests
 - `cd server && ./check-coverage.sh` -- coverage floor
+- `cd server && ./vendor-check.sh` -- runs the board on each storage
+  vendor and checks `front` behind it
 - `cd web && npm run test:unit` -- frontend unit tests
 - `cd bdd && npm test` -- end-to-end suite against a running API
 
