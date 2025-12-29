@@ -38,7 +38,7 @@ run_vendor() {
   if smoke http://127.0.0.1:59080; then
     front_code=200
     for i in $(seq 1 20); do
-      front_code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:59081/)
+      front_code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:59081/ || true)
       [ "$front_code" = "200" ] && break
       sleep 0.5
     done
