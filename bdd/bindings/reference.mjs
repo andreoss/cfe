@@ -121,6 +121,12 @@ export function board() {
     },
 
     async ensureSubject() {
+      const where = (await this.sections())[0]
+      const listing = await (await get(where)).text()
+      const link = new RegExp(`${where}[a-z0-9-]+/\\d+`).exec(listing)
+      if (link) return true
+      await this.signIn('administrator')
+      await this.startSubject()
       return true
     },
 
