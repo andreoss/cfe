@@ -12,11 +12,13 @@ say() { printf '%s\n' "$1"; }
 
 PG_NAME="tcbs-reference-pg-$$"
 SEARCH_NAME="tcbs-reference-search-$$"
+MAIL_NAME="tcbs-reference-mail-$$"
 LAST_LOGS="${TMPDIR:-/tmp}/tcbs-reference-last"
 cleanup() {
   status=$?
   kill "$APP_PID" 2>/dev/null || true
   podman rm -f "$PG_NAME" "$SEARCH_NAME" >/dev/null 2>&1 || true
+  docker rm -f "$MAIL_NAME" >/dev/null 2>&1 || true
   rm -rf "$LAST_LOGS"
   mkdir -p "$LAST_LOGS"
   cp "$WORK"/*.log "$LAST_LOGS"/ 2>/dev/null || true
@@ -26,6 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 command -v podman >/dev/null 2>&1 || { say "podman is required"; exit 1; }
+command -v docker >/dev/null 2>&1 || { say "docker is required (for the mail catcher's port 25)"; exit 1; }
 
 SEARCH_IMAGE=$(grep -rho 'opensearchproject/opensearch:[0-9][0-9.]*' "$CHECKOUT/src/test" 2>/dev/null | head -1)
 SEARCH_IMAGE="${SEARCH_IMAGE:-opensearchproject/opensearch:3.5.0}"
@@ -37,11 +40,18 @@ podman run -d --name "$SEARCH_NAME" --rm \
   -e bootstrap.memory_lock=false -e OPENSEARCH_JAVA_OPTS="-Xms512m -Xmx512m" \
   -p 9200:9200 "$SEARCH_IMAGE" >/dev/null
 
+docker run -d --name "$MAIL_NAME" --rm -p 25:1025 -p 8026:8025 axllent/mailpit:latest >/dev/null
+
 for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1 && break; sleep 1; done
 for i in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9200/_cluster/health 2>/dev/null || true)
   [ "$code" = "200" ] && break
   sleep 2
+done
+for i in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8026/ 2>/dev/null || true)
+  [ "$code" = "200" ] && break
+  sleep 1
 done
 curl -s -X PUT http://127.0.0.1:9200/_cluster/settings -H 'Content-Type: application/json' \
   -d '{"transient":{"cluster.routing.allocation.disk.threshold_enabled":false},"persistent":{"cluster.blocks.create_index":null}}' \
@@ -156,4 +166,6 @@ REFERENCE_GROUP=126 \
 REFERENCE_GROUP_PATH=/forum/general \
 REFERENCE_SECTIONS=/forum/general/ \
 REFERENCE_TAG=lortest \
+MAIL_INBOX_URL=http://127.0.0.1:8026 \
+REFERENCE_HUMAN_PROOF=10000000-aaaa-bbbb-cccc-000000000001 \
 npm test
