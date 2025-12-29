@@ -4,9 +4,11 @@ cd "$(dirname "$0")"
 
 WORK="${VENDOR_CHECK_DIR:-${TMPDIR:-/tmp}/tcbs-vendor-$$}"
 mkdir -p "$WORK"
+MARIADB_CONTAINER="tcbs-vendor-check-mariadb-$$"
 cleanup() {
   kill "$SERVER_PID" "$FRONT_PID" 2>/dev/null || true
   pg_ctl -D "$WORK/pgdata" stop -m immediate >/dev/null 2>&1 || true
+  docker rm -f "$MARIADB_CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -61,7 +63,17 @@ else
 fi
 
 if command -v mariadbd >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1; then
-  say "mysql: a server is present but this script does not start one yet"
+  run_vendor mysql "mysql://root:forum@127.0.0.1:55306/forum"
+elif command -v docker >/dev/null 2>&1; then
+  docker run -d --name "$MARIADB_CONTAINER" --rm \
+    -e MARIADB_ROOT_PASSWORD=forum -e MARIADB_DATABASE=forum \
+    -p 55306:3306 mariadb:11 >"$WORK/mysql-container.log" 2>&1
+  for i in $(seq 1 40); do
+    docker exec "$MARIADB_CONTAINER" mariadb -uroot -pforum -e 'SELECT 1' >/dev/null 2>&1 && break
+    sleep 1
+  done
+  run_vendor mysql "mysql://root:forum@127.0.0.1:55306/forum"
+  docker rm -f "$MARIADB_CONTAINER" >/dev/null 2>&1 || true
 else
-  say "mysql: skipped, no local server available"
+  say "mysql: skipped, no local server or docker available"
 fi
